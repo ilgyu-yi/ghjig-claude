@@ -698,14 +698,17 @@ hook_run() {
 
 # Sanity: hook tests rely on $TMP/fake being on a non-protected branch.
 # Lock this with an explicit assertion so a future tweak to §4's setup
-# cannot silently reintroduce the bug.
+# cannot silently reintroduce the bug. Uses PROTECTED_BRANCH_PATTERN from
+# git_matcher.sh (sourced via helpers/branch_guard.sh elsewhere in the
+# smoke; sourcing here too is idempotent).
+# shellcheck disable=SC1091
+. "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
 hook_env_branch=$(cd "$TMP/fake" && git symbolic-ref --short HEAD 2>/dev/null)
-case "$hook_env_branch" in
-  main|master|release/*)
-    ng "hook test env: \$TMP/fake on protected branch '$hook_env_branch' (#41)" ;;
-  *)
-    ok "hook test env: non-protected branch '$hook_env_branch' for hook_run (#41)" ;;
-esac
+if printf '%s' "$hook_env_branch" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$"; then
+  ng "hook test env: \$TMP/fake on protected branch '$hook_env_branch' (#41)"
+else
+  ok "hook test env: non-protected branch '$hook_env_branch' for hook_run (#41)"
+fi
 
 # 15a. multiline force-push (backslash continuation) — blocked.
 multiline_cmd=$(printf 'git \\\n  push \\\n  --force-with-lease')
@@ -1881,6 +1884,62 @@ if command -v run_bounded_lint >/dev/null 2>&1; then
   fi
 else
   ng "lint: run_bounded_lint helper missing (#29)"
+fi
+
+# ---------- 36. protected-branch SSOT (#16) ----------
+# Single source of truth for SPEC §6.1 protected-branch policy lives in
+# helpers/git_matcher.sh. Drift would silently weaken enforcement. Two
+# checks:
+#   36a (positive): the two constants are defined and the ERE matches the
+#       expected set (main / master / release/foo) while rejecting near-
+#       misses (mainframe, feature/main).
+#   36b (drift-lock): the literal three-token alternation `main|master|release`
+#       must not appear in any *.sh file under .claude/hooks/ except for
+#       git_matcher.sh itself. Deny-list scan — any new enforcement file
+#       under hooks/ that copy-pastes the literal is caught automatically,
+#       no allow-list update required.
+#       Implementation note: the grep pattern uses BRE-escaped pipes
+#       (`main\|master\|release`) so smoke.sh's own source — which contains
+#       these literal grep strings — does NOT self-match the unescaped
+#       `main|master|release` form that lives only in git_matcher.sh.
+#       DO NOT change `\|` to `|` here or the test will self-match and
+#       silently always pass.
+( . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+  fail36a=0
+  [ -n "${PROTECTED_BRANCH_PATTERN:-}" ] || fail36a=1
+  [ -n "${PROTECTED_BRANCH_CASE_GLOB:-}" ] || fail36a=1
+  # ERE form must match the expected positives.
+  for b in main master release/foo release/2026-q2; do
+    printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$" || fail36a=1
+  done
+  # ERE form must reject substring near-misses.
+  for b in mainframe master-key feature/main release; do
+    printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$" && fail36a=1
+  done
+  if [ "$fail36a" = 0 ]; then
+    ok "protected-ssot: PROTECTED_BRANCH_PATTERN matches expected set (#16)"
+  else
+    ng "protected-ssot: PROTECTED_BRANCH_PATTERN definition/behavior broken (#16)"
+  fi
+)
+
+# 36b: deny-list scan. Any *.sh file under .claude/hooks/ (recursive) that
+# is not git_matcher.sh itself and still carries the literal three-token
+# alternation `main|master|release` is drift. Switching from an explicit
+# allow-list to a deny-list closes the false-negative gap where a new
+# enforcement gate added to e.g. post_tool_use.sh could silently copy-paste
+# the literal and escape detection.
+drift=$(find "$SHELL_ROOT/.claude/hooks" -type f -name '*.sh' \
+        ! -path '*/git_matcher.sh' \
+        -exec grep -lE 'main\|master\|release' {} + 2>/dev/null \
+       | sed "s|^$SHELL_ROOT/||" | tr '\n' ' ')
+if ! grep -qE 'main\|master\|release' \
+     "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"; then
+  ng "protected-ssot: pattern absent from git_matcher.sh (constant gone?) (#16)"
+elif [ -n "${drift% }" ]; then
+  ng "protected-ssot: literal pattern found outside git_matcher.sh: ${drift% } (#16)"
+else
+  ok "protected-ssot: literal pattern centralized in git_matcher.sh (#16)"
 fi
 
 # ---------- 35. README env-var catalog SSOT (#15) ----------
