@@ -139,7 +139,7 @@ case "$tool" in
     # don't false-positive. The remote-prefix is pinned to `origin/`
     # / `upstream/` so a feature branch named `feature/main` doesn't
     # match (the loose `\S+/` form would have swallowed `feature/`).
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}merge(\s+\S+)*\s+((origin|upstream)/)?(main|master|release/\S+)(\s|$)"; then
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}merge(\s+\S+)*\s+((origin|upstream)/)?(${PROTECTED_BRANCH_PATTERN})(\s|$)"; then
       if ! is_protected_branch; then
         should_skip backmerge \
           || block backmerge "backmerge blocked — use 'git pull --rebase origin <base>' instead (or SKIP_HOOKS=backmerge for exceptional cases)"
@@ -152,7 +152,7 @@ case "$tool" in
     fi
 
     # Direct push to protected branch
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*\b(main|master|release/\S+)\b"; then
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*\b(${PROTECTED_BRANCH_PATTERN})\b"; then
       should_skip branch || block branch "direct push to protected branch blocked"
     fi
 

@@ -20,6 +20,13 @@
 # `release/\S+` (ERE) matches `release/foo` but not `release/foo bar`
 # (whitespace), and the case-glob `release/*` matches the same set.
 # Tightening (e.g. `release/[^[:space:]/]+`) is a separate concern.
+#
+# Consumers: pre_tool_use.sh matchers use the ERE form via grep -qE
+# interpolation. branch_guard.sh::is_protected_branch uses the ERE
+# form via `grep -qE` (subprocess fork, but only 1–3 calls per hook —
+# tolerated for SSOT). The case-glob form is currently unused at
+# runtime; kept for callers that want a glob-context pattern without
+# spawning grep. See alternatives in PR #16.
 PROTECTED_BRANCH_PATTERN='main|master|release/\S+'
 PROTECTED_BRANCH_CASE_GLOB='main|master|release/*'
 

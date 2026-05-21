@@ -698,14 +698,17 @@ hook_run() {
 
 # Sanity: hook tests rely on $TMP/fake being on a non-protected branch.
 # Lock this with an explicit assertion so a future tweak to §4's setup
-# cannot silently reintroduce the bug.
+# cannot silently reintroduce the bug. Uses PROTECTED_BRANCH_PATTERN from
+# git_matcher.sh (sourced via helpers/branch_guard.sh elsewhere in the
+# smoke; sourcing here too is idempotent).
+# shellcheck disable=SC1091
+. "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
 hook_env_branch=$(cd "$TMP/fake" && git symbolic-ref --short HEAD 2>/dev/null)
-case "$hook_env_branch" in
-  main|master|release/*)
-    ng "hook test env: \$TMP/fake on protected branch '$hook_env_branch' (#41)" ;;
-  *)
-    ok "hook test env: non-protected branch '$hook_env_branch' for hook_run (#41)" ;;
-esac
+if printf '%s' "$hook_env_branch" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$"; then
+  ng "hook test env: \$TMP/fake on protected branch '$hook_env_branch' (#41)"
+else
+  ok "hook test env: non-protected branch '$hook_env_branch' for hook_run (#41)"
+fi
 
 # 15a. multiline force-push (backslash continuation) — blocked.
 multiline_cmd=$(printf 'git \\\n  push \\\n  --force-with-lease')
