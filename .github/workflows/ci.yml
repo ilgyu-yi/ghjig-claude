@@ -18,14 +18,16 @@ jobs:
       - name: bash -n over shell sources
         run: |
           set -e
-          shopt -s globstar nullglob
-          # Collect every shell file the repo ships and parse-check it.
+          # Enumerate via find — portable across bash 3.2 (macOS system bash)
+          # and bash 4+ (Linux). `shopt -s globstar` would be the bash 4+
+          # equivalent but is rejected by macOS-runner /bin/bash, which is
+          # still 3.2 (Apple stopped shipping bash 4 over GPLv3). NUL-delimited
+          # to survive any future path-with-spaces. See AC #4 in PR #20.
           files=()
           [ -f bin/claude-eng ] && files+=(bin/claude-eng)
-          for path in scripts/*.sh scripts/**/*.sh \
-                      .claude/hooks/*.sh .claude/hooks/helpers/*.sh; do
-            [ -e "$path" ] && files+=("$path")
-          done
+          while IFS= read -r -d '' f; do
+            files+=("$f")
+          done < <(find scripts .claude/hooks -type f -name '*.sh' -print0)
           if [ ${#files[@]} -eq 0 ]; then
             echo "no shell files found — repo layout changed?"
             exit 1
