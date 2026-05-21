@@ -1883,6 +1883,61 @@ else
   ng "lint: run_bounded_lint helper missing (#29)"
 fi
 
+# ---------- 36. protected-branch SSOT (#16) ----------
+# Single source of truth for SPEC §6.1 protected-branch policy lives in
+# helpers/git_matcher.sh. Drift would silently weaken enforcement. Two
+# checks:
+#   36a (positive): the two constants are defined and the ERE matches the
+#       expected set (main / master / release/foo) while rejecting near-
+#       misses (mainframe, feature/main).
+#   36b (drift-lock): the literal three-token alternation `main|master|release`
+#       must not appear in any enforcement file outside git_matcher.sh.
+#       Implementation note: the grep pattern uses BRE-escaped pipes
+#       (`main\|master\|release`) so smoke.sh's own source — which contains
+#       these literal grep strings — does NOT self-match the unescaped
+#       `main|master|release` form that lives only in git_matcher.sh.
+#       DO NOT change `\|` to `|` here or the test will self-match and
+#       silently always pass.
+#
+# Allow-list of enforcement files is explicit. Any new file under
+# .claude/hooks/ that gates on protected branches must be added below.
+( . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+  fail36a=0
+  [ -n "${PROTECTED_BRANCH_PATTERN:-}" ] || fail36a=1
+  [ -n "${PROTECTED_BRANCH_CASE_GLOB:-}" ] || fail36a=1
+  # ERE form must match the expected positives.
+  for b in main master release/foo release/2026-q2; do
+    printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$" || fail36a=1
+  done
+  # ERE form must reject substring near-misses.
+  for b in mainframe master-key feature/main release; do
+    printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$" && fail36a=1
+  done
+  if [ "$fail36a" = 0 ]; then
+    ok "protected-ssot: PROTECTED_BRANCH_PATTERN matches expected set (#16)"
+  else
+    ng "protected-ssot: PROTECTED_BRANCH_PATTERN definition/behavior broken (#16)"
+  fi
+)
+
+# 36b: literal `main|master|release` outside git_matcher.sh is drift.
+drift=""
+for f in \
+  .claude/hooks/pre_tool_use.sh \
+  .claude/hooks/helpers/branch_guard.sh; do
+  if grep -qE 'main\|master\|release' "$SHELL_ROOT/$f"; then
+    drift="$drift $f"
+  fi
+done
+if ! grep -qE 'main\|master\|release' \
+     "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"; then
+  ng "protected-ssot: pattern absent from git_matcher.sh (constant gone?) (#16)"
+elif [ -n "$drift" ]; then
+  ng "protected-ssot: literal pattern found outside git_matcher.sh:$drift (#16)"
+else
+  ok "protected-ssot: literal pattern centralized in git_matcher.sh (#16)"
+fi
+
 # ---------- 35. README env-var catalog SSOT (#15) ----------
 # The README "Configuration toggles" table is the user-facing SSOT for env
 # vars per SPEC §1.3. Every env var documented elsewhere in the shell must
