@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/tests.sh — test runner used by /ship. Source then call run_tests.
 
 run_tests() {

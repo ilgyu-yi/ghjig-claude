@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/escape.sh — SKIP_HOOKS handling. Source from hooks.
 # Usage: should_skip <category>  → returns 0 if skipping (audit-logged), 1 otherwise.
 
@@ -81,6 +82,7 @@ print(json.dumps({"env": env, "cmd": rest}))
   _pep_stripped=$(printf '%s' "$_pep_out" | jq -r '.cmd // ""' 2>/dev/null) || _pep_stripped="$_pep_cmd"
   while IFS= read -r _pep_kv; do
     [ -z "$_pep_kv" ] && continue
+    # shellcheck disable=SC2163  # $_pep_kv holds the literal KEY=VALUE form
     export "$_pep_kv"
   done <<< "$_pep_env_lines"
   printf -v "$_pep_outvar" '%s' "$_pep_stripped"

@@ -581,8 +581,10 @@ CACHE_TMP=$(cd "$(mktemp -d)" && pwd -P)
     # Fresh state — check should exit 0 (no cache = no conflict).
     pr_cache_check 99 "deadbeef" 2>/dev/null || exit 1
     pr_cache_write 99 "deadbeef" "abc123" 2>/dev/null || exit 1
-    # Cache file should now exist.
-    [ -f "$CACHE_TMP"/*pr-99.json ] || exit 1
+    # Cache file should now exist. (find rather than `[ -f glob ]` because
+    # the latter only tests the first glob expansion and silently passes
+    # when the glob fails to expand — SC2144.)
+    [ -n "$(find "$CACHE_TMP" -maxdepth 1 -name '*pr-99.json' -print -quit 2>/dev/null)" ] || exit 1
   else
     exit 1
   fi
@@ -661,7 +663,6 @@ rm -rf "$CACHE_TMP"
 #   - Continue to block single-line force-push (regression guard).
 HOOK="$SHELL_ROOT/.claude/hooks/pre_tool_use.sh"
 HOOK_TMP=$(cd "$(mktemp -d)" && pwd -P)
-HOOK_AUDIT="$HOOK_TMP/audit.jsonl"
 
 # Ensure SHELL_ROOT is in the (isolated) registry. hook_run cd's into
 # $TMP/fake (already in registry from §4 via inject_into), not SHELL_ROOT,
@@ -687,7 +688,7 @@ grep -qxF "$SHELL_ROOT" "$SHELL_ROOT/.claude/state/registry.txt" 2>/dev/null \
 hook_run() {
   local cmd="$1"
   (
-    cd "$TMP/fake"
+    cd "$TMP/fake" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$cmd" | jq -Rs .)" \
       | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
@@ -1009,7 +1010,13 @@ POST_HOOK="$SHELL_ROOT/.claude/hooks/post_tool_use.sh"
 post_run() {
   local cmd="$1"
   (
-    cd "$SHELL_ROOT"
+    cd "$SHELL_ROOT" || exit 1
+    # `2>&1 >/dev/null` is the intentional stderr-to-captured-pipe + stdout-to-null
+    # swap: post_run is invoked via $(post_run ...), which captures stdout. The
+    # post_tool_use hook emits reminders to stderr; this order routes them into
+    # the captured pipe while discarding hook stdout. Reordering would silence
+    # the assertion at smoke.sh L1019.
+    # shellcheck disable=SC2069
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$cmd" | jq -Rs .)" \
       | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
@@ -1243,7 +1250,7 @@ done
 : > "$SESS_FAKE_ROOT/.claude/state/registry.txt"
 
 (
-  cd "$SESS_FAKE_ROOT"
+  cd "$SESS_FAKE_ROOT" || exit 1
   git init -q
   git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
 )
@@ -1525,7 +1532,7 @@ fi
 # §32c: git merge main while currently on main → allow.
 BACKMERGE_MAIN_DIR=$(mktemp -d)
 (
-  cd "$BACKMERGE_MAIN_DIR"
+  cd "$BACKMERGE_MAIN_DIR" || exit 1
   git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
   git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
 )

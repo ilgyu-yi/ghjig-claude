@@ -51,7 +51,7 @@ if command -v git >/dev/null 2>&1; then
   if (cd "$SHELL_ROOT" && git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
     _session_should_fetch && _session_run_fetch
     # `behind` reads local refs (possibly up to TTL stale by design).
-    behind=$(cd "$SHELL_ROOT" && git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)
+    behind=$(cd "$SHELL_ROOT" && git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
     if [ "${behind:-0}" -gt 0 ]; then
       printf '[claude-eng-shell] shell repo is %s commit(s) behind origin. consider pulling.\n' "$behind"
     fi

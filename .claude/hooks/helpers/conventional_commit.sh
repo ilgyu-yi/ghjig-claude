@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/conventional_commit.sh — commit subject check. Source from hooks.
 # check_commit_subject <subject> → 0 ok, 1 bad (reason on stderr).
 # extract_commit_subject <raw_cmd> <normalized_cmd> → echoes subject (or empty).

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/git_matcher.sh — shared patterns for git subcommand matching and
 # the protected-branch policy. Source from any hook that needs to match git
 # subcommands tolerantly OR gate on protected branches.
@@ -32,7 +33,9 @@
 # tolerated for SSOT). The case-glob form is currently unused at
 # runtime; kept for callers that want a glob-context pattern without
 # spawning grep. See alternatives in PR #16.
+# shellcheck disable=SC2034  # sourced by every hook that gates on branches
 PROTECTED_BRANCH_PATTERN='main|master|release/\S+'
+# shellcheck disable=SC2034  # kept for callers wanting a glob-context pattern
 PROTECTED_BRANCH_CASE_GLOB='main|master|release/*'
 
 # GIT_PREFIX is an ERE fragment that matches `git` followed by zero or more
@@ -57,4 +60,5 @@ PROTECTED_BRANCH_CASE_GLOB='main|master|release/*'
 #   --no-advice                  — suppress advice hints
 #   --exec-path[=<path>]         — git exec path
 #   --config-env=<name>=<envvar> — config from env
+# shellcheck disable=SC2034  # consumed via interpolation in pre_tool_use.sh
 GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|--work-tree=\S+|--bare|--namespace=\S+|--literal-pathspecs|--icase-pathspecs|--no-optional-locks|--no-replace-objects|--no-advice|--exec-path(=\S+)?|--config-env=\S+))*\s+'

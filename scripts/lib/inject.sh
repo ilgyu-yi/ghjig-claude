@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # scripts/lib/inject.sh — shared inject logic for clone-into / register.
 # Source and call inject_into "$TARGET".
 

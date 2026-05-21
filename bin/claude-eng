@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export CLAUDE_ENG_SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CLAUDE_ENG_SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export CLAUDE_ENG_SHELL_ROOT
 
 # If the first arg is a directory, check if it's registered; offer to register if not.
 if [ $# -gt 0 ] && [ -d "$1" ]; then

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/detect_stack.sh — language / test / formatter detection. Source from hooks.
 # Supported stacks: node, python, go, rust, ruby, godot. See SPEC.md §6.6 for the
 # sentinel files, test/lint/format commands, and stack-specific notes.

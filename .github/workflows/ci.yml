@@ -7,6 +7,11 @@ on:
 
 jobs:
   syntax:
+    # Check-name kept stable as "bash -n (${{ matrix.os }})" so the main
+    # branch-protection required-status-checks list survives this PR. The
+    # step itself runs both bash -n AND shellcheck (#21); the name's
+    # historical accuracy is the trade-off for not requiring a protection
+    # update on every CI step expansion.
     name: bash -n (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -15,7 +20,15 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - name: bash -n over shell sources
+      - name: install shellcheck (Linux only — macOS runners pre-install shellcheck)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: ensure shellcheck present on macOS (brew fallback for image churn)
+        if: runner.os == 'macOS'
+        run: command -v shellcheck >/dev/null || { brew install shellcheck && command -v shellcheck; }
+      - name: verify shellcheck present
+        run: command -v shellcheck && shellcheck --version | head -3
+      - name: bash -n + shellcheck over shell sources
         run: |
           set -e
           # Enumerate via find — portable across bash 3.2 (macOS system bash)
@@ -32,10 +45,17 @@ jobs:
             echo "no shell files found — repo layout changed?"
             exit 1
           fi
+          # Parse-check first (bash -n catches things shellcheck doesn't —
+          # heredoc/parser corner cases — and runs in microseconds per file).
           for f in "${files[@]}"; do
             echo "→ bash -n $f"
             bash -n "$f"
           done
+          # Then shellcheck the same set in one invocation. .shellcheckrc
+          # records repo-wide silences (SC1090); inline `# shellcheck disable=`
+          # carries per-line justifications. See SPEC §11.
+          echo "→ shellcheck --severity=warning --shell=bash (${#files[@]} files)"
+          shellcheck --severity=warning --shell=bash "${files[@]}"
         shell: bash
 
   smoke:

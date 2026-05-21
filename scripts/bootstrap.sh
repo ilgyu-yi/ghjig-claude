@@ -19,9 +19,11 @@ for tool in git gh jq; do
 done
 
 # Recommended dependencies
-for tool in python3; do
-  if command -v "$tool" >/dev/null 2>&1; then ok "$tool installed"; else warn "$tool missing (recommended for commit subject codepoint measurement)"; fi
-done
+if command -v python3 >/dev/null 2>&1; then
+  ok "python3 installed"
+else
+  warn "python3 missing (recommended for commit subject codepoint measurement)"
+fi
 
 # gh auth
 if command -v gh >/dev/null 2>&1; then
