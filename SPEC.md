@@ -810,7 +810,7 @@ Implementation note: command strings are **normalized** before matching — back
 |---------|-------|----------------|
 | `git commit` pattern | If on a protected branch (`main`/`master`/`release/*`), block. Detached HEAD on the tip commit of any protected branch is treated the same — the matcher resolves `HEAD` against `refs/heads/{main,master}` and `refs/heads/release/*` and blocks when they share a SHA. | `branch` |
 | `git commit -m "..."` | Conventional Commits format. Issue # required per type (§6.1.1) | `commit-format` |
-| `git commit` | Secret scan over staged diff | `secret` |
+| `git commit` | Secret scan over staged diff. On hit, emits `<file>:<line>: <pattern-id>` per location (no body content) plus the legacy summary line. Honors `.shellsecretignore` at the target repo root: gitignore-narrow (glob, prefix-match for trailing `/`; no negation, no `**`). The default file at the shell-repo root lists `*test*`, `*example*`, `docs/`, `*.md`. `.shellsecretignore` is the SPEC §7 tuning mechanism for path-based false positives — repeated `SKIP_HOOKS=secret` escapes on fixture paths mean an allow-list entry is needed, not a normalized bypass. | `secret` |
 | `git commit` | Quick lint/format check, bounded by `CLAUDE_ENG_LINT_TIMEOUT` (default 30 s; "quick" enforced) | `format` |
 | `git commit --amend` | **Block only when the commit is already on upstream.** Local amend allowed | `amend` |
 | `git commit --no-verify` | Block | `no-verify` |

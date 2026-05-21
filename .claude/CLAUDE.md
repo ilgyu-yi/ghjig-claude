@@ -52,7 +52,7 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 ## What hooks enforce
 - Protected branch direct commit/push blocked
 - force push, `--amend` (after push), `--no-verify` blocked
-- Secret patterns in staged diff blocked
+- Secret patterns in staged diff blocked; hits emit `file:line: <id>` for navigation. Path allow-list via `.shellsecretignore` at the target repo root (gitignore-narrow; defaults skip `*test*`, `*example*`, `docs/`, `*.md`)
 - Edits to `.env`, `*.pem`, `credentials*` blocked
 - Edit/Write outside registry, and `rm -rf`/`mv -f`/`cp -f` with out-of-registry args, blocked
 - SessionStart warns if shell was injected but launched via plain `claude` (not `claude-eng`) — `CLAUDE_ENG_SHELL_ROOT` unset means every hook silently no-ops
