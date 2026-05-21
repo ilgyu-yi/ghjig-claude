@@ -108,13 +108,58 @@ path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" && ok "path_in_scope: shell self a
 . "$SHELL_ROOT/.claude/hooks/helpers/secret_scan.sh"
 SCAN_DIR=$(mktemp -d)
 (
-  cd "$SCAN_DIR"
+  cd "$SCAN_DIR" || exit 1
   git init -q
   printf 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' > leak.txt
   git add leak.txt
   scan_staged_secrets >/dev/null 2>&1 && echo PASSED_LEAK_TEST_WRONG || echo DETECTED_OK
 ) | grep -q DETECTED_OK && ok "secret_scan: AWS key detected" || ng "secret_scan should detect AWS key"
 rm -rf "$SCAN_DIR"
+
+# 6b: positive — leak on a non-ignored file emits `file:line: <id>` marker (#25).
+SCAN_6B=$(mktemp -d)
+(
+  cd "$SCAN_6B" || exit 1
+  git init -q
+  mkdir -p src
+  printf 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' > src/foo.py
+  git add src/foo.py
+  # shellcheck disable=SC2069  # intentional: stderr → captured pipe, stdout discarded
+  scan_staged_secrets 2>&1 >/dev/null
+) | grep -qE 'src/foo\.py:[0-9]+:.*(aws|AKIA)' \
+  && ok "secret_scan: emits file:line:<id> on non-ignored hit (#25)" \
+  || ng "secret_scan: should emit file:line:<id> marker (#25)"
+rm -rf "$SCAN_6B"
+
+# 6c: allow-list — leak on a path matched by .shellsecretignore is skipped (#25).
+SCAN_6C=$(mktemp -d)
+(
+  cd "$SCAN_6C" || exit 1
+  git init -q
+  mkdir -p docs
+  printf 'docs/\n' > .shellsecretignore
+  printf 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' > docs/example.md
+  git add .shellsecretignore docs/example.md
+  scan_staged_secrets >/dev/null 2>&1 && echo NO_BLOCK || echo BLOCKED
+) | grep -q NO_BLOCK \
+  && ok "secret_scan: .shellsecretignore entry skips matching paths (#25)" \
+  || ng "secret_scan: allow-list entry did not skip the path (#25)"
+rm -rf "$SCAN_6C"
+
+# 6d: regression — without .shellsecretignore the legacy block path stands (#25).
+SCAN_6D=$(mktemp -d)
+(
+  cd "$SCAN_6D" || exit 1
+  git init -q
+  mkdir -p docs
+  # No .shellsecretignore created.
+  printf 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' > docs/example.md
+  git add docs/example.md
+  scan_staged_secrets >/dev/null 2>&1 && echo PASSED_LEAK_TEST_WRONG || echo DETECTED_OK
+) | grep -q DETECTED_OK \
+  && ok "secret_scan: missing .shellsecretignore preserves legacy block (#25)" \
+  || ng "secret_scan: missing-allow-list regression — leak slipped through (#25)"
+rm -rf "$SCAN_6D"
 
 # ---------- 7. pre_tool_use integration: block behavior ----------
 fake_input() {
