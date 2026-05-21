@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  syntax:
+    name: bash -n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n over shell sources
+        run: |
+          set -e
+          shopt -s globstar nullglob
+          # Collect every shell file the repo ships and parse-check it.
+          files=()
+          [ -f bin/claude-eng ] && files+=(bin/claude-eng)
+          for path in scripts/*.sh scripts/**/*.sh \
+                      .claude/hooks/*.sh .claude/hooks/helpers/*.sh; do
+            [ -e "$path" ] && files+=("$path")
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no shell files found — repo layout changed?"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "→ bash -n $f"
+            bash -n "$f"
+          done
+        shell: bash
+
+  smoke:
+    name: scripts/test/smoke.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: run smoke
+        run: ./scripts/test/smoke.sh
