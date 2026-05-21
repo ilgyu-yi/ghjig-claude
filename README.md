@@ -8,7 +8,7 @@ An operating shell for [Claude Code](https://docs.claude.com/claude-code) that r
 - **Doc → Test → Code work order** — strict for `feat`/`docs`/contract changes; relaxed for `fix`/`refactor`/`perf` per SPEC §1.2.
 - **Active SSOT maintenance** — docs change alongside code; merged PR bodies are durable cross-session memory via SessionStart.
 - **Eight subagents** — `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`. The four reviewers (`code-`, `security-`, `issue-`, `plan-`) substitute for human-confirm checkpoints in `unattended` mode.
-- **Hooks enforce discipline** — protected branches, force push, backmerges (`git merge main` on a feature branch), secret exposure, malformed commits, sensitive files, paths outside the registry. Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>'` and audit-logged at `.claude/audit/audit.jsonl`.
+- **Hooks enforce discipline** — protected branches, force push, backmerges (`git merge main` on a feature branch), secret exposure, malformed commits, sensitive files, paths outside the registry. Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>'` and audit-logged at `.claude/audit/audit.jsonl`. SessionStart warns when a workspace was injected but launched via plain `claude` instead of `claude-eng` (otherwise every hook would silently no-op — see SPEC §6.5(c)).
 
 ## Install
 

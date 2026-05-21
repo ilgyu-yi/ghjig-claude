@@ -2010,7 +2010,7 @@ run_37_session_start() {
 }
 
 # 37a (positive): symlink + env unset → banner.
-rm -f "$SESS_37_TMP/claude-eng-banner."*
+rm -rf "$SESS_37_TMP/claude-eng-banner."*
 out37a=$(run_37_session_start unset "$SESS_37_TARGET")
 if printf '%s' "$out37a" | grep -q 'inject-consistency'; then
   ok "session-banner: symlink + env unset emits banner (#23)"
@@ -2020,7 +2020,7 @@ fi
 
 # 37b (env-set negative): symlink + env set → no banner (env tells the
 # shell it knows where it is).
-rm -f "$SESS_37_TMP/claude-eng-banner."*
+rm -rf "$SESS_37_TMP/claude-eng-banner."*
 out37b=$(run_37_session_start set "$SESS_37_TARGET")
 if printf '%s' "$out37b" | grep -q 'inject-consistency'; then
   ng "session-banner: env-set should suppress banner (#23)"
@@ -2031,7 +2031,7 @@ fi
 # 37c (no-symlink negative): no symlink + env unset → no banner. A
 # workspace that was never injected must stay quiet (no false positives).
 SESS_37_CLEAN="$SESS_37_DIR/clean"; mkdir -p "$SESS_37_CLEAN/.claude"
-rm -f "$SESS_37_TMP/claude-eng-banner."*
+rm -rf "$SESS_37_TMP/claude-eng-banner."*
 out37c=$(run_37_session_start unset "$SESS_37_CLEAN")
 if printf '%s' "$out37c" | grep -q 'inject-consistency'; then
   ng "session-banner: non-injected dir should not emit banner (#23)"
@@ -2041,7 +2041,7 @@ fi
 
 # 37d (idempotency): same SID/TMPDIR — second run within the session
 # must suppress the banner (one-per-session debounce).
-rm -f "$SESS_37_TMP/claude-eng-banner."*
+rm -rf "$SESS_37_TMP/claude-eng-banner."*
 out37d_first=$(run_37_session_start unset "$SESS_37_TARGET")
 out37d_second=$(run_37_session_start unset "$SESS_37_TARGET")
 first_hit=$(printf '%s' "$out37d_first" | grep -c 'inject-consistency')

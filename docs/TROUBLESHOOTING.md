@@ -13,6 +13,7 @@ Common blocks and how to resolve them.
 | `sensitive file edit blocked` | Editing `.env`/`*.pem`/`credentials*` | These usually shouldn't be git-tracked. If truly needed, escape. |
 | `edit outside registry blocked` | Edit/Write target is outside a registered path | (1) Verify the target is what you intended. (2) The shell deliberately stays within registered paths. For genuine outside work, escape. |
 | Hook seems inactive | Current cwd isn't registered (check `.claude/state/registry.txt`) | Register with `scripts/register.sh <path>`. If you're working on the shell repo itself, re-run `scripts/bootstrap.sh` — it self-registers (§3.6). |
+| `[claude-eng-shell] WARN inject-consistency: ...` (stderr at session start) | Workspace has `.claude/settings.local.json` as a shell-injected symlink, but the session launched via plain `claude` so `CLAUDE_ENG_SHELL_ROOT` is unset → every hook silently no-ops | Exit and relaunch with `claude-eng`, or `export CLAUDE_ENG_SHELL_ROOT=<path-to-shell-repo>` and restart. SPEC §6.5(c). |
 | `claude-eng` not found | PATH not set | `export PATH="$SHELL_ROOT/bin:$PATH"` or alias. Editing `~/.zshrc` is your call. |
 
 ## Reading the audit log

@@ -15,9 +15,12 @@ set -uo pipefail
 # session skip the banner. A PID-recycle miss costs at most one
 # undetected mis-invocation, strictly better than the prior silent-no-op.
 if [ -z "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -L "$PWD/.claude/settings.local.json" ]; then
+  # Stamp is a directory created via mkdir, not a file via `: >`. mkdir is
+  # atomic and refuses to follow symlinks, so a hostile $TMPDIR cannot
+  # redirect the truncate to a victim-owned file. Predictable-name race
+  # is reduced to "attacker may suppress the banner" — security-neutral.
   _banner_stamp="${TMPDIR:-/tmp}/claude-eng-banner.${CLAUDE_SESSION_ID:-$PPID}"
-  if [ ! -e "$_banner_stamp" ]; then
-    : > "$_banner_stamp" 2>/dev/null || true
+  if [ ! -d "$_banner_stamp" ] && mkdir "$_banner_stamp" 2>/dev/null; then
     printf "[claude-eng-shell] WARN inject-consistency: shell injected here but CLAUDE_ENG_SHELL_ROOT is unset — every hook will silently no-op. Fix: invoke 'claude-eng' instead of 'claude', OR 'export CLAUDE_ENG_SHELL_ROOT=<shell repo path>' before launching.\n" >&2
   fi
 fi
