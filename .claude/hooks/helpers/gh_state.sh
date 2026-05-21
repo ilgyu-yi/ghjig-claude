@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/gh_state.sh — gh CLI wrappers. Source from hooks.
 
 current_pr_number() {

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/coauthor.sh — Co-Authored-By trailer toggle. Source from
 # /work-on (or any commit-flow consumer).
 #

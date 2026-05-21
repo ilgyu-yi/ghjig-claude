@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/cwd_guard.sh — registry-based scope checks. Source from hooks.
 
 # in_scope: returns 0 if PWD is inside any registry entry, 1 otherwise.

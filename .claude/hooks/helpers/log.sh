@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/log.sh — audit log writer. Source from hooks.
 
 # Encode an arbitrary string as a JSON string literal (with surrounding

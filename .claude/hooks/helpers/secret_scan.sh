@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/secret_scan.sh — pattern scan over the staged diff. Source from hooks.
 
 scan_staged_secrets() {

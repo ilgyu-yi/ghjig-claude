@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/git_matcher.sh — shared patterns for git subcommand matching and
 # the protected-branch policy. Source from any hook that needs to match git
 # subcommands tolerantly OR gate on protected branches.

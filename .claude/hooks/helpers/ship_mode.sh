@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/ship_mode.sh — operating-mode resolution + post-ready dispatch.
 # Source from /ship and /status. SPEC §5.7.1.
 

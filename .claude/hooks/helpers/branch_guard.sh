@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/branch_guard.sh — protected-branch checks. Source from hooks.
 #
 # Depends on $PROTECTED_BRANCH_PATTERN from helpers/git_matcher.sh — every

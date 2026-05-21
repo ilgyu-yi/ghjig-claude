@@ -1,0 +1,12 @@
+# .shellcheckrc — repo-wide ShellCheck configuration.
+# See https://github.com/koalaman/shellcheck/wiki for rule docs.
+
+# SC1090: sourced files use BASH_SOURCE-derived paths (helpers/branch_guard.sh)
+# or test-fixture variables (smoke.sh per-test isolation blocks). Static
+# following is not useful here and the smoke test catches stale source paths
+# at runtime end-to-end.
+disable=SC1090
+
+# Don't follow external sources at all — keep the lint surface to the files
+# explicitly invoked. (Default is false; spelled out for clarity.)
+external-sources=false

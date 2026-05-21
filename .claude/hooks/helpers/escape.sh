@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/escape.sh — SKIP_HOOKS handling. Source from hooks.
 # Usage: should_skip <category>  → returns 0 if skipping (audit-logged), 1 otherwise.
 

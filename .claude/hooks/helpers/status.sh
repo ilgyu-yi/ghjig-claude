@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/status.sh — canonical work-state summary used by /status and
 # UserPromptSubmit. Single source of truth so the two surfaces never drift.
 # SPEC §5.5.

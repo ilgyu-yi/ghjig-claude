@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # helpers/pr_cache.sh — persistent "last seen PR body" cache. Source from
 # /sync-pr, /ship, /work-on. SPEC §5.4.
 #

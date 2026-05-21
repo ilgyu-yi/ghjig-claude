@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # scripts/lib/self_register.sh — ensure the shell repo itself is in the registry.
 # Source and call ensure_self_registered "$SHELL_ROOT". Idempotent.
 # See SPEC.md §3.6 for the rationale.
