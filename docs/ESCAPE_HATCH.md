@@ -23,6 +23,7 @@ SKIP_HOOKS=<category>[,<category>...] SKIP_REASON='<reason>' <command>
 - `destructive` — `git reset --hard`, `git clean -f`, etc.
 - `sensitive` — edit to `.env`/`*.pem`/`credentials*`.
 - `out-of-scope` — Edit/Write outside registry, or `rm`/`mv`/`cp -f` args pointing outside registry.
+- `ac-closeout` — `gh pr merge` blocked because a linked issue (`closingIssuesReferences`) has unchecked AC items and no `^## AC closeout` marker comment yet. First-line remedy: run `scripts/ac_closeout.sh <pr-num>` (idempotent; posts the comment if missing, skips if present). Escape category exists for legitimate edge cases — emergency merges, issues with no AC, etc. — and is audit-logged like any other skip.
 
 ## Examples
 
