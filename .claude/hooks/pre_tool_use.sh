@@ -146,6 +146,32 @@ case "$tool" in
       fi
     fi
 
+    # gh pr merge — block when a linked issue (closingIssuesReferences) has
+    # unchecked AC items and no `^## AC closeout` header comment yet.
+    # SPEC §6.1 'ac-closeout' row; helper scripts/ac_closeout.sh satisfies
+    # by construction; /ship step 7.6 runs it automatically. Fail-open
+    # (audit warn) on indeterminate state per SPEC §6.1 framing.
+    if printf '%s' "$cmd" | grep -qE '\bgh\s+pr\s+merge\b'; then
+      if ! should_skip ac-closeout; then
+        # shellcheck disable=SC1090,SC1091
+        . "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
+        ac_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+        if [ -z "$ac_pr" ] && command -v gh >/dev/null 2>&1; then
+          ac_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+        fi
+        if [ -n "$ac_pr" ]; then
+          pr_needs_closeout "$ac_pr"
+          ac_rc=$?
+          case "$ac_rc" in
+            0) block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases." ;;
+            2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open" ;;
+          esac
+        else
+          audit_log warn ac-closeout notice "could not resolve PR number from cmd or current branch; merge allowed per fail-open"
+        fi
+      fi
+    fi
+
     # Force push
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*(\-f\b|\-\-force\b|\-\-force-with-lease\b)"; then
       should_skip force-push || block force-push "force push blocked"

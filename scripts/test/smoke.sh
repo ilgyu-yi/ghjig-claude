@@ -2208,17 +2208,21 @@ SHIM
 chmod +x "$GH38_SHIM/gh"
 
 # Run the PreToolUse hook with $cmd as the Bash tool_input.command.
-# Captures hook stderr via the 2>&1 >/dev/null swap; returns the hook's
-# exit code as the function's exit code (pipefail propagates).
+# cd into $TMP/fake (already in the smoke registry via §4 inject_into)
+# so the hook's `in_scope` guard passes. Captures hook stderr via the
+# 2>&1 >/dev/null swap; returns the hook's exit code (pipefail).
 gh38_run() {
   local cmd="$1"
-  # shellcheck disable=SC2069  # intentional: swap stderr → captured pipe, discard stdout
-  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
-    "$(printf '%s' "$cmd" | jq -Rs .)" \
-    | PATH="$GH38_SHIM:$PATH" \
-      GH_SHIM_STATE="$GH38_STATE" \
-      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
-      bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
+  (
+    cd "$TMP/fake" || exit 1
+    # shellcheck disable=SC2069  # intentional: swap stderr → captured pipe, discard stdout
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$cmd" | jq -Rs .)" \
+      | PATH="$GH38_SHIM:$PATH" \
+        GH_SHIM_STATE="$GH38_STATE" \
+        CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
+  )
 }
 
 # Helper to reset the shim state between sub-cases.
@@ -2274,7 +2278,7 @@ printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
 : > "$GH38_STATE/issue_comments"
 REAL_AUDIT="$SHELL_ROOT/.claude/audit/audit.jsonl"
 audit_before=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' ' || echo 0)
-out38d=$(gh38_run "SKIP_HOOKS=ac-closeout SKIP_REASON='emergency' gh pr merge 200 --merge")
+gh38_run "SKIP_HOOKS=ac-closeout SKIP_REASON='emergency' gh pr merge 200 --merge" >/dev/null
 rc38d=$?
 audit_after=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' ' || echo 0)
 if [ "$rc38d" = 0 ] && [ "$audit_after" -gt "$audit_before" ] \
