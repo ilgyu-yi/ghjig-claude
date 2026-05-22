@@ -8,14 +8,6 @@
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/git_matcher.sh"
 
-# Static-name subset of the protected branches — the names that exist
-# without a glob (i.e. `main`, `master`). Used by detached-HEAD tip-equality
-# enumeration where for-each-ref is overkill. If you add a new static name
-# here, also add it to PROTECTED_BRANCH_* in helpers/git_matcher.sh.
-_protected_static_refs() {
-  printf '%s\n' main master
-}
-
 # Returns the current branch name, or the empty string if HEAD is detached.
 # Callers that need a human-readable label (including detached-HEAD context)
 # should use branch_label instead.
@@ -44,16 +36,19 @@ branch_label() {
   head_sha=$(git rev-parse --verify --quiet HEAD 2>/dev/null) || { printf ''; return; }
   short=$(git rev-parse --short HEAD 2>/dev/null) || short="${head_sha:0:7}"
   local ref
-  for ref in $(_protected_static_refs); do
+  # Static-name subset: `main`/`master` are constant; release/* is enumerated
+  # by the for-each-ref below. If you add a new static protected name, also
+  # extend PROTECTED_BRANCH_PATTERN in helpers/git_matcher.sh.
+  for ref in main master; do
     tip=$(_resolve_protected_ref "$ref") || continue
     if [ -n "$tip" ] && [ "$tip" = "$head_sha" ]; then
       printf 'HEAD@%s (detached, == %s)' "$short" "$ref"
       return
     fi
   done
-  # `refs/heads/release/*` mirrors the `release/*` segment of
-  # PROTECTED_BRANCH_CASE_GLOB in helpers/git_matcher.sh. If you change the
-  # glob there, update this refspec too.
+  # `refs/heads/release/*` mirrors the release/* segment of
+  # PROTECTED_BRANCH_PATTERN in helpers/git_matcher.sh. If you change the
+  # ERE there, update this refspec too.
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     tip="${line%% *}"
@@ -87,11 +82,12 @@ is_protected_branch() {
   if [ -z "$b" ]; then
     local head_sha tip
     head_sha=$(git rev-parse --verify --quiet HEAD 2>/dev/null) || return 1
-    for ref in $(_protected_static_refs); do
+    for ref in main master; do
       tip=$(_resolve_protected_ref "$ref") || continue
       [ -n "$tip" ] && [ "$tip" = "$head_sha" ] && return 0
     done
-    # Enumerate release/* tips. Glob mirrors PROTECTED_BRANCH_CASE_GLOB.
+    # Enumerate release/* tips. Glob mirrors the release/* segment of
+    # PROTECTED_BRANCH_PATTERN in helpers/git_matcher.sh.
     while IFS= read -r tip; do
       [ -n "$tip" ] && [ "$tip" = "$head_sha" ] && return 0
     done < <(git for-each-ref --format='%(objectname)' 'refs/heads/release/*' 2>/dev/null)

@@ -4,39 +4,26 @@
 # subcommands tolerantly OR gate on protected branches.
 
 # PROTECTED_BRANCH_PATTERN is the ERE fragment naming branches the shell
-# treats as protected. Used by enforcement matchers (direct push, backmerge)
-# inside pre_tool_use.sh. PROTECTED_BRANCH_CASE_GLOB is the case-statement
-# form of the same policy. The two forms exist because bash globs and EREs
-# are different metacharacter languages — keeping both centralized closes
-# the drift surface between push/merge regex matchers and `is_protected_branch`'s
-# symbolic-ref check.
-#
-# Single source of truth for SPEC §6.1 "direct commit/push to protected
-# branch" and §6.1 "backmerge blocked". Adding a new protected pattern
-# (e.g. `hotfix/*`) is a one-edit change here. The `main master` static
-# subset is enumerated by `branch_guard.sh::_protected_static_refs` for
-# the detached-HEAD tip-equality check.
+# treats as protected. Single source of truth for SPEC §6.1 "direct
+# commit/push to protected branch" and "backmerge blocked"; adding a new
+# protected pattern (e.g. `hotfix/*`) is a one-edit change here.
 #
 # Behavior preserved byte-exact against the prior `release/\S+` ERE
 # matchers in pre_tool_use.sh: `release/foo` matches, `release/foo bar`
 # (whitespace) does not. The legacy `case "$b" in main|master|release/*)`
 # in branch_guard.sh was looser — its `*` glob would have matched
-# `release/foo bar` too — but git's own check-ref-format rejects branch
-# names with whitespace, so that codepath was unreachable in practice
-# and the refactor tightens an already-dead case rather than weakening
-# enforcement.
+# `release/foo bar` — but git's own check-ref-format rejects branch
+# names with whitespace, so that codepath was unreachable in practice.
 # Tightening further (e.g. `release/[^[:space:]/]+`) is a separate concern.
 #
-# Consumers: pre_tool_use.sh matchers use the ERE form via grep -qE
-# interpolation. branch_guard.sh::is_protected_branch uses the ERE
-# form via `grep -qE` (subprocess fork, but only 1–3 calls per hook —
-# tolerated for SSOT). The case-glob form is currently unused at
-# runtime; kept for callers that want a glob-context pattern without
-# spawning grep. See alternatives in PR #16.
+# Consumers: pre_tool_use.sh matchers interpolate the ERE form via
+# `grep -qE`; branch_guard.sh::is_protected_branch likewise uses
+# `grep -qE` (subprocess fork, 1–3 calls per hook — tolerated for SSOT).
+# branch_guard.sh enumerates the `main master` static-name subset
+# inline for the detached-HEAD tip-equality check; release/* is matched
+# via `git for-each-ref refs/heads/release/*`.
 # shellcheck disable=SC2034  # sourced by every hook that gates on branches
 PROTECTED_BRANCH_PATTERN='main|master|release/\S+'
-# shellcheck disable=SC2034  # kept for callers wanting a glob-context pattern
-PROTECTED_BRANCH_CASE_GLOB='main|master|release/*'
 
 # GIT_PREFIX is an ERE fragment that matches `git` followed by zero or more
 # standard git-level options between `git` and the subcommand. Used as a

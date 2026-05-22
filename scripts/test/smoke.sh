@@ -2032,7 +2032,6 @@ fi
 ( . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
   fail36a=0
   [ -n "${PROTECTED_BRANCH_PATTERN:-}" ] || fail36a=1
-  [ -n "${PROTECTED_BRANCH_CASE_GLOB:-}" ] || fail36a=1
   # ERE form must match the expected positives.
   for b in main master release/foo release/2026-q2; do
     printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$" || fail36a=1
