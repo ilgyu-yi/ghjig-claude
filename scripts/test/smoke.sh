@@ -1362,6 +1362,10 @@ mkdir -p "$SESS_FAKE_ROOT/.claude/hooks/helpers" \
          "$SESS_FAKE_ROOT/.claude/audit"
 
 cp "$SHELL_ROOT/.claude/hooks/session_start.sh" "$SESS_FAKE_ROOT/.claude/hooks/"
+# hookrt.sh hosts audit_log + safe_source after #34; session_start.sh
+# primitively bootstraps it before sourcing any helper. Copy it too or
+# the bootstrap fails and session_start exits before the git-fetch logic.
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$SESS_FAKE_ROOT/.claude/hooks/" 2>/dev/null
 for h in log escape cwd_guard branch_guard; do
   cp "$SHELL_ROOT/.claude/hooks/helpers/$h.sh" "$SESS_FAKE_ROOT/.claude/hooks/helpers/" 2>/dev/null
 done
@@ -2357,49 +2361,177 @@ else
   ng "ac-closeout: $shape_fails/5 command shapes failed to block (#31)$shape_miss_log"
 fi
 
-# 38h: helper-missing fail-open audit-warn (#31) — reproduces the PR
-# #30 dogfood silence. With the helper file removed (simulating a
-# session whose hook routing predates the helper's introduction), the
-# matcher must still emit `audit_log warn ac-closeout helper-missing`
-# instead of silently falling through. Failure of this test on the
-# unfixed code is the bug; passing it locks the guarded-source contract.
-HELPER_PATH="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
-HELPER_BAK="$GH38_DIR/ac_closeout_gate.sh.bak"
-gh38_h_restore() {
-  if [ ! -f "$HELPER_PATH" ] && [ -f "$HELPER_BAK" ]; then
-    mv "$HELPER_BAK" "$HELPER_PATH"
+# 38h: safe_source helper-missing audit-warn — parameterized over every
+# hook-sourced helper (#34). Generalizes the original §38h ac-closeout
+# dogfood reproduction (#31) to every helper sourced by the 5 hook files,
+# locking in the contract from the SPEC §6.1 fail-policy table:
+# safe_source emits `audit_log warn <category> helper-missing` and the
+# hook fail-opens (rc=0) when the helper file is absent.
+#
+# Each iteration: move the helper aside (trap-protected), invoke the
+# right hook with a benign input, assert (a) rc=0, (b) audit.jsonl
+# grew, (c) the new tail contains both the expected category and the
+# `helper-missing` token. Restore immediately so a later assertion
+# failure doesn't leave the live helper missing.
+#
+# hookrt.sh and helpers/log.sh are excluded:
+#   - hookrt.sh is the primitive bootstrap; its absence is stderr-only
+#     by design (cannot audit-log itself).
+#   - helpers/log.sh is a compatibility shim after #34; no hook
+#     safe-sources it (audit_log comes from hookrt.sh directly).
+
+REAL_AUDIT_38H="$SHELL_ROOT/.claude/audit/audit.jsonl"
+
+# (helper-basename, expected category, hook-script, stdin-cmd-or-prompt)
+# Tuples are colon-separated. For pre_tool_use the 4th field is the
+# tool_input.command; for user_prompt_submit it's the user prompt text.
+SS_TABLE=(
+  "escape.sh:escape:pre_tool_use.sh:echo benign"
+  "cwd_guard.sh:out-of-scope:pre_tool_use.sh:echo benign"
+  "detect_stack.sh:format:pre_tool_use.sh:echo benign"
+  "branch_guard.sh:branch:pre_tool_use.sh:echo benign"
+  "conventional_commit.sh:commit-format:pre_tool_use.sh:echo benign"
+  "secret_scan.sh:secret:pre_tool_use.sh:echo benign"
+  "git_matcher.sh:commit-format:pre_tool_use.sh:echo benign"
+  "ac_closeout_gate.sh:ac-closeout:pre_tool_use.sh:gh pr merge 200 --merge"
+  "status.sh:status:user_prompt_submit.sh:hello"
+)
+
+# Trap-protected restore covering whichever helper is currently aside.
+SS_CUR_PATH=""
+SS_CUR_BAK=""
+ss38h_restore() {
+  if [ -n "$SS_CUR_PATH" ] && [ -n "$SS_CUR_BAK" ] \
+     && [ ! -f "$SS_CUR_PATH" ] && [ -f "$SS_CUR_BAK" ]; then
+    mv "$SS_CUR_BAK" "$SS_CUR_PATH"
   fi
 }
-# Stack trap so a crash mid-test restores the helper; clear on success.
-# shellcheck disable=SC2064  # we want HELPER_PATH/HELPER_BAK expanded at trap-set time
-trap "gh38_h_restore" EXIT INT TERM
-mv "$HELPER_PATH" "$HELPER_BAK"
+trap 'ss38h_restore' EXIT INT TERM
 
-gh38_reset
-printf '100\n' > "$GH38_STATE/pr_issues"
-printf '200\n' > "$GH38_STATE/pr_number"
-printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
-: > "$GH38_STATE/issue_comments"
-REAL_AUDIT_38H="$SHELL_ROOT/.claude/audit/audit.jsonl"
-audit_before_38h=$(wc -l < "$REAL_AUDIT_38H" 2>/dev/null | tr -d ' ' || echo 0)
-out38h=$(gh38_run "gh pr merge 200 --merge")
-rc38h=$?
-audit_after_38h=$(wc -l < "$REAL_AUDIT_38H" 2>/dev/null | tr -d ' ' || echo 0)
-new_lines_38h=$(( audit_after_38h - audit_before_38h ))
-new_tail_38h=$(tail -"$new_lines_38h" "$REAL_AUDIT_38H" 2>/dev/null)
+# Loop:
+for entry in "${SS_TABLE[@]}"; do
+  IFS=':' read -r ss_helper ss_cat ss_hook ss_payload <<< "$entry"
+  ss_path="$SHELL_ROOT/.claude/hooks/helpers/$ss_helper"
+  ss_bak="$GH38_DIR/${ss_helper}.bak"
+  SS_CUR_PATH="$ss_path"
+  SS_CUR_BAK="$ss_bak"
 
-# Restore immediately so any later assertion failure doesn't leave the
-# helper missing for subsequent suite runs.
-gh38_h_restore
+  if [ ! -f "$ss_path" ]; then
+    ng "safe_source: helper file not present in repo [$ss_helper] (#34)"
+    SS_CUR_PATH=""; SS_CUR_BAK=""
+    continue
+  fi
+
+  # Fresh §38 fixture state per iteration (relevant for ac-closeout path).
+  gh38_reset
+  printf '100\n' > "$GH38_STATE/pr_issues"
+  printf '200\n' > "$GH38_STATE/pr_number"
+  printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+  : > "$GH38_STATE/issue_comments"
+
+  mv "$ss_path" "$ss_bak"
+  ss_before=$(wc -l < "$REAL_AUDIT_38H" 2>/dev/null | tr -d ' ' || echo 0)
+
+  case "$ss_hook" in
+    pre_tool_use.sh)
+      ss_input=$(printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+        "$(printf '%s' "$ss_payload" | jq -Rs .)")
+      (
+        cd "$TMP/fake" || exit 0
+        # shellcheck disable=SC2069
+        printf '%s' "$ss_input" \
+          | PATH="$GH38_SHIM:$PATH" \
+            GH_SHIM_STATE="$GH38_STATE" \
+            CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+            bash "$SHELL_ROOT/.claude/hooks/$ss_hook" 2>&1 >/dev/null
+      )
+      ss_rc=$?
+      ;;
+    user_prompt_submit.sh)
+      ss_input=$(printf '{"prompt":%s}' \
+        "$(printf '%s' "$ss_payload" | jq -Rs .)")
+      (
+        cd "$TMP/fake" || exit 0
+        # shellcheck disable=SC2069
+        printf '%s' "$ss_input" \
+          | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+            bash "$SHELL_ROOT/.claude/hooks/$ss_hook" 2>&1 >/dev/null
+      )
+      ss_rc=$?
+      ;;
+    *)
+      ng "safe_source: unknown hook in test table [$ss_hook] (#34)"
+      mv "$ss_bak" "$ss_path"
+      SS_CUR_PATH=""; SS_CUR_BAK=""
+      continue
+      ;;
+  esac
+
+  ss_after=$(wc -l < "$REAL_AUDIT_38H" 2>/dev/null | tr -d ' ' || echo 0)
+  ss_new=$(( ss_after - ss_before ))
+  ss_tail=""
+  if [ "$ss_new" -gt 0 ]; then
+    ss_tail=$(tail -"$ss_new" "$REAL_AUDIT_38H" 2>/dev/null)
+  fi
+
+  # Restore the helper IMMEDIATELY (before the assertion) so an assertion
+  # failure doesn't leave the suite running without the live helper.
+  mv "$ss_bak" "$ss_path"
+  SS_CUR_PATH=""
+  SS_CUR_BAK=""
+
+  # Core contract: rc=0 (fail-open) + audit grew + category + decision tokens.
+  ss_ok=0
+  if [ "$ss_rc" = 0 ] \
+     && [ "$ss_new" -ge 1 ] \
+     && printf '%s' "$ss_tail" | grep -q "\"category\":\"$ss_cat\"" \
+     && printf '%s' "$ss_tail" | grep -q '"decision":"helper-missing"'; then
+    ss_ok=1
+  fi
+
+  # Security-relevant suffix contract (SPEC §6.1): the warn carries
+  # "NOT ENFORCED (security-relevant)" for secret + branch categories,
+  # and MUST NOT carry it for any other category. Mismatch is treated as
+  # a hard fail of this iteration — the SPEC affordance exists specifically
+  # to draw operator attention.
+  case "$ss_cat" in
+    secret|branch)
+      printf '%s' "$ss_tail" | grep -q 'NOT ENFORCED' || ss_ok=0
+      ;;
+    *)
+      printf '%s' "$ss_tail" | grep -q 'NOT ENFORCED' && ss_ok=0
+      ;;
+  esac
+
+  if [ "$ss_ok" = 1 ]; then
+    ok "safe_source: $ss_helper missing → warn ($ss_cat) emitted (#34)"
+  else
+    ng "safe_source: $ss_helper missing — expected category=$ss_cat decision=helper-missing (security-suffix per §6.1); got rc=$ss_rc new=$ss_new tail=$ss_tail (#34)"
+  fi
+done
+
 trap - EXIT INT TERM
 
-if [ "$rc38h" = 0 ] \
-   && [ "$new_lines_38h" -ge 1 ] \
-   && printf '%s' "$new_tail_38h" | grep -q 'ac-closeout' \
-   && printf '%s' "$new_tail_38h" | grep -q 'helper-missing'; then
-  ok "ac-closeout: helper-missing fails open with audit warn (#31)"
+# 38i: top-level placement assertion (#34) — safe_source calls must not
+# live inside a function body in pre_tool_use.sh. The in-function source
+# of git_matcher.sh at the pre-#34 pre_tool_use.sh:79 was a historical
+# accident; #34 moves it to top-level. This grep-based check catches a
+# future regression of the same shape (any safe_source call indented
+# inside a `name() { ... }` block).
+ss_inside=$(awk '
+  /^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\(\)[[:space:]]*\{?[[:space:]]*$/ { in_func=1; depth=1; next }
+  in_func {
+    n_open  = gsub(/\{/, "{")
+    n_close = gsub(/\}/, "}")
+    depth += n_open - n_close
+    if (depth <= 0) { in_func=0; next }
+    if ($0 ~ /[[:space:]]safe_source[[:space:]]/) print FILENAME ":" NR ": " $0
+  }
+' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh")
+if [ -z "$ss_inside" ]; then
+  ok "safe_source: no in-function placement in pre_tool_use.sh (#34)"
 else
-  ng "ac-closeout: helper-missing audit warn missing (rc=$rc38h, out=$out38h, new_lines=$new_lines_38h, tail=$new_tail_38h) (#31)"
+  ng "safe_source: in-function placement found (regression of #34): $ss_inside"
 fi
 
 rm -rf "$GH38_DIR"

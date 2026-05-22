@@ -57,6 +57,7 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 - Edits to `.env`, `*.pem`, `credentials*` blocked
 - Edit/Write outside registry, and `rm -rf`/`mv -f`/`cp -f` with out-of-registry args, blocked
 - SessionStart warns if shell was injected but launched via plain `claude` (not `claude-eng`) — `CLAUDE_ENG_SHELL_ROOT` unset means every hook silently no-ops
+- Hook helper sources go through `safe_source <path> <category>` (in `.claude/hooks/hookrt.sh`). A missing helper file fails-open with `audit_log warn <category> helper-missing` — see SPEC §6.1 fail-policy table for per-helper categories. Mitigation for the session-restart caveat (SPEC §6.1) on new helpers
 
 Escape: `SKIP_HOOKS=<category> SKIP_REASON='<reason>' <command>`. All escapes are audit-logged.
 

@@ -4,15 +4,31 @@ set -uo pipefail
 SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
 
-. "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/escape.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/detect_stack.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/secret_scan.sh"
+# Primitive bootstrap of the hook runtime (SPEC §6.1). hookrt.sh hosts
+# audit_log + safe_source; if absent, stderr-only warn and exit (cannot
+# audit-log the absence of the audit-logger).
+hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"
+if [ ! -f "$hookrt" ]; then
+  printf '[claude-eng-shell] WARN hookrt-missing: %s not loaded — hook exiting\n' "$hookrt" >&2
+  exit 0
+fi
+# shellcheck source=/dev/null
+. "$hookrt"
 
-in_scope || exit 0
+# Every other helper goes through safe_source — missing → audit warn,
+# return 1 → caller short-circuits the matcher arm. SPEC §6.1 table.
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/escape.sh"               escape           || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"            out-of-scope     || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/detect_stack.sh"         format           || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"         branch           || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"  commit-format    || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/secret_scan.sh"          secret           || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"          commit-format    || true
+
+# If cwd_guard.sh wasn't loaded, `in_scope` is undefined → rc=127 → exit 0
+# (the matcher would have nothing to guard anyway). safe_source has
+# already emitted the helper-missing warn above.
+in_scope 2>/dev/null || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 input=$(cat)
@@ -75,8 +91,6 @@ except ValueError:
   done
   return 0
 }
-
-. "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
 
 case "$tool" in
   Bash)
@@ -157,20 +171,11 @@ case "$tool" in
     # backmerge matcher's anchor style at line 142.
     if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
       if ! should_skip ac-closeout; then
-        # Presence-guarded source: a session whose hook routing pre-dates
-        # this helper's introduction would otherwise silently continue past
-        # a failed `.` and call undefined functions (rc=127), producing
-        # zero audit entries — the PR #30 dogfood signature (issue #31).
-        # SPEC §6.1 session-restart caveat.
-        ac_helper="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
-        gate_loaded=0
-        if [ -f "$ac_helper" ]; then
-          # shellcheck disable=SC1090,SC1091
-          . "$ac_helper" && gate_loaded=1
-        fi
-        if [ "$gate_loaded" != 1 ]; then
-          audit_log warn ac-closeout helper-missing "$ac_helper not loaded (file absent or source failed); merge allowed per fail-open. Restart claude-eng to pick up the helper."
-        else
+        # ac_closeout_gate.sh is matcher-scoped (only sourced on the
+        # `gh pr merge` path), so the safe_source call lives here, not
+        # at file top. If safe_source returns 1 (helper missing) it has
+        # already emitted the helper-missing warn — short-circuit out.
+        if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" ac-closeout; then
           ac_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
           if [ -z "$ac_pr" ] && command -v gh >/dev/null 2>&1; then
             ac_pr=$(gh pr view --json number -q .number 2>/dev/null || true)

@@ -28,8 +28,17 @@ fi
 SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
 
-. "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"
+# Primitive bootstrap of hookrt.sh (audit_log + safe_source). SPEC §6.1.
+hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"
+if [ ! -f "$hookrt" ]; then
+  printf '[claude-eng-shell] WARN hookrt-missing: %s not loaded — hook exiting\n' "$hookrt" >&2
+  exit 0
+fi
+# shellcheck source=/dev/null
+. "$hookrt"
+
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"     out-of-scope || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"  branch       || true
 
 # 1) Shell self-sync check — always runs regardless of target cwd.
 # Gated by .claude/state/last-shell-fetched stamp (SESSION_START_FETCH_TTL

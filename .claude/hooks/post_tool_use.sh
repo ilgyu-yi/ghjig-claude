@@ -4,12 +4,20 @@ set -uo pipefail
 SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
 
-. "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/detect_stack.sh"
-. "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+# Primitive bootstrap of hookrt.sh (audit_log + safe_source). SPEC §6.1.
+hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"
+if [ ! -f "$hookrt" ]; then
+  printf '[claude-eng-shell] WARN hookrt-missing: %s not loaded — hook exiting\n' "$hookrt" >&2
+  exit 0
+fi
+# shellcheck source=/dev/null
+. "$hookrt"
 
-in_scope || exit 0
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"     out-of-scope    || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/detect_stack.sh"  format          || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"   commit-format   || true
+
+in_scope 2>/dev/null || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 input=$(cat)
