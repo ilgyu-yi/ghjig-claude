@@ -75,6 +75,28 @@ audit_log() {
 # future PRs may flip individual entries with SPEC §1.4 justification).
 #
 # SPEC §6.1 enumerates the per-helper (category, on-miss-note) table.
+# pass_through_trace <category> <cmd> — emit a `warn <category> pass-through`
+# audit record when a matcher entered but no terminal arm fired. SPEC §6.1
+# matcher pass-through audit contract. Caller pattern:
+#
+#   if printf '%s' "$cmd" | grep -qE 'pattern'; then
+#     decided=
+#     # ... terminal arms set decided=1 ...
+#     [ -z "$decided" ] && pass_through_trace <cat> "$cmd"
+#   fi
+#
+# The reason field includes a truncated cmd snippet so the operator can
+# diagnose which command surfaced the anomalous state. Truncation cap is
+# 200 chars; longer cmds get an ellipsis sentinel.
+pass_through_trace() {
+  local category="$1" cmd="$2"
+  local trunc="$cmd"
+  if [ "${#cmd}" -gt 200 ]; then
+    trunc="${cmd:0:200}…"
+  fi
+  audit_log warn "$category" pass-through "matcher entered, no terminal arm fired: $trunc"
+}
+
 safe_source() {
   local helper_path="$1" category="$2"
   if [ -f "$helper_path" ]; then

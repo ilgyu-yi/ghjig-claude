@@ -2647,17 +2647,15 @@ done
 # nesting via line count of `then` opens vs `fi` closes within each
 # matcher block.
 pt39b_missing=$(awk '
-  /if printf .* grep -qE/ { in_matcher=1; depth=0; saw_pt=0; start=NR; matcher_text=$0; next }
-  in_matcher {
-    if ($0 ~ /pass_through_trace/) saw_pt=1
-    if ($0 ~ /[[:space:]]then([[:space:]]|$|;)/ || $0 ~ /^[[:space:]]*then[[:space:]]*$/) depth++
-    if ($0 ~ /^[[:space:]]*fi[[:space:]]*$/) {
-      depth--
-      if (depth <= 0) {
-        if (!saw_pt) print FILENAME ":" start ": " matcher_text
-        in_matcher=0
-      }
-    }
+  /if printf .* grep -qE/ {
+    # Closing the previous matcher block: if we never saw pass_through_trace
+    # since the prior matcher entry, that matcher is missing the tail call.
+    if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
+    in_matcher=1; saw_pt=0; start=NR; matcher_text=$0; next
+  }
+  in_matcher && /pass_through_trace/ { saw_pt=1 }
+  END {
+    if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
   }
 ' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh")
 if [ -z "$pt39b_missing" ]; then
