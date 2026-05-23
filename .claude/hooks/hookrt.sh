@@ -97,6 +97,25 @@ pass_through_trace() {
   audit_log warn "$category" pass-through "matcher entered, no terminal arm fired: $trunc"
 }
 
+# mark_allow <category> — explicit happy-path marker. Sets the caller's
+# `decided` flag to 1 WITHOUT emitting an audit record. Use this when a
+# matcher's checks evaluate cleanly to "no enforcement needed" on a
+# high-frequency path (e.g. every clean `git commit`, every in-scope
+# `rm -rf`) — the matcher's contract is satisfied (it entered, it
+# decided, it allows) without adding per-action audit noise.
+#
+# Distinct from pass_through_trace, which fires on anomalous fall-through
+# where the matcher reached its tail without any arm deciding. SPEC §6.1
+# matcher pass-through audit contract.
+#
+# `<category>` is documentary only — it makes the call site grep-able by
+# the §39b structural check.
+mark_allow() {
+  # shellcheck disable=SC2034  # `decided` is the caller's per-matcher flag
+  decided=1
+  return 0
+}
+
 safe_source() {
   local helper_path="$1" category="$2"
   if [ -f "$helper_path" ]; then

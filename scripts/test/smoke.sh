@@ -2649,11 +2649,14 @@ done
 pt39b_missing=$(awk '
   /if printf .* grep -qE/ {
     # Closing the previous matcher block: if we never saw pass_through_trace
-    # since the prior matcher entry, that matcher is missing the tail call.
+    # or mark_allow since the prior matcher entry, that matcher is missing
+    # its structural tail-marker. Either symbol satisfies the SPEC §6.1
+    # contract (pass_through_trace = anomaly safety net; mark_allow =
+    # high-frequency happy path, no audit emission).
     if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
     in_matcher=1; saw_pt=0; start=NR; matcher_text=$0; next
   }
-  in_matcher && /pass_through_trace/ { saw_pt=1 }
+  in_matcher && (/pass_through_trace/ || /mark_allow/) { saw_pt=1 }
   END {
     if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
   }

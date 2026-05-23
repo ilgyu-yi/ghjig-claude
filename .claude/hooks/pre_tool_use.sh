@@ -127,6 +127,9 @@ case "$tool" in
       decided=
       audit_log warn bypass-suspect notice "$cmd"
       decided=1
+      # Tail no-op for an always-emits matcher; the pass_through_trace symbol
+      # is kept so the §39b structural sweep sees the uniform shape across
+      # all matchers (SPEC §6.1 invariant safety net).
       [ -z "$decided" ] && pass_through_trace bypass-suspect "$cmd"
     fi
 
@@ -135,6 +138,10 @@ case "$tool" in
       decided=
       if ! check_destructive_args "$cmd"; then
         should_skip out-of-scope && decided=1 || block out-of-scope "destructive command points outside registry: $cmd"
+      else
+        # In-scope rm/mv/cp -f is the common happy path (`rm -rf ./node_modules`).
+        # No audit emission needed; mark_allow satisfies the invariant via flag.
+        mark_allow out-of-scope
       fi
       [ -z "$decided" ] && pass_through_trace out-of-scope "$cmd"
     fi
@@ -167,6 +174,10 @@ case "$tool" in
       if ! is_protected_branch; then
         should_skip backmerge && decided=1 \
           || block backmerge "backmerge blocked — use 'git pull --rebase origin <base>' instead (or SKIP_HOOKS=backmerge for exceptional cases)"
+      else
+        # On a protected branch, `git merge <base>` is the local-merge-of-a-PR
+        # path explicitly allowed by SPEC §6.1. Happy path; no audit emission.
+        mark_allow backmerge
       fi
       [ -z "$decided" ] && pass_through_trace backmerge "$cmd"
     fi
@@ -241,24 +252,23 @@ case "$tool" in
         if git merge-base --is-ancestor HEAD '@{upstream}' 2>/dev/null; then
           should_skip amend && decided=1 || block amend "--amend of an already-pushed commit blocked"
         else
-          # Local amend (commit ahead of upstream) — explicit allow, not silent pass-through.
-          audit_log warn amend notice "--amend on non-pushed commit allowed"
-          decided=1
+          # Local amend (commit ahead of upstream). Common case during draft
+          # work — happy path with no audit emission.
+          mark_allow amend
         fi
       else
-        # No upstream tracked → local amend allowed.
-        audit_log warn amend notice "--amend with no upstream tracked allowed"
-        decided=1
+        # No upstream tracked → local amend allowed. Happy path.
+        mark_allow amend
       fi
       [ -z "$decided" ] && pass_through_trace amend "$cmd"
     fi
 
     # git commit body: protected branch / commit format / secrets / lint
     # Umbrella matcher with 4 sub-checks each carrying its own category.
-    # `decided` is set by ANY firing sub-arm (block exits, escape audits,
-    # explicit notice audits). If all four sub-checks pass quietly, the
-    # tail emits a `pass-through` under `commit-format` (the umbrella
-    # category — SPEC §6.1 pass-through invariant).
+    # `decided` is set by ANY firing sub-arm (block exits, escape audits).
+    # All four sub-checks passing IS the common happy path (every clean
+    # commit) — mark_allow keeps audit.jsonl quiet on that path; the
+    # pass-through tail is the safety net for an unforeseen anomaly.
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b" \
        && ! printf '%s' "$cmd" | grep -qE '\-\-allow-empty\b' ; then
       decided=
@@ -280,6 +290,10 @@ case "$tool" in
           should_skip format && decided=1 || block format "lint failed or timed out (CLAUDE_ENG_LINT_TIMEOUT=${CLAUDE_ENG_LINT_TIMEOUT:-30}s): $lint"
         fi
       fi
+      # Happy path — all four sub-checks evaluated to no-problem. mark_allow
+      # is no-op + decided=1; the pass-through line below remains as the
+      # invariant safety net but is unreachable for this matcher today.
+      [ -z "$decided" ] && mark_allow commit-format
       [ -z "$decided" ] && pass_through_trace commit-format "$cmd"
     fi
     ;;

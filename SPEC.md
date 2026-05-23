@@ -857,10 +857,10 @@ Implementation note: command strings are **normalized** before matching — back
 
 > **For every matcher in `pre_tool_use.sh`, if the matcher entered (`grep` matched), `audit.jsonl` MUST gain exactly one record whose `category` field matches the matcher's category in this hook invocation.**
 
-The terminal arm fires that record:
+The terminal arm fires that record (or marks it as decided without emission):
 - A `block` decision emits `audit_log block <cat> deny <reason>`.
 - A `warn` decision emits `audit_log warn <cat> <decision-token> <reason>` (`decision-token` ∈ {`notice`, `helper-missing`, `bypass-suspect`, `pass-through`, ...}).
-- An explicit-allow arm (e.g., `git commit --amend` on a non-pushed commit) emits `audit_log warn <cat> notice <reason>` describing the allow rationale.
+- A **high-frequency happy-path** arm (e.g., every clean `git commit`, every in-scope `rm -rf`, every local `--amend`) calls `mark_allow <cat>` (in `hookrt.sh`). This sets the caller's `decided` flag with NO audit emission — the matcher's contract is satisfied (it entered, evaluated cleanly, allowed) without per-action audit noise. Distinct from the explicit-`notice` warn path, which is used for low-frequency designed-allow cases where an audit record is desired.
 - If no other arm fires by the matcher's tail, the helper `pass_through_trace <cat> "<cmd>"` (also in `hookrt.sh`) emits `audit_log warn <cat> pass-through "<truncated-cmd>"`. This is the anomalous case — the matcher decided to do nothing without naming why, which we treat as a soft regression worth flagging.
 
 Implementation pattern (per matcher):
