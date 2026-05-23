@@ -863,7 +863,7 @@ The terminal arm fires that record (or marks it as decided without emission):
 - A **high-frequency happy-path** arm (e.g., every clean `git commit`, every in-scope `rm -rf`, every local `--amend`) calls `mark_allow <cat>` (in `hookrt.sh`). This sets the caller's `decided` flag with NO audit emission — the matcher's contract is satisfied (it entered, evaluated cleanly, allowed) without per-action audit noise. Distinct from the explicit-`notice` warn path, which is used for low-frequency designed-allow cases where an audit record is desired.
 - If no other arm fires by the matcher's tail, the helper `pass_through_trace <cat> "<cmd>"` (also in `hookrt.sh`) emits `audit_log warn <cat> pass-through "<truncated-cmd>"`. This is the anomalous case — the matcher decided to do nothing without naming why, which we treat as a soft regression worth flagging.
 
-Implementation pattern (per matcher):
+Implementation pattern (per Bash-branch matcher in `pre_tool_use.sh`):
 
 ```bash
 if printf '%s' "$cmd" | grep -qE 'pattern'; then
