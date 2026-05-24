@@ -3439,6 +3439,67 @@ else
   ng "47: SPEC §5.15 /reflect stub missing — /ship step 10.5 and reflect.md reference it (#57)"
 fi
 
+# ---------- 48. dir-mode-post-merge workflow contract (#63 / Directive #61) ----------
+# Directive #61 ships a hook-enforced post-merge path. v0's audit + reflection
+# only fired when Claude was the merger; this workflow fires on every
+# pull_request.closed && merged == true event. The template lives shell-side
+# (.claude/templates/) and the dogfooded installation lives in
+# .github/workflows/. §48 locks the contract: file existence, trigger shape,
+# Parent Directive regex consumer, directive-exec-count audit-line token.
+
+DPM_TEMPLATE="$SHELL_ROOT/.claude/templates/dir-mode-post-merge.yml"
+DPM_INSTALL="$SHELL_ROOT/.github/workflows/dir-mode-post-merge.yml"
+
+if [ ! -f "$DPM_TEMPLATE" ]; then
+  ng "48: .claude/templates/dir-mode-post-merge.yml missing (#63)"
+elif [ ! -f "$DPM_INSTALL" ]; then
+  ng "48: .github/workflows/dir-mode-post-merge.yml missing (dogfood install) (#63)"
+else
+  # 48a: trigger is pull_request.closed.
+  if grep -qF 'types: [closed]' "$DPM_TEMPLATE" \
+     && grep -qE '^on:[[:space:]]*$' "$DPM_TEMPLATE" \
+     && grep -qE '^[[:space:]]+pull_request:' "$DPM_TEMPLATE"; then
+    ok "48a: workflow triggers on pull_request.closed (#63)"
+  else
+    ng "48a: workflow missing pull_request.closed trigger (#63)"
+  fi
+
+  # 48b: merged-true guard present.
+  if grep -qF 'github.event.pull_request.merged == true' "$DPM_TEMPLATE"; then
+    ok "48b: workflow guards on merged == true (#63)"
+  else
+    ng "48b: workflow missing merged == true guard (#63)"
+  fi
+
+  # 48c: parses Parent Directive marker via the canonical regex.
+  if grep -qF 'Parent Directive' "$DPM_TEMPLATE"; then
+    ok "48c: workflow parses Parent Directive marker (#63)"
+  else
+    ng "48c: workflow does not parse Parent Directive (#63)"
+  fi
+
+  # 48d: emits directive-exec-count audit line in the reflection comment.
+  if grep -qF 'directive-exec-count' "$DPM_TEMPLATE"; then
+    ok "48d: workflow comment carries directive-exec-count audit line (#63)"
+  else
+    ng "48d: workflow comment missing directive-exec-count token (#63)"
+  fi
+
+  # 48e: idempotency check on existing PR-URL in Directive's comments.
+  if grep -qF 'PR_URL' "$DPM_TEMPLATE" && grep -qiF 'already reflected' "$DPM_TEMPLATE"; then
+    ok "48e: workflow has existing-URL idempotency check (#63)"
+  else
+    ng "48e: workflow missing idempotency check (#63)"
+  fi
+
+  # 48f: dogfood install matches template (byte-for-byte or detectable equivalence).
+  if cmp -s "$DPM_TEMPLATE" "$DPM_INSTALL"; then
+    ok "48f: .github/workflows/ install matches .claude/templates/ source (#63)"
+  else
+    ng "48f: workflow install drifts from template (#63)"
+  fi
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

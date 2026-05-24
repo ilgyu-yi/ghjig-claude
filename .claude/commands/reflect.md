@@ -49,9 +49,10 @@ Same in attended and unattended modes. The comment is a record, not a gate — n
 
 ## When to invoke
 
+- **Canonical hook-enforced path**: `.github/workflows/dir-mode-post-merge.yml` (Directive #61) posts the reflection automatically on every merged PR with a `Parent Directive: #N` marker, regardless of who merged. The Markdown procedure here remains valid for Claude-in-loop runs — both paths arrive at the same comment shape and the existing-URL idempotency check dedupes.
 - **After `/ship`** finishes a `clean` merge in unattended mode — the user can chain `/reflect` to record the progress trail.
-- **Manually** after a PR has merged — useful for backfilling reflections on past PRs.
-- **Not from `/ship` automatically** — auto-posting the comment from `/ship` would couple two distinct artifacts (the ship action + the dir-mode reflection) and make idempotency harder to reason about. `/ship` records the bare `directive-exec-count` audit (step 10.5); `/reflect` is the human-readable counterpart.
+- **Manually** after a PR has merged — useful for backfilling reflections on past PRs or for producing a richer per-signal evidence block than the Action's auto-generated stub.
+- **Not from `/ship` automatically** — auto-posting the comment from `/ship`'s procedure would couple two distinct artifacts (the ship action + the dir-mode reflection) and make idempotency harder to reason about. `/ship` step 10.5 records the bare `directive-exec-count` audit; `/reflect` is the human-readable counterpart; the workflow is the hook-enforced floor.
 
 ## Forbidden
 

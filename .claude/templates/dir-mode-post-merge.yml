@@ -1,0 +1,105 @@
+# .claude/templates/dir-mode-post-merge.yml
+# Source-of-truth for the hook-enforced post-merge dir-mode workflow.
+# Installed into target repos at .github/workflows/dir-mode-post-merge.yml
+# by scripts/setup_project.sh (future work) or /onboard.
+#
+# Purpose (SPEC §5.7, §5.15; Directive #61):
+#   When a PR merges, parse the closed Issue's body for `Parent Directive: #N`.
+#   If found, post a single hook-enforced reflection comment on the parent
+#   Directive Issue. The comment is the canonical audit surface for events
+#   the Action emits — it doubles as the `directive-exec-count` and
+#   `directive-reflect` audit records that /ship step 10.5 and /reflect
+#   produce when Claude is in the loop.
+#
+# Idempotency: scans existing comments on the parent Directive for the
+# merged PR's URL. If found, exits 0 with a no-op.
+#
+# Defense in depth: the Markdown procedures in .claude/commands/ship.md
+# step 10.5 and .claude/commands/reflect.md remain valid for Claude-in-loop
+# execution. Both paths arrive at the same comment shape; the existing-URL
+# idempotency check prevents duplicates.
+
+name: dir-mode-post-merge
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  issues: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  reflect:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve parent Directive from closing issue bodies
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Fetch closing-issue numbers from the merged PR.
+          closing=$(gh pr view "$PR_NUM" --json closingIssuesReferences \
+            --jq '.closingIssuesReferences[].number')
+          directive=""
+          exec_issue=""
+          for n in $closing; do
+            body=$(gh issue view "$n" --json body --jq .body)
+            if [[ "$body" =~ ^Parent\ Directive:\ \#([0-9]+) ]]; then
+              directive="${BASH_REMATCH[1]}"
+              exec_issue="$n"
+              break
+            fi
+          done
+          if [ -n "$directive" ]; then
+            {
+              echo "directive=$directive"
+              echo "exec_issue=$exec_issue"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post hook-enforced reflection (idempotent)
+        if: steps.resolve.outputs.directive != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIRECTIVE: ${{ steps.resolve.outputs.directive }}
+          EXEC: ${{ steps.resolve.outputs.exec_issue }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGED_AT: ${{ github.event.pull_request.merged_at }}
+        run: |
+          set -euo pipefail
+          # Idempotency: skip if a comment containing this PR's URL already exists
+          # on the parent Directive. Matches the /reflect Markdown procedure's
+          # existing-URL check, so Claude-in-loop and hook-enforced paths dedupe.
+          existing=$(gh issue view "$DIRECTIVE" --comments --json comments \
+            --jq ".comments[] | select(.body | contains(\"$PR_URL\")) | .url" | head -1)
+          if [ -n "$existing" ]; then
+            echo "Already reflected: $existing"
+            exit 0
+          fi
+          # Compose comment. The `directive-exec-count` line is the audit
+          # record for this event — GitHub's comment surface is the audit
+          # surface for hook-enforced emissions (the per-clone .claude/audit/
+          # path is not accessible from a workflow runner).
+          comment=$(cat <<COMMENT
+          ## Reflection from PR #${PR} (resolved by hook-enforced post-merge workflow)
+
+          **PR**: [${PR_TITLE}](${PR_URL}) — merged ${MERGED_AT}
+          **Linked Execution Issue**: #${EXEC} (auto-closed)
+          **Parent Directive**: #${DIRECTIVE}
+
+          ### Audit
+          \`directive-exec-count merged directive=#${DIRECTIVE} pr=#${PR} issue=#${EXEC}\` — recorded by \`.github/workflows/dir-mode-post-merge.yml\` (SPEC §5.7 + §5.15, Directive #61). The Markdown procedures in \`/ship\` step 10.5 and \`/reflect\` remain valid for Claude-in-loop runs; the existing-URL idempotency check dedupes across both paths.
+
+          ### Contribution
+          Auto-generated — see the merged PR body for the substantive narrative. A Claude-in-loop \`/reflect\` invocation can re-run this Action's emission with a richer per-signal evidence block; the existing-URL check will replace this comment's content if the second emission references the same PR URL, OR the second emission will skip per idempotency.
+
+          Posted by \`.github/workflows/dir-mode-post-merge.yml\` on \`pull_request.closed\` (merged=true).
+          COMMENT
+          )
+          gh issue comment "$DIRECTIVE" --body "$comment"
