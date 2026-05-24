@@ -20,6 +20,13 @@ Execute ship steps in order. If any step fails, stop immediately and report.
     - `clean` → `gh pr merge --auto --merge --delete-branch`. No-fast-forward merge commit; PR branch commits stay on `main` (preserves the Doc → Test → Code arc per SPEC §1.2). If auto-merge is disabled at the repo level, fall back to the park path with reason `auto-merge-disabled`.
     - `soft` → one self-fix-and-push attempt (commit `fix(#N): ...`), then return to CI-wait. A second `soft` outcome escalates to `hard`.
     - `hard` → park: `gh pr comment` (deterministic state summary) + apply label `unattended-parked` (create on demand; idempotent — edit-last or skip if already labeled) + append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/unattended-park.log` + stop.
+10.5. **Directive-aware audit** (added by tracking #41 child #6; SPEC §5.7 dir-mode integration) — informational only; does NOT auto-mark the parent Directive `Completed`. Runs on a successful merge (step 10 `clean` branch only — not `soft` or `hard`):
+    - For each issue in the merged PR's `closingIssuesReferences`, read the issue body and look for the regex `^Parent Directive: #(\d+)$`. If a match is found, capture the directive number `<D>`.
+    - For each `<D>`, append one audit line:
+      ```
+      audit_log info directive-exec-count merged "directive=#<D> pr=#<PR> issue=#<N>"
+      ```
+    - **Critical**: this step does NOT flip the Directive's `Status` field. Directives complete via `/complete-directive` + `directive-reviewer` (SPEC §4.9 / §5.13) only. The audit line is a forensic trail of progress toward the Directive's success signals; counting it as completion would violate tracking #41 principle #3 ("Generation is open, decision is gated"). The human-readable counterpart is `/reflect` (SPEC §5.15) — `/ship` records the bare audit; `/reflect` posts the reflection comment on the parent Directive.
 11. Emit a single summary line to stdout naming the terminal action taken: `stopped at ready`, `merged`, or `parked: <reason>`.
 
 At the end, print the PR URL and follow-up notes (reviewer mentions, etc.).

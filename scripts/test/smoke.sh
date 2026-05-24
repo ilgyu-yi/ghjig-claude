@@ -3343,6 +3343,54 @@ if [ -f "$DP_REGISTRY" ]; then
 fi
 rm -rf "$DP_DIR"
 
+# ---------- 45. /file-issue + /reflect + /ship dir-mode integrations (#47) ----------
+# PR #47 wires the three existing engineering commands into the dir-mode
+# layer. Since these are Markdown procedural prompts (Claude follows them),
+# the testable contract is structural: each command names the integration
+# step, the regex it consumes, and the audit category it emits.
+
+# 45a: /file-issue has the --parent flag in argument-hint and step 1.5.
+if grep -qF -- '--parent' "$SHELL_ROOT/.claude/commands/file-issue.md" \
+   && grep -qF 'Directive parenting' "$SHELL_ROOT/.claude/commands/file-issue.md" \
+   && grep -qF 'Parent Directive: #' "$SHELL_ROOT/.claude/commands/file-issue.md"; then
+  ok "45a: /file-issue documents --parent flag + Parent Directive marker (#47)"
+else
+  ng "45a: /file-issue missing --parent or Parent Directive integration (#47)"
+fi
+
+# 45b: /ship step 10.5 audits directive-exec-count on clean-branch merges.
+if grep -qF 'directive-exec-count' "$SHELL_ROOT/.claude/commands/ship.md" \
+   && grep -qF 'does NOT flip' "$SHELL_ROOT/.claude/commands/ship.md"; then
+  ok "45b: /ship 10.5 audits directive-exec-count + asserts no auto-completion (#47)"
+else
+  ng "45b: /ship missing directive-exec-count audit or no-auto-complete assertion (#47)"
+fi
+
+# 45c: /reflect exists with frontmatter + parent-Directive idempotency.
+if [ -f "$SHELL_ROOT/.claude/commands/reflect.md" ] \
+   && grep -qE '^description:' "$SHELL_ROOT/.claude/commands/reflect.md" \
+   && grep -qE '^argument-hint:' "$SHELL_ROOT/.claude/commands/reflect.md" \
+   && grep -qF 'idempotent' "$SHELL_ROOT/.claude/commands/reflect.md" \
+   && grep -qF 'Parent Directive: #' "$SHELL_ROOT/.claude/commands/reflect.md"; then
+  ok "45c: /reflect.md has frontmatter + Parent Directive regex + idempotency rule (#47)"
+else
+  ng "45c: /reflect.md missing frontmatter or expected sections (#47)"
+fi
+
+# 45d: /reflect names its audit categories (directive-reflect for posted + skipped).
+if grep -qF 'directive-reflect' "$SHELL_ROOT/.claude/commands/reflect.md" 2>/dev/null; then
+  ok "45d: /reflect names audit category 'directive-reflect' (#47)"
+else
+  ng "45d: /reflect does not name audit category 'directive-reflect' (#47)"
+fi
+
+# 45e: /file-issue parents via /link-directive to keep linkage idempotent.
+if grep -qF '/link-directive' "$SHELL_ROOT/.claude/commands/file-issue.md" 2>/dev/null; then
+  ok "45e: /file-issue routes Project parenting through /link-directive (#47)"
+else
+  ng "45e: /file-issue does not route through /link-directive (#47)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
