@@ -2891,7 +2891,11 @@ printf '%s\n' "$SP_TARGET" >> "$SP_REGISTRY"
 # state via $GH_MOCK_FIELDS_DIR so successive ensure_field calls see the union
 # of (default "Title" + all fields created so far). This makes the mock match
 # real gh behavior: after field-create succeeds, that field shows up in
-# field-list on the next call.
+# field-list on the next call. SINGLE_SELECT field options are recorded under
+# $GH_MOCK_OPTIONS_DIR/<field-name-with-underscores> (CSV of option names);
+# field-list surfaces them via the `options` key so the reconcile helper (issue
+# #76) can diff declared vs current. `gh api graphql` invocations land in the
+# log via the top-of-mock argv capture — assertions grep for `^api graphql`.
 cat > "$SP_BIN/gh" <<'MOCK'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$GH_MOCK_LOG"; printf '\n' >> "$GH_MOCK_LOG"
@@ -2915,6 +2919,14 @@ case "${1:-}" in
       printf '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}'
     fi
     ;;
+  api)
+    # `gh api graphql` arm — used by the option-reconcile helper (issue #76)
+    # to upsert SINGLE_SELECT options via updateProjectV2Field. The full argv
+    # is already in $GH_MOCK_LOG; return a minimal success payload.
+    if [ "${2:-}" = graphql ]; then
+      printf '{"data":{"updateProjectV2Field":{"projectV2Field":{"id":"PVTSSF_mock"}}}}'
+    fi
+    ;;
   project)
     case "${2:-}" in
       list)
@@ -2930,7 +2942,9 @@ case "${1:-}" in
         ;;
       field-list)
         # Build a JSON list of currently-existing fields: always-present "Title"
-        # plus whatever names were recorded by previous field-create calls.
+        # plus whatever names were recorded by previous field-create calls. For
+        # each field, include an `options` array if $GH_MOCK_OPTIONS_DIR/<name>
+        # exists (CSV-of-option-names). Reconcile helper (issue #76) reads this.
         names="Title"
         if [ -d "$GH_MOCK_FIELDS_DIR" ]; then
           for n in "$GH_MOCK_FIELDS_DIR"/*; do
@@ -2943,22 +2957,50 @@ case "${1:-}" in
         while IFS= read -r line; do
           [ -z "$line" ] && continue
           [ "$first" = 1 ] && first=0 || json="$json,"
-          json="$json{\"name\":\"$line\"}"
+          json="$json{\"id\":\"PVTSSF_mock_${line// /_}\",\"name\":\"$line\""
+          opts_file="${GH_MOCK_OPTIONS_DIR:-}/${line// /_}"
+          if [ -n "${GH_MOCK_OPTIONS_DIR:-}" ] && [ -f "$opts_file" ]; then
+            opts_csv=$(cat "$opts_file")
+            json="$json,\"options\":["
+            first_opt=1
+            IFS=',' read -ra opts_arr <<< "$opts_csv"
+            for o in "${opts_arr[@]}"; do
+              [ "$first_opt" = 1 ] && first_opt=0 || json="$json,"
+              json="$json{\"id\":\"opt_mock\",\"name\":\"$o\"}"
+            done
+            json="$json]"
+          fi
+          json="$json}"
         done <<< "$names"
         printf '%s]}' "$json"
         ;;
       field-create)
-        # Extract --name argument; record file under $GH_MOCK_FIELDS_DIR (basename
-        # uses underscores in place of spaces so the filename is safe).
+        # Extract --name + --single-select-options; record field under
+        # $GH_MOCK_FIELDS_DIR and (if SINGLE_SELECT) options under
+        # $GH_MOCK_OPTIONS_DIR. Basenames use underscores for spaces.
         next=
+        fname=
+        fopts=
         for a in "$@"; do
           if [ "${next:-}" = name ]; then
-            mkdir -p "$GH_MOCK_FIELDS_DIR"
-            touch "$GH_MOCK_FIELDS_DIR/${a// /_}"
-            break
+            fname="$a"; next=
+            continue
+          fi
+          if [ "${next:-}" = opts ]; then
+            fopts="$a"; next=
+            continue
           fi
           [ "$a" = "--name" ] && next=name
+          [ "$a" = "--single-select-options" ] && next=opts
         done
+        if [ -n "$fname" ]; then
+          mkdir -p "$GH_MOCK_FIELDS_DIR"
+          touch "$GH_MOCK_FIELDS_DIR/${fname// /_}"
+          if [ -n "$fopts" ] && [ -n "${GH_MOCK_OPTIONS_DIR:-}" ]; then
+            mkdir -p "$GH_MOCK_OPTIONS_DIR"
+            printf '%s\n' "$fopts" > "$GH_MOCK_OPTIONS_DIR/${fname// /_}"
+          fi
+        fi
         printf '{"id":"PVTSSF_mock"}'
         ;;
       link)
@@ -2992,6 +3034,7 @@ else
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR/options" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     )
@@ -3015,6 +3058,7 @@ else
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR/options" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     )
@@ -3039,6 +3083,7 @@ else
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR/options" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     ) || sp41c_rc=$?
@@ -3058,6 +3103,7 @@ else
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR/options" \
       GH_MOCK_AUTH=ok \
       GH_MOCK_SCOPES='gist, repo' \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
@@ -3067,6 +3113,96 @@ else
     else
       ng "41d: missing project scope should refuse but exited 0 (#43)"
     fi
+
+    # 41e: option reconciliation — drift case (#76).
+    # All 6 fields pre-seeded; Status has GitHub-default options
+    # (Todo,In Progress,Done) instead of the declared dir-mode set.
+    # Expect: exactly one `gh api graphql` call (the Status reconcile),
+    # carrying all 5 dir-mode option names in its argv.
+    SP_DIR2=$(mktemp -d)
+    SP_TARGET2="$SP_DIR2/target"
+    mkdir -p "$SP_TARGET2"
+    SP_TARGET2=$(cd "$SP_TARGET2" && pwd -P)
+    (cd "$SP_TARGET2" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
+    printf '%s\n' "$SP_TARGET2" >> "$SP_REGISTRY"
+    mkdir -p "$SP_DIR2/fields" "$SP_DIR2/options"
+    touch "$SP_DIR2/project-created"
+    for f in Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR2/fields/$f"; done
+    # SINGLE_SELECT option states: Type + Priority aligned with declared; Status drifted.
+    printf 'Goal,Directive,Execution\n' > "$SP_DIR2/options/Type"
+    printf 'Todo,In Progress,Done\n'    > "$SP_DIR2/options/Status"
+    printf 'P0,P1,P2,P3\n'              > "$SP_DIR2/options/Priority"
+    (
+      cd "$SP_TARGET2" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR2/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR2/project-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR2/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR2/options" \
+      GH_MOCK_AUTH=ok \
+        bash "$SP_SCRIPT" </dev/null >"$SP_DIR2/stdout" 2>&1
+    )
+    sp41e_graphql=$( { grep -c '^api graphql' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    : "${sp41e_graphql:=0}"
+    # All 5 dir-mode Status option names must appear in the graphql argv (one call carries all five).
+    sp41e_planned=$(  { grep -c 'Planned'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_active=$(   { grep -c 'Active'    "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_completed=$({ grep -c 'Completed' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_blocked=$(  { grep -c 'Blocked'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_revised=$(  { grep -c 'Revised'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    : "${sp41e_planned:=0}"; : "${sp41e_active:=0}"; : "${sp41e_completed:=0}"; : "${sp41e_blocked:=0}"; : "${sp41e_revised:=0}"
+    if [ "$sp41e_graphql" = 1 ] \
+       && [ "$sp41e_planned" -ge 1 ] && [ "$sp41e_active" -ge 1 ] \
+       && [ "$sp41e_completed" -ge 1 ] && [ "$sp41e_blocked" -ge 1 ] && [ "$sp41e_revised" -ge 1 ]; then
+      ok "41e: Status drift → 1 graphql mutation carrying all 5 dir-mode options (#76)"
+    else
+      ng "41e: Status drift expected 1 graphql + 5 option names; got graphql=$sp41e_graphql plan=$sp41e_planned act=$sp41e_active comp=$sp41e_completed blk=$sp41e_blocked rev=$sp41e_revised (#76)"
+    fi
+    # Clean up §41e target before §41f reuses the registry.
+    sp_tmp_reg=$(mktemp); grep -vxF "$SP_TARGET2" "$SP_REGISTRY" > "$sp_tmp_reg" 2>/dev/null || true
+    mv "$sp_tmp_reg" "$SP_REGISTRY"
+    rm -rf "$SP_DIR2"
+
+    # 41f: option reconciliation — idempotent (already-aligned) case (#76).
+    # All 6 fields pre-seeded; Status options already equal the dir-mode set.
+    # Expect: zero `gh api graphql` calls AND stdout marker
+    # `options already aligned` (proves the helper ran and recognized alignment,
+    # not that it skipped silently).
+    SP_DIR3=$(mktemp -d)
+    SP_TARGET3="$SP_DIR3/target"
+    mkdir -p "$SP_TARGET3"
+    SP_TARGET3=$(cd "$SP_TARGET3" && pwd -P)
+    (cd "$SP_TARGET3" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
+    printf '%s\n' "$SP_TARGET3" >> "$SP_REGISTRY"
+    mkdir -p "$SP_DIR3/fields" "$SP_DIR3/options"
+    touch "$SP_DIR3/project-created"
+    for f in Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR3/fields/$f"; done
+    printf 'Goal,Directive,Execution\n'                   > "$SP_DIR3/options/Type"
+    printf 'Planned,Active,Completed,Blocked,Revised\n'   > "$SP_DIR3/options/Status"
+    printf 'P0,P1,P2,P3\n'                                > "$SP_DIR3/options/Priority"
+    (
+      cd "$SP_TARGET3" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR3/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR3/project-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR3/fields" \
+      GH_MOCK_OPTIONS_DIR="$SP_DIR3/options" \
+      GH_MOCK_AUTH=ok \
+        bash "$SP_SCRIPT" </dev/null >"$SP_DIR3/stdout" 2>&1
+    )
+    sp41f_graphql=$( { grep -c '^api graphql' "$SP_DIR3/gh.log" 2>/dev/null; } || true)
+    sp41f_aligned=$( { grep -c 'options already aligned' "$SP_DIR3/stdout" 2>/dev/null; } || true)
+    : "${sp41f_graphql:=0}"; : "${sp41f_aligned:=0}"
+    if [ "$sp41f_graphql" = 0 ] && [ "$sp41f_aligned" -ge 1 ]; then
+      ok "41f: Status aligned → 0 graphql mutations + 'options already aligned' stdout (#76)"
+    else
+      ng "41f: Status aligned expected 0 graphql + ≥1 aligned-stdout; got graphql=$sp41f_graphql aligned=$sp41f_aligned (#76)"
+    fi
+    sp_tmp_reg=$(mktemp); grep -vxF "$SP_TARGET3" "$SP_REGISTRY" > "$sp_tmp_reg" 2>/dev/null || true
+    mv "$sp_tmp_reg" "$SP_REGISTRY"
+    rm -rf "$SP_DIR3"
   fi
 fi
 
