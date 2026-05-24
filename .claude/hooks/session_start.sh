@@ -31,7 +31,18 @@ SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-}"
 # Primitive bootstrap of hookrt.sh (audit_log + safe_source). SPEC §6.1.
 hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"
 if [ ! -f "$hookrt" ]; then
+  # Per-invocation diagnostic floor (stable contract for log scrapers).
   printf '[claude-eng-shell] WARN hookrt-missing: %s not loaded — hook exiting\n' "$hookrt" >&2
+  # Once-per-session actionable banner (SPEC §6.5(c)). Same primitive-inline-
+  # printf + mkdir-stamp debounce pattern as the inject-consistency banner.
+  # Distinct stamp suffix `-hookrt` avoids collision. If mkdir fails (hostile
+  # $TMPDIR / low-disk), the banner is suppressed; the per-fire WARN above is
+  # the diagnostic floor that survives that failure mode.
+  _hookrt_stamp="${TMPDIR:-/tmp}/claude-eng-banner-hookrt.${CLAUDE_SESSION_ID:-$PPID}"
+  if [ ! -d "$_hookrt_stamp" ] && mkdir "$_hookrt_stamp" 2>/dev/null; then
+    printf '[claude-eng-shell] WARN hookrt-missing: hook enforcement OFF until restored. Fix: `git -C %s status` to inspect, then `git -C %s checkout -- .claude/hooks/hookrt.sh`, or re-clone via scripts/bootstrap.sh.\n' \
+      "$SHELL_ROOT" "$SHELL_ROOT" >&2
+  fi
   exit 0
 fi
 # shellcheck source=/dev/null
