@@ -3659,6 +3659,151 @@ elif [ "$all_agents_loadable" = 1 ]; then
   ng "49: only $agent_count agents found; expected ≥9 (the eight engineering + directive-reviewer) (#64)"
 fi
 
+# ---------- 50. /file-directive Project-substrate guard (#71) ----------
+# SPEC §1.7 designates the GitHub Project v2 as the dir-mode substrate. Three
+# Directives (#54/#61/#62) shipped without Project Items because the prose-only
+# step-1 guard ("instruct the user and stop") in /file-directive.md was
+# advisory rather than enforced. PR #72 ships:
+#   - A new deterministic resolver: scripts/dir_mode_project.sh resolve
+#     (exit 0 = found + tab-separated stdout, exit 5 = no Project for target).
+#   - /file-directive.md step 1 rewritten to invoke the resolver via Bash
+#     and dispatch on its exit code.
+#   - /file-directive.md step 7 audit-format tightening: item=<item-id> is
+#     mandatory; substituting milestone=#N is a contract violation.
+#
+# §50 enforces both halves:
+#   50a — Audit-format guard. Scans .claude/audit/audit.jsonl for every
+#         directive-file/created line with ts >= cutoff (cutoff = the day this
+#         PR lands; historical lines #54/#61/#62 stay grandfathered per AC #6).
+#         Each line's reason must match the documented format.
+#   50b — Resolver gate behavior. Mocks `gh` per the §41 pattern. Case
+#         "no project" → expect exit 5 + stderr names setup_project.sh.
+#         Case "project exists" → expect exit 0 + stdout `<num>\t<owner>\t<name>`.
+
+DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-25T00:00:00Z"
+AUDIT_FILE="$SHELL_ROOT/.claude/audit/audit.jsonl"
+
+# 50a — audit-format guard
+if [ ! -f "$AUDIT_FILE" ]; then
+  # No audit log yet → no entries to verify → vacuously pass.
+  ok "50a: no audit log at $AUDIT_FILE — vacuously pass (#71)"
+elif ! command -v jq >/dev/null 2>&1; then
+  ng "50a: jq not installed — cannot scan audit log (#71)"
+else
+  # Any directive-file/created line with ts >= cutoff whose reason does NOT
+  # match `directive: ... item=<id> priority=P<N> confidence=<N>`.
+  bad_lines=$(jq -r --arg cutoff "$DIRECTIVE_FILE_AUDIT_CUTOFF" '
+    select(.category=="directive-file" and .decision=="created" and .ts >= $cutoff)
+    | select(.reason | test("^directive: .* item=[^ ]+ priority=P[0-3] confidence=[0-9]+$") | not)
+    | .reason
+  ' "$AUDIT_FILE" 2>/dev/null)
+  if [ -z "$bad_lines" ]; then
+    ok "50a: directive-file audit entries (ts >= $DIRECTIVE_FILE_AUDIT_CUTOFF) match documented format (#71)"
+  else
+    # Take only the first bad line to keep the diagnostic compact.
+    first_bad=$(printf '%s\n' "$bad_lines" | head -1)
+    ng "50a: directive-file audit entry deviates from documented format: '$first_bad' (#71)"
+  fi
+fi
+
+# 50b — resolver gate behavior (two sub-cases under one assertion to match
+# the planner's "+2 assertions" contract: 50a + 50b = 2).
+DR_SCRIPT="$SHELL_ROOT/scripts/dir_mode_project.sh"
+if [ ! -f "$DR_SCRIPT" ]; then
+  ng "50b: scripts/dir_mode_project.sh missing — Phase C not yet landed (#71)"
+elif ! command -v jq >/dev/null 2>&1; then
+  ng "50b: jq not installed — cannot run gh-mock smoke (#71)"
+else
+  DR50_DIR=$(mktemp -d)
+  DR50_TARGET="$DR50_DIR/target"
+  DR50_BIN="$DR50_DIR/bin"
+  mkdir -p "$DR50_TARGET" "$DR50_BIN"
+  # Resolve to realpath so the registry entry matches `pwd -P` from inside
+  # the target dir (macOS /var is a symlink).
+  DR50_TARGET=$(cd "$DR50_TARGET" && pwd -P)
+  (cd "$DR50_TARGET" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
+
+  DR50_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+  printf '%s\n' "$DR50_TARGET" >> "$DR50_REGISTRY"
+
+  # Minimal gh mock — just `gh auth status` + `gh repo view` + `gh project list`.
+  # Toggled by presence/absence of $GH_MOCK_PROJECT_CREATED.
+  cat > "$DR50_BIN/gh" <<'DR50_MOCK'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$GH_MOCK_LOG"; printf '\n' >> "$GH_MOCK_LOG"
+case "${1:-}" in
+  --version) printf 'gh version 2.50.0 (mock)\n' ;;
+  auth)
+    case "${2:-}" in
+      status)
+        echo "github.com" >&2
+        echo "  - Token scopes: ${GH_MOCK_SCOPES:-gist, repo, project}" >&2
+        ;;
+    esac
+    ;;
+  repo)
+    if [ "${2:-}" = view ]; then
+      printf '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}'
+    fi
+    ;;
+  project)
+    case "${2:-}" in
+      list)
+        if [ -f "$GH_MOCK_PROJECT_CREATED" ]; then
+          printf '{"projects":[{"number":1,"title":"smoke-repo roadmap","url":"https://gh.test/p/1","owner":{"login":"smoke-owner"}}]}'
+        else
+          printf '{"projects":[]}'
+        fi
+        ;;
+    esac
+    ;;
+esac
+exit 0
+DR50_MOCK
+  chmod +x "$DR50_BIN/gh"
+
+  # Case 1 — no project. Expect exit 5 + 'setup_project.sh' in stderr.
+  rm -f "$DR50_DIR/project-created" "$DR50_DIR/gh.log"
+  dr50_no_rc=0
+  dr50_no_err=$(
+    cd "$DR50_TARGET" || exit 0
+    PATH="$DR50_BIN:$PATH" \
+    CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    GH_MOCK_LOG="$DR50_DIR/gh.log" \
+    GH_MOCK_PROJECT_CREATED="$DR50_DIR/project-created" \
+      bash "$DR_SCRIPT" resolve 2>&1 >/dev/null
+  ) || dr50_no_rc=$?
+
+  # Case 2 — project exists. Expect exit 0 + tab-separated stdout.
+  touch "$DR50_DIR/project-created"
+  rm -f "$DR50_DIR/gh.log"
+  dr50_yes_rc=0
+  dr50_yes_out=$(
+    cd "$DR50_TARGET" || exit 0
+    PATH="$DR50_BIN:$PATH" \
+    CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    GH_MOCK_LOG="$DR50_DIR/gh.log" \
+    GH_MOCK_PROJECT_CREATED="$DR50_DIR/project-created" \
+      bash "$DR_SCRIPT" resolve 2>/dev/null
+  ) || dr50_yes_rc=$?
+
+  # Combined assertion: both sub-cases must behave correctly.
+  if [ "$dr50_no_rc" = 5 ] && printf '%s' "$dr50_no_err" | grep -q 'setup_project.sh' \
+     && [ "$dr50_yes_rc" = 0 ] && printf '%s' "$dr50_yes_out" | grep -qE $'^[0-9]+\t[^\t]+\t[^\t]+$'; then
+    ok "50b: dir_mode_project.sh resolve — exit 5 on missing (names setup_project.sh) + exit 0 on present (tab-separated stdout) (#71)"
+  else
+    ng "50b: resolver gate failed; no-project rc=$dr50_no_rc err='$dr50_no_err'; project-exists rc=$dr50_yes_rc out='$dr50_yes_out' (#71)"
+  fi
+
+  # Cleanup
+  if [ -f "$DR50_REGISTRY" ]; then
+    dr50_tmp_reg=$(mktemp)
+    grep -vxF "$DR50_TARGET" "$DR50_REGISTRY" > "$dr50_tmp_reg" 2>/dev/null || true
+    mv "$dr50_tmp_reg" "$DR50_REGISTRY"
+  fi
+  rm -rf "$DR50_DIR"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
