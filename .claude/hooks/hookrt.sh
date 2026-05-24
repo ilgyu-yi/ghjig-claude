@@ -75,6 +75,47 @@ audit_log() {
 # future PRs may flip individual entries with SPEC §1.4 justification).
 #
 # SPEC §6.1 enumerates the per-helper (category, on-miss-note) table.
+# pass_through_trace <category> <cmd> — emit a `warn <category> pass-through`
+# audit record when a matcher entered but no terminal arm fired. SPEC §6.1
+# matcher pass-through audit contract. Caller pattern:
+#
+#   if printf '%s' "$cmd" | grep -qE 'pattern'; then
+#     decided=
+#     # ... terminal arms set decided=1 ...
+#     [ -z "$decided" ] && pass_through_trace <cat> "$cmd"
+#   fi
+#
+# The reason field includes a truncated cmd snippet so the operator can
+# diagnose which command surfaced the anomalous state. Truncation cap is
+# 200 chars; longer cmds get an ellipsis sentinel (U+2026).
+pass_through_trace() {
+  local category="$1" cmd="$2"
+  local trunc="$cmd"
+  if [ "${#cmd}" -gt 200 ]; then
+    trunc="${cmd:0:200}…"
+  fi
+  audit_log warn "$category" pass-through "matcher entered, no terminal arm fired: $trunc"
+}
+
+# mark_allow <category> — explicit happy-path marker. Sets the caller's
+# `decided` flag to 1 WITHOUT emitting an audit record. Use this when a
+# matcher's checks evaluate cleanly to "no enforcement needed" on a
+# high-frequency path (e.g. every clean `git commit`, every in-scope
+# `rm -rf`) — the matcher's contract is satisfied (it entered, it
+# decided, it allows) without adding per-action audit noise.
+#
+# Distinct from pass_through_trace, which fires on anomalous fall-through
+# where the matcher reached its tail without any arm deciding. SPEC §6.1
+# matcher pass-through audit contract.
+#
+# `<category>` is documentary only — it makes the call site grep-able by
+# the §39b structural check.
+mark_allow() {
+  # shellcheck disable=SC2034  # `decided` is the caller's per-matcher flag
+  decided=1
+  return 0
+}
+
 safe_source() {
   local helper_path="$1" category="$2"
   if [ -f "$helper_path" ]; then

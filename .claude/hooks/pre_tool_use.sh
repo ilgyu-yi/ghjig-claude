@@ -124,20 +124,36 @@ case "$tool" in
     # Heredoc pattern excludes `<<<` here-strings (preceding-char check).
     if printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])(eval|bash[[:space:]]+-c|sh[[:space:]]+-c|python[[:space:]]*[0-9.]*[[:space:]]+-c)([^[:alnum:]_]|$)' \
        || printf '%s' "$cmd" | grep -qE '(^|[^<])<<-?[[:space:]]*[A-Za-z_]'; then
+      decided=
       audit_log warn bypass-suspect notice "$cmd"
+      decided=1
+      # Tail no-op for an always-emits matcher; the pass_through_trace symbol
+      # is kept so the §39b structural sweep sees the uniform shape across
+      # all matchers (SPEC §6.1 invariant safety net).
+      [ -z "$decided" ] && pass_through_trace bypass-suspect "$cmd"
     fi
 
     # Destructive command with out-of-scope path arg
     if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+(-[A-Za-z]*[fF][A-Za-z]*\s+)+'; then
+      decided=
       if ! check_destructive_args "$cmd"; then
-        should_skip out-of-scope || block out-of-scope "destructive command points outside registry: $cmd"
+        should_skip out-of-scope && decided=1 || block out-of-scope "destructive command points outside registry: $cmd"
+      else
+        # In-scope rm/mv/cp -f is the common happy path (`rm -rf ./node_modules`).
+        # No audit emission needed; mark_allow satisfies the invariant via flag.
+        mark_allow out-of-scope
       fi
+      [ -z "$decided" ] && pass_through_trace out-of-scope "$cmd"
     fi
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}reset\s+--hard\b"; then
-      should_skip destructive || block destructive "git reset --hard blocked"
+      decided=
+      should_skip destructive && decided=1 || block destructive "git reset --hard blocked"
+      [ -z "$decided" ] && pass_through_trace destructive "$cmd"
     fi
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}clean\s+-[A-Za-z]*f"; then
-      should_skip destructive || block destructive "git clean -f blocked"
+      decided=
+      should_skip destructive && decided=1 || block destructive "git clean -f blocked"
+      [ -z "$decided" ] && pass_through_trace destructive "$cmd"
     fi
 
     # Backmerge: `git merge <protected>` (optionally prefixed with
@@ -154,10 +170,16 @@ case "$tool" in
     # / `upstream/` so a feature branch named `feature/main` doesn't
     # match (the loose `\S+/` form would have swallowed `feature/`).
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}merge(\s+\S+)*\s+((origin|upstream)/)?(${PROTECTED_BRANCH_PATTERN})(\s|$)"; then
+      decided=
       if ! is_protected_branch; then
-        should_skip backmerge \
+        should_skip backmerge && decided=1 \
           || block backmerge "backmerge blocked — use 'git pull --rebase origin <base>' instead (or SKIP_HOOKS=backmerge for exceptional cases)"
+      else
+        # On a protected branch, `git merge <base>` is the local-merge-of-a-PR
+        # path explicitly allowed by SPEC §6.1. Happy path; no audit emission.
+        mark_allow backmerge
       fi
+      [ -z "$decided" ] && pass_through_trace backmerge "$cmd"
     fi
 
     # gh pr merge — block when a linked issue (closingIssuesReferences) has
@@ -170,7 +192,10 @@ case "$tool" in
     # `merge-queue` because `-` is a non-word boundary. Matches the
     # backmerge matcher's anchor style at line 142.
     if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
-      if ! should_skip ac-closeout; then
+      decided=
+      if should_skip ac-closeout; then
+        decided=1
+      else
         # ac_closeout_gate.sh is matcher-scoped (only sourced on the
         # `gh pr merge` path), so the safe_source call lives here, not
         # at file top. If safe_source returns 1 (helper missing) it has
@@ -185,60 +210,91 @@ case "$tool" in
             ac_rc=$?
             case "$ac_rc" in
               0) block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases." ;;
-              2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open" ;;
+              2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open"; decided=1 ;;
             esac
           else
             audit_log warn ac-closeout notice "could not resolve PR number from cmd or current branch; merge allowed per fail-open"
+            decided=1
           fi
+        else
+          # safe_source emitted helper-missing warn already
+          decided=1
         fi
       fi
+      [ -z "$decided" ] && pass_through_trace ac-closeout "$cmd"
     fi
 
     # Force push
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*(\-f\b|\-\-force\b|\-\-force-with-lease\b)"; then
-      should_skip force-push || block force-push "force push blocked"
+      decided=
+      should_skip force-push && decided=1 || block force-push "force push blocked"
+      [ -z "$decided" ] && pass_through_trace force-push "$cmd"
     fi
 
     # Direct push to protected branch
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*\b(${PROTECTED_BRANCH_PATTERN})\b"; then
-      should_skip branch || block branch "direct push to protected branch blocked"
+      decided=
+      should_skip branch && decided=1 || block branch "direct push to protected branch blocked"
+      [ -z "$decided" ] && pass_through_trace branch "$cmd"
     fi
 
     # --no-verify
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b.*\-\-no-verify\b"; then
-      should_skip no-verify || block no-verify "--no-verify blocked"
+      decided=
+      should_skip no-verify && decided=1 || block no-verify "--no-verify blocked"
+      [ -z "$decided" ] && pass_through_trace no-verify "$cmd"
     fi
 
     # --amend (only when the commit is already pushed)
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b.*\-\-amend\b"; then
+      decided=
       if git rev-parse '@{upstream}' >/dev/null 2>&1; then
         if git merge-base --is-ancestor HEAD '@{upstream}' 2>/dev/null; then
-          should_skip amend || block amend "--amend of an already-pushed commit blocked"
+          should_skip amend && decided=1 || block amend "--amend of an already-pushed commit blocked"
+        else
+          # Local amend (commit ahead of upstream). Common case during draft
+          # work — happy path with no audit emission.
+          mark_allow amend
         fi
+      else
+        # No upstream tracked → local amend allowed. Happy path.
+        mark_allow amend
       fi
+      [ -z "$decided" ] && pass_through_trace amend "$cmd"
     fi
 
     # git commit body: protected branch / commit format / secrets / lint
+    # Umbrella matcher with 4 sub-checks each carrying its own category.
+    # `decided` is set by ANY firing sub-arm (block exits, escape audits).
+    # All four sub-checks passing IS the common happy path (every clean
+    # commit) — mark_allow keeps audit.jsonl quiet on that path; the
+    # pass-through tail is the safety net for an unforeseen anomaly.
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b" \
        && ! printf '%s' "$cmd" | grep -qE '\-\-allow-empty\b' ; then
+      decided=
       if is_protected_branch; then
-        should_skip branch || block branch "commit on protected branch ($(branch_label)) blocked"
+        should_skip branch && decided=1 || block branch "commit on protected branch ($(branch_label)) blocked"
       fi
       subj=$(extract_commit_subject "$raw_cmd" "$cmd")
       if [ -n "$subj" ]; then
         err=$(check_commit_subject "$subj" 2>&1) || {
-          should_skip commit-format || block commit-format "$err"
+          should_skip commit-format && decided=1 || block commit-format "$err"
         }
       fi
       if ! err=$(scan_staged_secrets 2>&1); then
-        should_skip secret || block secret "$err"
+        should_skip secret && decided=1 || block secret "$err"
       fi
       lint=$(detect_lint_cmd)
       if [ -n "$lint" ]; then
         if ! run_bounded_lint "$lint" >/dev/null 2>&1; then
-          should_skip format || block format "lint failed or timed out (CLAUDE_ENG_LINT_TIMEOUT=${CLAUDE_ENG_LINT_TIMEOUT:-30}s): $lint"
+          should_skip format && decided=1 || block format "lint failed or timed out (CLAUDE_ENG_LINT_TIMEOUT=${CLAUDE_ENG_LINT_TIMEOUT:-30}s): $lint"
         fi
       fi
+      # Happy path — all four sub-checks evaluated to no-problem. mark_allow
+      # is no-op + decided=1; the pass-through line below remains as the
+      # invariant safety net but is unreachable for this matcher today.
+      [ -z "$decided" ] && mark_allow commit-format
+      [ -z "$decided" ] && pass_through_trace commit-format "$cmd"
     fi
     ;;
 

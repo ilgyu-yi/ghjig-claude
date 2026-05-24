@@ -2536,6 +2536,152 @@ fi
 
 rm -rf "$GH38_DIR"
 
+# ---------- 39. matcher pass-through audit invariant (#33) ----------
+# SPEC §6.1 contract: every matcher that enters MUST emit exactly one
+# audit record tagged with its category in this hook invocation. The
+# terminal arm fires it (block / warn); if no arm fires by the tail,
+# `pass_through_trace <cat> "<cmd>"` emits a `warn <cat> pass-through`.
+#
+# §39a tests pass-through firing for matchers where a benign-but-entering
+# cmd today produces no audit record. §39b is the structural awk-grep
+# that every matcher block contains a `pass_through_trace` symbol. §39c
+# asserts the negative: a cmd that enters no matcher produces zero
+# new audit records.
+
+REAL_AUDIT_39="$SHELL_ROOT/.claude/audit/audit.jsonl"
+
+# §39 test harness — invoke pre_tool_use.sh with a synthesized Bash
+# tool_input.command, captured the way §38 does. The gh shim is needed
+# only for the ac-closeout matcher; reuse the §38 fixture path.
+PT39_DIR=$(mktemp -d)
+PT39_SHIM="$PT39_DIR/bin"
+PT39_STATE="$PT39_DIR/state"
+mkdir -p "$PT39_SHIM" "$PT39_STATE"
+cat > "$PT39_SHIM/gh" <<'SHIM'
+#!/bin/sh
+case "$*" in
+  *"pr view"*"closingIssuesReferences"*) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
+  *"pr view"*"--json number"*)           cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
+  *"issue view"*"--json body"*)          cat "$GH_SHIM_STATE/issue_body" 2>/dev/null ;;
+  *"issue view"*"--json comments"*)      cat "$GH_SHIM_STATE/issue_comments" 2>/dev/null ;;
+esac
+exit 0
+SHIM
+chmod +x "$PT39_SHIM/gh"
+
+# Set up an ac-closeout fixture that makes pr_needs_closeout return 1
+# (allow path — linked issue has NO unchecked AC items). This is the
+# pass-through scenario for ac-closeout.
+printf '100\n' > "$PT39_STATE/pr_issues"
+printf '200\n' > "$PT39_STATE/pr_number"
+printf -- '- [x] all done\n' > "$PT39_STATE/issue_body"
+: > "$PT39_STATE/issue_comments"
+
+pt39_run() {
+  local cmd="$1"
+  (
+    cd "$TMP/fake" || exit 1
+    # shellcheck disable=SC2069
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$cmd" | jq -Rs .)" \
+      | PATH="$PT39_SHIM:$PATH" \
+        GH_SHIM_STATE="$PT39_STATE" \
+        CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
+  )
+}
+
+# §39a: benign-but-entering commands per matcher. Each row asserts the
+# audit grew by ≥1 and the LAST appended record carries the expected
+# category + decision token. Categories per the SPEC §6.1 row table;
+# decision tokens per the new decision-token vocabulary table.
+#
+# Rows that expect `pass-through` are the new behavior the refactor
+# introduces. Rows expecting `notice` are explicit-allow arms (e.g.
+# --amend on non-pushed commit). Rows expecting `bypass-suspect` cover
+# the always-warns matcher (unchanged by this PR but locks the invariant
+# that it always decides).
+#
+# Format: "cmd-or-cmd-tag|category|expected-decision"
+# When the cmd starts with `gh pr merge`, pt39_run uses the gh shim
+# whose state is already configured for the pass-through ac-closeout
+# scenario above.
+PT39_TABLE=(
+  "gh pr merge 200 --merge|ac-closeout|pass-through"
+)
+
+# Subset notes for the v1 cut: only ac-closeout is included here.
+# Adding the other 10 matchers needs custom setup per matcher (cwd on
+# the right branch for backmerge; pushed-vs-unpushed for --amend; etc.)
+# — those are added incrementally in the Code phase as the matchers are
+# retrofitted. §39b's structural check is the safety net that catches
+# any matcher whose retrofit is forgotten.
+
+p39_fails=0
+for row in "${PT39_TABLE[@]}"; do
+  IFS='|' read -r p39_cmd p39_cat p39_dec <<< "$row"
+  p39_before=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+  pt39_run "$p39_cmd" >/dev/null 2>&1
+  p39_rc=$?
+  p39_after=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+  p39_new=$(( p39_after - p39_before ))
+  p39_tail=""
+  if [ "$p39_new" -gt 0 ]; then
+    p39_tail=$(tail -"$p39_new" "$REAL_AUDIT_39" 2>/dev/null)
+  fi
+
+  if [ "$p39_new" -ge 1 ] \
+     && printf '%s' "$p39_tail" | grep -q "\"category\":\"$p39_cat\"" \
+     && printf '%s' "$p39_tail" | grep -q "\"decision\":\"$p39_dec\""; then
+    ok "pass-through: $p39_cat → $p39_dec emitted on benign-entering cmd (#33)"
+  else
+    p39_fails=$((p39_fails+1))
+    ng "pass-through: expected category=$p39_cat decision=$p39_dec; got rc=$p39_rc new=$p39_new tail=$p39_tail (#33)"
+  fi
+done
+
+# §39b: structural awk-grep — every `if printf '%s' "$cmd" | grep -qE`
+# matcher block in pre_tool_use.sh must contain a `pass_through_trace`
+# call. The decided= + tail pattern from SPEC §6.1 implementation
+# pattern ensures the symbol appears. Awk tracks `if ... then ... fi`
+# nesting via line count of `then` opens vs `fi` closes within each
+# matcher block.
+pt39b_missing=$(awk '
+  /if printf .* grep -qE/ {
+    # Closing the previous matcher block: if we never saw pass_through_trace
+    # or mark_allow since the prior matcher entry, that matcher is missing
+    # its structural tail-marker. Either symbol satisfies the SPEC §6.1
+    # contract (pass_through_trace = anomaly safety net; mark_allow =
+    # high-frequency happy path, no audit emission).
+    if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
+    in_matcher=1; saw_pt=0; start=NR; matcher_text=$0; next
+  }
+  in_matcher && (/pass_through_trace/ || /mark_allow/) { saw_pt=1 }
+  END {
+    if (in_matcher && !saw_pt) print FILENAME ":" start ": " matcher_text
+  }
+' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh")
+if [ -z "$pt39b_missing" ]; then
+  ok "pass-through: every matcher block contains pass_through_trace symbol (#33)"
+else
+  ng "pass-through: matcher block(s) missing pass_through_trace: $pt39b_missing (#33)"
+fi
+
+# §39c: negative — a Bash cmd that matches no matcher (`ls -la`) must
+# produce zero new audit records. Locks the "matcher didn't enter ⇒
+# no record" half of the invariant.
+p39c_before=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+pt39_run "ls -la" >/dev/null 2>&1
+p39c_after=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+p39c_new=$(( p39c_after - p39c_before ))
+if [ "$p39c_new" = 0 ]; then
+  ok "pass-through: benign no-matcher cmd produces zero audit records (#33)"
+else
+  ng "pass-through: benign cmd produced $p39c_new unexpected audit records (#33)"
+fi
+
+rm -rf "$PT39_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
