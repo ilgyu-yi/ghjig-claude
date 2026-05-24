@@ -50,6 +50,16 @@ External paths register too:
 # or: claude-eng ~/code/<repo>   ← unregistered path prompts to register
 ```
 
+For **dir-mode** (SPEC §1.7), bootstrap the GitHub Project v2 substrate from inside a registered target repo:
+
+```bash
+./scripts/setup_project.sh         # idempotent — creates "<repo-name> roadmap" with
+                                    # 6 fields and links to the repo. The Iteration
+                                    # field is user-added via the GH UI (gh CLI lacks
+                                    # the ITERATION data-type). Schema locked by
+                                    # docs/ADRs/0002-…
+```
+
 ## Operating modes
 
 | Mode | `/ship` terminal behavior | Use |

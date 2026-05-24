@@ -278,7 +278,7 @@ Dir-mode operates on the Goal-to-Directive layer; eng-mode operates on Execution
 
 **Strategic judgment remains external.** AI may generate, draft, propose, and review at any level. Activation, completion, and revision decisions pass through either a human (attended) or `directive-reviewer` (unattended) — the shell never autonomously decides direction.
 
-**Substrate.** All three item types (Goal, Directive, Execution Issue) live in the **same target repo** and are hosted in a single **GitHub Project v2** with custom fields `Type / Status / Iteration / Priority / Parent / Confidence / Success Signals`. Setup is owned by `scripts/setup_project.sh` (forthcoming, tracking #41 child #2 / issue #43). `Type`-awareness in hooks (§6.1) and command listings preserves the conceptual Directive ≠ Execution-Issue distinction even though the data layer is shared.
+**Substrate.** All three item types (Goal, Directive, Execution Issue) live in the **same target repo** and are hosted in a single **GitHub Project v2** with custom fields `Type / Status / Iteration / Priority / Parent / Confidence / Success Signals`. Setup is owned by `scripts/setup_project.sh` — an idempotent bootstrap that creates the Project (named `<repo-name> roadmap` by default; override via `$CLAUDE_ENG_PROJECT_NAME`) and ensures all seven fields exist. Field-schema rationale (per-field types, allowed values, deferred view management) is locked by [ADR-0002](docs/ADRs/0002-directive-project-field-schema.md). `Type`-awareness in hooks (§6.1) and command listings preserves the conceptual Directive ≠ Execution-Issue distinction even though the data layer is shared.
 
 ---
 
