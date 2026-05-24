@@ -3192,6 +3192,157 @@ for pair in "file-directive:directive-file" "activate-directive:directive-activa
   fi
 done
 
+# ---------- 44. Type-aware hooks + directive-protect matcher (#46) ----------
+# PR #46 wires Type-awareness into pre_tool_use.sh via helpers/issue_type.sh.
+# Smoke covers:
+#   44a: directive-protect blocks `git checkout -b <user>/<type>/<N>-<slug>`
+#        when issue <N> carries the `directive` label.
+#   44b: same command for a non-Directive issue is allowed (mark_allow).
+#   44c: is_directive_issue caches the result under .claude/state/issue-type-cache/.
+#   44d: SKIP_HOOKS=directive-protect bypasses the block.
+#
+# Mock strategy: PATH-overlay mock `gh` returns canned labels per issue.
+
+DP_DIR=$(mktemp -d)
+DP_BIN="$DP_DIR/bin"
+DP_TARGET="$DP_DIR/target"
+DP_CACHE="$SHELL_ROOT/.claude/state/issue-type-cache"
+mkdir -p "$DP_BIN" "$DP_TARGET"
+DP_TARGET=$(cd "$DP_TARGET" && pwd -P)
+(cd "$DP_TARGET" && git init -q) || true
+DP_AUDIT="$DP_DIR/audit.jsonl"
+
+# Register DP_TARGET so cwd_guard accepts it (matches the §41 pattern).
+DP_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$DP_TARGET" >> "$DP_REGISTRY"
+
+cat > "$DP_BIN/gh" <<'MOCK'
+#!/usr/bin/env bash
+# Mock gh for §44. Inspects $GH_MOCK_LABELS_<n> (e.g. GH_MOCK_LABELS_42="directive,enhancement")
+# to decide what `gh issue view <n> --json labels` returns. `gh repo view`
+# returns a fixed smoke-owner/smoke-repo. Honors the `-q <jq-expr>` flag the
+# real gh exposes — so callers that pass `-q .owner.login` get just the value.
+emit() {
+  # $1 = full JSON; the rest of argv contains the original flags. Look for
+  # -q <expr> and apply via jq if present; otherwise emit the full JSON.
+  local full="$1"; shift
+  local expr=""
+  local next=0
+  for a in "$@"; do
+    if [ "$next" = 1 ]; then expr="$a"; next=0; continue; fi
+    [ "$a" = "-q" ] && next=1
+  done
+  if [ -n "$expr" ] && command -v jq >/dev/null 2>&1; then
+    printf '%s' "$full" | jq -r "$expr" 2>/dev/null
+  else
+    printf '%s' "$full"
+  fi
+}
+case "${1:-}" in
+  repo)
+    if [ "${2:-}" = view ]; then
+      emit '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}' "$@"
+    fi
+    ;;
+  issue)
+    if [ "${2:-}" = view ]; then
+      issue="$3"
+      var="GH_MOCK_LABELS_${issue}"
+      labels="${!var:-}"
+      arr="["; first=1; old_ifs="$IFS"; IFS=,
+      for l in $labels; do
+        [ -z "$l" ] && continue
+        [ "$first" = 1 ] && first=0 || arr="$arr,"
+        arr="$arr{\"name\":\"$l\"}"
+      done
+      IFS="$old_ifs"; arr="$arr]"
+      emit "{\"labels\":$arr}" "$@"
+    fi
+    ;;
+  pr)
+    if [ "${2:-}" = view ]; then
+      emit "{\"closingIssuesReferences\":[${GH_MOCK_PR_CLOSING:-}]}" "$@"
+    fi
+    ;;
+esac
+exit 0
+MOCK
+chmod +x "$DP_BIN/gh"
+
+dp_run() {
+  # $1 = cmd string passed in as Bash tool input; $2 (optional) = SKIP_HOOKS value
+  local cmd="$1" skip="${2:-}"
+  # pre_tool_use.sh expects JSON on stdin with .tool_input.command for Bash.
+  local stdin_json
+  stdin_json=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd")
+  (
+    cd "$DP_TARGET" || exit 0
+    PATH="$DP_BIN:$PATH" \
+    CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    AUDIT_LOG_PATH="$DP_AUDIT" \
+    GH_MOCK_LABELS_91="directive,enhancement" \
+    GH_MOCK_LABELS_92="enhancement" \
+    GH_MOCK_LABELS_93="directive" \
+    SKIP_HOOKS="$skip" \
+    SKIP_REASON="${skip:+smoke-test}" \
+      bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" <<< "$stdin_json"
+  )
+  return $?
+}
+
+# Clear cache so each assertion starts fresh.
+rm -rf "$DP_CACHE"
+
+# 44a: Directive issue → block.
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/91-foo" >/dev/null 2>&1 || rc=$?
+if [ "$rc" = 2 ]; then
+  ok "44a: directive-protect blocks git checkout -b on Directive Issue #91 (#46)"
+else
+  ng "44a: expected exit 2 (block) on Directive Issue; got rc=$rc (#46)"
+fi
+
+# 44b: Execution issue (non-Directive label) → allowed (rc 0).
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/92-bar" >/dev/null 2>&1 || rc=$?
+if [ "$rc" = 0 ]; then
+  ok "44b: directive-protect allows git checkout -b on non-Directive Issue #92 (#46)"
+else
+  ng "44b: expected rc=0 on non-Directive Issue; got rc=$rc (#46)"
+fi
+
+# 44c: cache entry created after lookups.
+if [ -f "$DP_CACHE/smoke-owner__smoke-repo__91" ] && [ -f "$DP_CACHE/smoke-owner__smoke-repo__92" ]; then
+  cache_91=$(cat "$DP_CACHE/smoke-owner__smoke-repo__91" 2>/dev/null)
+  cache_92=$(cat "$DP_CACHE/smoke-owner__smoke-repo__92" 2>/dev/null)
+  if [ "$cache_91" = directive ] && [ "$cache_92" = execution ]; then
+    ok "44c: is_directive_issue cache stores type per-issue (#46)"
+  else
+    ng "44c: cache contents wrong; #91=$cache_91 #92=$cache_92 (expected directive/execution) (#46)"
+  fi
+else
+  ng "44c: cache files not created under $DP_CACHE (#46)"
+fi
+
+# 44d: SKIP_HOOKS=directive-protect bypasses the block.
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/93-baz" "directive-protect" >/dev/null 2>&1 || rc=$?
+if [ "$rc" = 0 ]; then
+  ok "44d: SKIP_HOOKS=directive-protect bypasses the block (#46)"
+else
+  ng "44d: SKIP_HOOKS=directive-protect should allow but got rc=$rc (#46)"
+fi
+
+# Cleanup: remove cache entries created by §44 so they don't leak.
+rm -f "$DP_CACHE/smoke-owner__smoke-repo__91" "$DP_CACHE/smoke-owner__smoke-repo__92" "$DP_CACHE/smoke-owner__smoke-repo__93"
+# Remove the test target from the registry so other tests aren't affected.
+if [ -f "$DP_REGISTRY" ]; then
+  dp_tmp_reg=$(mktemp)
+  grep -vxF "$DP_TARGET" "$DP_REGISTRY" > "$dp_tmp_reg" 2>/dev/null || true
+  mv "$dp_tmp_reg" "$DP_REGISTRY"
+fi
+rm -rf "$DP_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

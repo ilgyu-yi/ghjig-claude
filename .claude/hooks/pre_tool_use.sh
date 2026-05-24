@@ -24,6 +24,7 @@ safe_source "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"         branch  
 safe_source "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"  commit-format    || true
 safe_source "$SHELL_ROOT/.claude/hooks/helpers/secret_scan.sh"          secret           || true
 safe_source "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"          commit-format    || true
+safe_source "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"           directive-protect || true
 
 # If cwd_guard.sh wasn't loaded, `in_scope` is undefined → rc=127 → exit 0
 # (the matcher would have nothing to guard anyway). safe_source has
@@ -209,7 +210,32 @@ case "$tool" in
             pr_needs_closeout "$ac_pr"
             ac_rc=$?
             case "$ac_rc" in
-              0) block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases." ;;
+              0)
+                # Type-awareness (SPEC §1.7, §6.1) — if the linked closing issue
+                # is a Directive, the AC-closeout gate doesn't apply (Directives
+                # close via /complete-directive + directive-reviewer, not by AC
+                # checkboxes). Skip the block, info-log, and let merge proceed.
+                ac_directive_skip=
+                if command -v is_directive_issue >/dev/null 2>&1; then
+                  ac_closing=$(gh pr view "$ac_pr" --json closingIssuesReferences \
+                    -q '[.closingIssuesReferences[].number] | join(" ")' 2>/dev/null || true)
+                  if [ -n "$ac_closing" ]; then
+                    ac_all_directive=1
+                    for ac_iss in $ac_closing; do
+                      if ! is_directive_issue "$ac_iss"; then
+                        ac_all_directive=0
+                        break
+                      fi
+                    done
+                    if [ "$ac_all_directive" = 1 ]; then
+                      audit_log info ac-closeout notice "all closing issues are Type=Directive; skipping AC-closeout per §1.7 Type-awareness"
+                      ac_directive_skip=1
+                      decided=1
+                    fi
+                  fi
+                fi
+                [ -z "$ac_directive_skip" ] && block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases."
+                ;;
               2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open"; decided=1 ;;
             esac
           else
@@ -222,6 +248,40 @@ case "$tool" in
         fi
       fi
       [ -z "$decided" ] && pass_through_trace ac-closeout "$cmd"
+    fi
+
+    # directive-protect — block branch-creation referencing a Directive Issue
+    # (SPEC §1.7, §6.1). The branch-name convention <user>/<type>/<N>-<slug>
+    # (CLAUDE.md / SPEC §10.1) encodes the issue number; we extract <N> and
+    # check is_directive_issue. If yes, refuse the branch creation with a
+    # redirect to /activate-directive (if Planned) or /file-issue --parent
+    # (if Active).
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}checkout[[:space:]]+-b[[:space:]]+[A-Za-z0-9._-]+/[a-z]+/[0-9]+-"; then
+      decided=
+      if should_skip directive-protect; then
+        decided=1
+      elif command -v is_directive_issue >/dev/null 2>&1; then
+        # Extract the issue number via bash builtin regex. GIT_PREFIX uses
+        # PCRE-style \b/\s/\S that sed -E (BSD/macOS) doesn't support; bash
+        # =~ uses POSIX ERE which is fine for this branch-name shape.
+        dp_issue=
+        if [[ "$cmd" =~ checkout[[:space:]]+-b[[:space:]]+[A-Za-z0-9._-]+/[a-z]+/([0-9]+)- ]]; then
+          dp_issue="${BASH_REMATCH[1]}"
+        fi
+        if [ -n "$dp_issue" ] && is_directive_issue "$dp_issue"; then
+          block directive-protect "Issue #${dp_issue} is a Directive (Type=Directive, SPEC §1.7). Directives do not branch into engineering PRs. Use /activate-directive ${dp_issue} (if Planned) or /file-issue --parent ${dp_issue} (if Active). Or SKIP_HOOKS=directive-protect SKIP_REASON='<why>' for legitimate edge cases."
+        else
+          # Either issue # is not a Directive, or is_directive_issue failed
+          # (gh down, no auth) — fail-open per SPEC §6.1.
+          mark_allow directive-protect
+          decided=1
+        fi
+      else
+        # helper missing → safe_source already warned at file top; fail-open.
+        mark_allow directive-protect
+        decided=1
+      fi
+      [ -z "$decided" ] && pass_through_trace directive-protect "$cmd"
     fi
 
     # Force push
