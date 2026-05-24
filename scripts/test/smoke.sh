@@ -3498,6 +3498,19 @@ else
   else
     ng "48f: workflow install drifts from template (#63)"
   fi
+
+  # 48g: every `gh <subcommand>` in the workflow carries --repo (#66 fix).
+  # The runner has no checkout step; gh would otherwise read git context from
+  # cwd and fail. Lock the --repo flag on every gh invocation. The pattern
+  # matches gh-with-subcommand anywhere on a line (including inside $(...)
+  # substitutions) so multi-line gh calls (continuation with backslash) count.
+  gh_calls=$(grep -cE '\bgh[[:space:]]+(pr|issue|repo|project|api|auth|run|workflow|release|search|label)\b' "$DPM_TEMPLATE" 2>/dev/null || echo 0)
+  gh_with_repo=$(grep -cE '\bgh[[:space:]]+(pr|issue|repo|project|api|auth|run|workflow|release|search|label)\b.*--repo' "$DPM_TEMPLATE" 2>/dev/null || echo 0)
+  if [ "$gh_calls" -gt 0 ] && [ "$gh_calls" = "$gh_with_repo" ]; then
+    ok "48g: all $gh_calls gh invocations carry --repo flag (no-checkout runner) (#66)"
+  else
+    ng "48g: $gh_calls gh invocations but only $gh_with_repo carry --repo — runner will fail without git context (#66)"
+  fi
 fi
 
 # ---------- restore registry ----------

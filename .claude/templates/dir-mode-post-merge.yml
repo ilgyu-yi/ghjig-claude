@@ -39,15 +39,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # No actions/checkout step — the workflow only uses gh API. Every gh
+          # call carries --repo so it doesn't try to read git context from the
+          # runner's cwd (which has no .git directory).
           # Fetch closing-issue numbers from the merged PR.
-          closing=$(gh pr view "$PR_NUM" --json closingIssuesReferences \
+          closing=$(gh pr view "$PR_NUM" --repo "$REPO" --json closingIssuesReferences \
             --jq '.closingIssuesReferences[].number')
           directive=""
           exec_issue=""
           for n in $closing; do
-            body=$(gh issue view "$n" --json body --jq .body)
+            body=$(gh issue view "$n" --repo "$REPO" --json body --jq .body)
             if [[ "$body" =~ ^Parent\ Directive:\ \#([0-9]+) ]]; then
               directive="${BASH_REMATCH[1]}"
               exec_issue="$n"
@@ -65,6 +69,7 @@ jobs:
         if: steps.resolve.outputs.directive != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           DIRECTIVE: ${{ steps.resolve.outputs.directive }}
           EXEC: ${{ steps.resolve.outputs.exec_issue }}
           PR: ${{ github.event.pull_request.number }}
@@ -76,7 +81,7 @@ jobs:
           # Idempotency: skip if a comment containing this PR's URL already exists
           # on the parent Directive. Matches the /reflect Markdown procedure's
           # existing-URL check, so Claude-in-loop and hook-enforced paths dedupe.
-          existing=$(gh issue view "$DIRECTIVE" --comments --json comments \
+          existing=$(gh issue view "$DIRECTIVE" --repo "$REPO" --comments --json comments \
             --jq ".comments[] | select(.body | contains(\"$PR_URL\")) | .url" | head -1)
           if [ -n "$existing" ]; then
             echo "Already reflected: $existing"
@@ -102,4 +107,4 @@ jobs:
           Posted by \`.github/workflows/dir-mode-post-merge.yml\` on \`pull_request.closed\` (merged=true).
           COMMENT
           )
-          gh issue comment "$DIRECTIVE" --body "$comment"
+          gh issue comment "$DIRECTIVE" --repo "$REPO" --body "$comment"
