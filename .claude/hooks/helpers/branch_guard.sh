@@ -4,9 +4,11 @@
 # Depends on $PROTECTED_BRANCH_PATTERN from helpers/git_matcher.sh — every
 # caller of branch_guard.sh in the shell already sources git_matcher.sh
 # (it provides GIT_PREFIX), but we source it idempotently here so future
-# standalone callers don't silently degrade.
+# standalone callers don't silently degrade. Helper-to-helper sources
+# go through `safe_source` per SPEC §6.1 — the on-miss warn fires from
+# this site too, surfacing the second consumer (#36).
 # shellcheck disable=SC1090,SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/git_matcher.sh"
+safe_source "$(dirname "${BASH_SOURCE[0]}")/git_matcher.sh" commit-format || true
 
 # Returns the current branch name, or the empty string if HEAD is detached.
 # Callers that need a human-readable label (including detached-HEAD context)
