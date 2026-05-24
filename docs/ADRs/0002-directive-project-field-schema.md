@@ -12,17 +12,25 @@ The substrate is created by `scripts/setup_project.sh` (introduced by this PR). 
 
 ## Decision
 
-### Field schema (seven custom fields)
+### Field schema (six script-managed + one user-managed = seven total)
 
-| Field | Type | Values / Notes | Used by |
-|-------|------|----------------|---------|
-| `Type` | `SINGLE_SELECT` | `Goal`, `Directive`, `Execution` | All rows; primary `Type`-awareness key (SPEC §1.7, §6.1) |
-| `Status` | `SINGLE_SELECT` | `Planned`, `Active`, `Completed`, `Blocked`, `Revised` | Directive primarily; Execution rows use repo-native open/closed state |
-| `Iteration` | `ITERATION` | 2-week cadence, Monday-start (default; user-editable via UI) | Directive (optional cycle reference) |
-| `Priority` | `SINGLE_SELECT` | `P0`, `P1`, `P2`, `P3` | Directive + Execution (ordering field) |
-| `Parent` | `TEXT` | Free-form text storing `#N` reference to parent Directive Issue | Execution (and recursive Directive parenting if v1+ enables it) |
-| `Confidence` | `NUMBER` | 0–100 (convention; field type does not enforce range) | Directive only (by convention; ignored on Execution rows) |
-| `Success Signals` | `TEXT` | Free-form text; multi-line markdown allowed | Directive only (by convention) |
+| Field | Type | Values / Notes | Created by | Used by |
+|-------|------|----------------|-----------|---------|
+| `Type` | `SINGLE_SELECT` | `Goal`, `Directive`, `Execution` | `setup_project.sh` | All rows; primary `Type`-awareness key (SPEC §1.7, §6.1) |
+| `Status` | `SINGLE_SELECT` | `Planned`, `Active`, `Completed`, `Blocked`, `Revised` | `setup_project.sh` | Directive primarily; Execution rows use repo-native open/closed state |
+| `Iteration` | `ITERATION` | 2-week cadence, Monday-start (recommended; user picks at creation time) | **User via GH UI** (see "Iteration constraint" below) | Directive (optional cycle reference) |
+| `Priority` | `SINGLE_SELECT` | `P0`, `P1`, `P2`, `P3` | `setup_project.sh` | Directive + Execution (ordering field) |
+| `Parent` | `TEXT` | Free-form text storing `#N` reference to parent Directive Issue | `setup_project.sh` | Execution (and recursive Directive parenting if v1+ enables it) |
+| `Confidence` | `NUMBER` | 0–100 (convention; field type does not enforce range) | `setup_project.sh` | Directive only (by convention; ignored on Execution rows) |
+| `Success Signals` | `TEXT` | Free-form text; multi-line markdown allowed | `setup_project.sh` | Directive only (by convention) |
+
+#### Iteration constraint
+
+`gh project field-create --data-type` (as of `gh 2.50.0`) accepts only `TEXT | SINGLE_SELECT | DATE | NUMBER`. **`ITERATION` is not exposed by the CLI** — it must be created via `gh api graphql` (with a multi-step mutation flow) or manually via the GitHub UI.
+
+v0 resolution: **script creates the six CLI-supported fields; `Iteration` is left for the user to add manually via the Project's "+ field" button.** The setup script prints a one-time hint after first-run telling users they can add an Iteration field with their preferred cadence in the GH UI (it takes ~30 seconds). The `Iteration` field is referenced by `/list-directives --iteration <name>` (PR #45) but the flag is optional — Directives without an Iteration value behave as "no cycle assigned."
+
+GraphQL automation of the Iteration field is recorded as v1+ work, parallel to the deferred Board/Roadmap view creation (axis 9 above). Both are GraphQL-only operations that drift independently of the `gh project` CLI; both are gated behind the same v1+ trigger ("real friction surfaces from real v0 use").
 
 ### Project ownership and naming
 
@@ -36,7 +44,7 @@ Default Layout (Table) is auto-created by `gh project create` and is sufficient 
 
 ### Idempotency
 
-The script is idempotent at the field level: it queries existing fields via `gh project field-list`, parses with `jq`, and only invokes `gh project field-create` for missing fields. Per-field decisions (`created` vs `skipped`) are audit-logged as category `project-setup`. Re-running against a fully-populated Project produces ≥7 `skipped` audit lines and exits 0.
+The script is idempotent at the field level: it queries existing fields via `gh project field-list`, parses with `jq`, and only invokes `gh project field-create` for missing fields. Per-field decisions (`created` vs `skipped`) are audit-logged as category `project-setup`. Re-running against a fully-populated Project produces ≥6 `skipped` audit lines (the six CLI-supported fields) and exits 0. The `Iteration` field is reported separately in the post-run hint — its presence is checked but never auto-created.
 
 ## Alternatives considered
 

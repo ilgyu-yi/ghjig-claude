@@ -2872,6 +2872,9 @@ SP_DIR=$(mktemp -d)
 SP_TARGET="$SP_DIR/target"
 SP_BIN="$SP_DIR/bin"
 mkdir -p "$SP_TARGET" "$SP_BIN"
+# Resolve to the realpath so the registry entry matches `pwd -P` from inside the
+# target directory (macOS /var is a symlink to /private/var; the script uses -P).
+SP_TARGET=$(cd "$SP_TARGET" && pwd -P)
 (cd "$SP_TARGET" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
 
 # Register $SP_TARGET so the registry guard accepts it. Save and restore the
@@ -2880,10 +2883,13 @@ mkdir -p "$SP_TARGET" "$SP_BIN"
 SP_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
 printf '%s\n' "$SP_TARGET" >> "$SP_REGISTRY"
 
-# Mock gh — dispatches by subcommand; logs full argv.
+# Mock gh — dispatches by subcommand; logs full argv. Tracks per-field creation
+# state via $GH_MOCK_FIELDS_DIR so successive ensure_field calls see the union
+# of (default "Title" + all fields created so far). This makes the mock match
+# real gh behavior: after field-create succeeds, that field shows up in
+# field-list on the next call.
 cat > "$SP_BIN/gh" <<'MOCK'
 #!/usr/bin/env bash
-# Mock gh for smoke §41. Logs argv to $GH_MOCK_LOG; emits canned JSON / status.
 printf '%q ' "$@" >> "$GH_MOCK_LOG"; printf '\n' >> "$GH_MOCK_LOG"
 case "${1:-}" in
   --version) printf 'gh version 2.50.0 (mock)\n' ;;
@@ -2902,7 +2908,6 @@ case "${1:-}" in
     ;;
   repo)
     if [ "${2:-}" = view ]; then
-      # gh repo view --json owner,name -q '...' OR gh repo view --json owner
       printf '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}'
     fi
     ;;
@@ -2920,16 +2925,36 @@ case "${1:-}" in
         printf '{"number":1,"url":"https://gh.test/p/1"}'
         ;;
       field-list)
-        if [ -f "$GH_MOCK_PROJECT_CREATED" ] && [ -f "$GH_MOCK_FIELDS_CREATED" ]; then
-          # Second-run: all seven fields present.
-          printf '{"fields":[{"name":"Title"},{"name":"Type"},{"name":"Status"},{"name":"Iteration"},{"name":"Priority"},{"name":"Parent"},{"name":"Confidence"},{"name":"Success Signals"}]}'
-        else
-          # First-run: only the default Title field exists.
-          printf '{"fields":[{"name":"Title"}]}'
+        # Build a JSON list of currently-existing fields: always-present "Title"
+        # plus whatever names were recorded by previous field-create calls.
+        names="Title"
+        if [ -d "$GH_MOCK_FIELDS_DIR" ]; then
+          for n in "$GH_MOCK_FIELDS_DIR"/*; do
+            [ -e "$n" ] || continue
+            names="$names"$'\n'"$(basename "$n" | tr '_' ' ')"
+          done
         fi
+        json='{"fields":['
+        first=1
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          [ "$first" = 1 ] && first=0 || json="$json,"
+          json="$json{\"name\":\"$line\"}"
+        done <<< "$names"
+        printf '%s]}' "$json"
         ;;
       field-create)
-        touch "$GH_MOCK_FIELDS_CREATED"
+        # Extract --name argument; record file under $GH_MOCK_FIELDS_DIR (basename
+        # uses underscores in place of spaces so the filename is safe).
+        next=
+        for a in "$@"; do
+          if [ "${next:-}" = name ]; then
+            mkdir -p "$GH_MOCK_FIELDS_DIR"
+            touch "$GH_MOCK_FIELDS_DIR/${a// /_}"
+            break
+          fi
+          [ "$a" = "--name" ] && next=name
+        done
         printf '{"id":"PVTSSF_mock"}'
         ;;
       link)
@@ -2962,16 +2987,19 @@ else
       CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
-      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     )
-    sp41a_creates=$(grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
-    sp41a_proj_create=$(grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
-    if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 7 ]; then
-      ok "41a: first-run creates project + 7 fields (#43)"
+    sp41a_creates=$( { grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
+    sp41a_proj_create=$( { grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
+    : "${sp41a_creates:=0}"
+    : "${sp41a_proj_create:=0}"
+    # Six CLI-managed fields per ADR-0002 "Iteration constraint" — Iteration is user-managed.
+    if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 6 ]; then
+      ok "41a: first-run creates project + 6 fields (Iteration user-managed) (#43)"
     else
-      ng "41a: first-run expected ≥1 project-create + 7 field-create; got proj=$sp41a_proj_create field=$sp41a_creates (#43)"
+      ng "41a: first-run expected ≥1 project-create + 6 field-create; got proj=$sp41a_proj_create field=$sp41a_creates (#43)"
     fi
 
     # 41b: second-run (project + fields already exist) → zero new field-creates.
@@ -2982,12 +3010,14 @@ else
       CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
-      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     )
-    sp41b_creates=$(grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
-    sp41b_proj_create=$(grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
+    sp41b_creates=$( { grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
+    sp41b_proj_create=$( { grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
+    : "${sp41b_creates:=0}"
+    : "${sp41b_proj_create:=0}"
     if [ "$sp41b_creates" = 0 ] && [ "$sp41b_proj_create" = 0 ]; then
       ok "41b: second-run idempotent — zero new creates (#43)"
     else
@@ -3004,7 +3034,7 @@ else
       CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
-      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
       GH_MOCK_AUTH=ok \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
     ) || sp41c_rc=$?
@@ -3023,7 +3053,7 @@ else
       CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
-      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
       GH_MOCK_AUTH=ok \
       GH_MOCK_SCOPES='gist, repo' \
         bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
