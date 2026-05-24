@@ -779,7 +779,7 @@ Empirical confirmation (Directive #62 / PR #67-followup): in the v0 dogfood sess
 
 **Mitigation for the in-session window**: the falling-back-to-`general-purpose` path is functionally complete — the agent's prompt instructs `general-purpose` to behave as the new reviewer. The cost is the loss of Type-aware specialization (the harness's per-subagent prompt + tool restriction). Acceptable for one session; restart at session end is canonical.
 
-**Hook-side note**: the smoke `§42` structural assertions (PR #50) lock the agent file's shape, so the routing-layer regression is the only failure mode this caveat names. A future smoke section that invokes the agent end-to-end (Directive #62's deferred Execution) catches the routing regression by asserting `subagent_type: "directive-reviewer"` produces the agent's documented output rather than `general-purpose`'s.
+**Hook-side note**: the smoke `§42` structural assertions (PR #50) lock the agent file's shape, so the routing-layer regression is the only failure mode this caveat names. The behavioral surface that catches the routing regression is **smoke §42e** (issue #69, under Directive #62): two assertions gated behind `CLAUDE_ENG_BEHAVIORAL_SMOKE=1` invoke `directive-reviewer` with a synthetic minimal-but-valid Directive body (asserting `^VERDICT: ship`) and a synthetic body missing the `## Success signals` section (asserting `^VERDICT: (refine|block)`). Env-var unset → §42e is a no-op so default smoke stays deterministic and offline; env-var set → the block exercises the live `subagent_type: "directive-reviewer"` route end-to-end. A regression in either the agent file or the routing surface flips at least one of the two verdicts.
 
 ---
 

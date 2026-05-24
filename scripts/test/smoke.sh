@@ -3079,12 +3079,14 @@ fi
 rm -rf "$SP_DIR"
 
 # ---------- 42. directive-reviewer subagent structural sanity (#44) ----------
-# Subagent behavior cannot be invoked from a smoke shell (Claude Code routes
-# Agent calls). What we can verify is the file's structural conformance to
-# the reviewer-subagent contract: frontmatter (name, description, tools),
-# required body sections, and the VERDICT-line format documented in the body.
-# Behavioral validation happens via actual /file-directive and
-# /complete-directive invocations once those commands ship in PR #45.
+# Structural assertions (42a-42d) verify the agent file's contract:
+# frontmatter (name, description, tools), required body sections, and the
+# VERDICT-line format documented in the body. These run by default.
+#
+# Behavioral validation lives in §42e below, gated behind
+# CLAUDE_ENG_BEHAVIORAL_SMOKE=1 — it shells out to the live agent and asserts
+# its VERDICT output on synthetic inputs (SPEC §4.9.3, issue #69 under
+# Directive #62). Default smoke stays deterministic and offline.
 
 DR_PATH="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
 if [ ! -f "$DR_PATH" ]; then
@@ -3130,6 +3132,115 @@ else
     ok "42d: directive-reviewer tools restricted to [Read, Grep, Glob, Bash] (#44)"
   else
     ng "42d: directive-reviewer tools expected [Read, Grep, Glob, Bash]; got '$dr_tools' (#44)"
+  fi
+fi
+
+# ---------- 42e. directive-reviewer behavioral assertions (#69 / Directive #62) ----------
+# Gated behind CLAUDE_ENG_BEHAVIORAL_SMOKE=1. When set, shells out to the live
+# agent via `claude -p --agent directive-reviewer` and asserts the documented
+# VERDICT-line output on two synthetic Directive bodies:
+#   - case A: minimal-but-valid body  → ^VERDICT: ship
+#   - case B: body missing the entire ## Success signals heading
+#                                     → ^VERDICT: (refine|block)
+# Default-unset → no-op so smoke stays offline + deterministic (preserves the
+# 278/278 baseline). See SPEC §4.9.3 for the routing-regression contract this
+# block protects.
+#
+# Surface note: `claude -p --agent <name>` is the CLI session-agent override,
+# which resolves the agent from `.claude/agents/*.md` at subprocess startup.
+# This is a different invocation surface than the in-session `Agent({subagent_type:
+# "<name>"})` tool dispatch that SPEC §4.9.3's session-restart caveat is written
+# against; the two share the `.claude/agents/*.md` enumeration source but are
+# separate code paths. §42e protects the CLI surface; the in-session dispatch
+# is covered by Signal 1's session-trace evidence captured in the PR body.
+if [ "${CLAUDE_ENG_BEHAVIORAL_SMOKE:-}" = 1 ]; then
+  if ! command -v claude >/dev/null 2>&1; then
+    ng "42e: CLAUDE_ENG_BEHAVIORAL_SMOKE=1 but 'claude' CLI not on PATH (#69)"
+  else
+    # Case A — synthetic minimal-but-valid Directive body. All five sections
+    # present with substantive content; each success signal cites a concrete
+    # mechanically-verifiable artifact (smoke run, ok-line count).
+    # NOTE: `IFS= read -r -d ''` instead of `var=$(cat <<EOF)` — macOS default
+    # bash 3.2 has a parser bug where heredoc-inside-command-substitution
+    # mis-tokenizes special chars in the body. `read -d ''` avoids the nested
+    # construct entirely; the `|| true` absorbs read's EOF-exit (rc=1).
+    IFS= read -r -d '' dr_ship_prompt <<'PROMPT_EOF' || true
+Review the following proposed Directive body for /file-directive (proposal review per SPEC §1.7 / §2.1). No active Directives in this synthetic test environment — proceed with checks 1-5. Do not fetch the active-Directive list; treat it as empty.
+
+Proposed body:
+
+# Directive: Lock smoke §42e default-offline contract
+
+## Objective
+Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing assertions so CI and dev loops remain deterministic and offline regardless of whether the behavioral-smoke env var is set in the operator's shell.
+
+## Success signals
+- `bash scripts/test/smoke.sh` (with `CLAUDE_ENG_BEHAVIORAL_SMOKE` unset) prints `smoke: pass=278 fail=0` on the next merge to main; verified by the PR's CI summary and one local re-run on the merge commit.
+- `CLAUDE_ENG_BEHAVIORAL_SMOKE=1 bash scripts/test/smoke.sh` adds exactly two passing assertions under §42e (`42e-ship` and `42e-refine-or-block`) and the total becomes `pass=280 fail=0`; verified by counting `ok "42e-` lines in the output.
+
+## Non-goals
+- Does NOT include behavioral smoke for `issue-reviewer`, `plan-reviewer`, `code-reviewer`, or `security-reviewer` — their structural assertions are out of scope for this Directive.
+- Does NOT modify directive-reviewer's five checks or the VERDICT-line format (both locked by PR #50).
+
+## Constraints
+- §42e must be self-contained inside `scripts/test/smoke.sh`; no new helper scripts under `scripts/test/` or new entries in the registry.
+- The env-var guard must be a single `if` at the top of §42e — no scattered checks inside individual `ok`/`ng` calls.
+
+## Parent Goal
+First Directive in this synthetic test environment — bootstraps the Goal slot per directive-reviewer rule "The first Directive in a repo bootstraps the Goal slot".
+PROMPT_EOF
+    dr_ship_out=$(claude -p --agent directive-reviewer "$dr_ship_prompt" 2>&1 || true)
+    # Capture the LAST `^VERDICT:` line anchored on the documented delimiters
+    # (`ship —`, `refine:`, `block:` per .claude/agents/directive-reviewer.md:78-82).
+    # Anchoring avoids matching prose quotes of the agent's own `## Verdict
+    # dispatch` section if the agent cites itself; `tail -1` picks the terminal
+    # verdict if multiple anchored lines somehow appear.
+    dr_ship_verdict=$(printf '%s\n' "$dr_ship_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
+    case "$dr_ship_verdict" in
+      "VERDICT: ship"*)
+        ok "42e-ship: directive-reviewer returns 'ship' on minimal-but-valid synthetic body (#69)" ;;
+      *)
+        # On miss, surface the first 200 chars of the agent's output so the
+        # next operator can tell live-agent failures (auth, rate-limit, model
+        # overloaded) apart from genuine verdict regressions.
+        dr_ship_head=$(printf '%s' "$dr_ship_out" | head -c 200 | tr '\n' ' ')
+        ng "42e-ship: expected '^VERDICT: ship', got '$dr_ship_verdict' [out: $dr_ship_head] (#69)" ;;
+    esac
+
+    # Case B — synthetic body missing the entire ## Success signals heading.
+    # Per check 1 (schema completeness), one missing section → refine; three
+    # or more → block. Either verdict signals the missing-section regression
+    # was caught; we accept both as pass to keep the assertion robust.
+    IFS= read -r -d '' dr_refine_prompt <<'PROMPT_EOF' || true
+Review the following proposed Directive body for /file-directive (proposal review per SPEC §1.7 / §2.1). No active Directives in this synthetic test environment — proceed with checks 1-5. Do not fetch the active-Directive list; treat it as empty.
+
+Proposed body:
+
+# Directive: Lock smoke §42e default-offline contract
+
+## Objective
+Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing assertions so CI and dev loops remain deterministic and offline regardless of whether the behavioral-smoke env var is set in the operator's shell.
+
+## Non-goals
+- Does NOT include behavioral smoke for `issue-reviewer`, `plan-reviewer`, `code-reviewer`, or `security-reviewer`.
+- Does NOT modify directive-reviewer's five checks or the VERDICT-line format.
+
+## Constraints
+- §42e must be self-contained inside `scripts/test/smoke.sh`.
+- The env-var guard must be a single `if` at the top of §42e.
+
+## Parent Goal
+First Directive in this synthetic test environment.
+PROMPT_EOF
+    dr_refine_out=$(claude -p --agent directive-reviewer "$dr_refine_prompt" 2>&1 || true)
+    dr_refine_verdict=$(printf '%s\n' "$dr_refine_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
+    case "$dr_refine_verdict" in
+      "VERDICT: refine"*|"VERDICT: block"*)
+        ok "42e-refine-or-block: directive-reviewer rejects body missing '## Success signals' (got '$dr_refine_verdict') (#69)" ;;
+      *)
+        dr_refine_head=$(printf '%s' "$dr_refine_out" | head -c 200 | tr '\n' ' ')
+        ng "42e-refine-or-block: expected '^VERDICT: refine' or '^VERDICT: block', got '$dr_refine_verdict' [out: $dr_refine_head] (#69)" ;;
+    esac
   fi
 fi
 
