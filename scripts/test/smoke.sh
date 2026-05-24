@@ -3391,6 +3391,41 @@ else
   ng "45e: /file-issue does not route through /link-directive (#47)"
 fi
 
+# ---------- 46. issue-reviewer Type-aware open-issues scan (#55) ----------
+# PR #55 fixes a bug where issue-reviewer's existing-coverage check could
+# spuriously refine/block a proposed Execution Issue because an open
+# Directive (now part of the open-issues set after v0 dir-mode landed)
+# matched as duplicate. The fix is documentation: the agent file now
+# instructs the reviewer to exclude `-label:directive` at fetch time and
+# to treat any `Parent Directive: #<D>` declaration as umbrella-not-dup.
+IR_PATH="$SHELL_ROOT/.claude/agents/issue-reviewer.md"
+if [ ! -f "$IR_PATH" ]; then
+  ng "46: issue-reviewer.md missing (#55)"
+else
+  # 46a: open-issues fetch instruction includes the `-label:directive` exclusion.
+  if grep -qF -- '-label:directive' "$IR_PATH"; then
+    ok "46a: issue-reviewer fetches with -label:directive exclusion (#55)"
+  else
+    ng "46a: issue-reviewer fetch does not exclude Type=Directive (#55)"
+  fi
+
+  # 46b: Existing-coverage paragraph documents the Parent-Directive umbrella case.
+  if grep -qF 'Parent Directive' "$IR_PATH"; then
+    ok "46b: issue-reviewer documents the Parent Directive umbrella case (#55)"
+  else
+    ng "46b: issue-reviewer does not document Parent Directive umbrella case (#55)"
+  fi
+
+  # 46c: No regression — the three VERDICT-line forms remain documented.
+  if grep -qE '^- `VERDICT: ship' "$IR_PATH" \
+     && grep -qE '^- `VERDICT: refine' "$IR_PATH" \
+     && grep -qE '^- `VERDICT: block' "$IR_PATH"; then
+    ok "46c: issue-reviewer VERDICT-line format unchanged (ship/refine/block) (#55)"
+  else
+    ng "46c: issue-reviewer VERDICT-line format broken (#55)"
+  fi
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
