@@ -3131,6 +3131,67 @@ else
   fi
 fi
 
+# ---------- 43. dir-mode command files structural sanity (#45) ----------
+# PR #45 ships the five dir-mode commands + a directive body template.
+# Command files are Markdown prompts for Claude (no executable code);
+# what we can verify here is that each file exists, has the standard
+# frontmatter (description + argument-hint), references the gated
+# directive-reviewer where SPEC §5.10–§5.14 require it, and names the
+# correct audit category.
+
+DR_TEMPLATE="$SHELL_ROOT/.claude/templates/directive.md"
+if [ ! -f "$DR_TEMPLATE" ]; then
+  ng "43: .claude/templates/directive.md missing (#45)"
+else
+  dt_missing=""
+  for section in "## Objective" "## Success signals" "## Non-goals" "## Constraints" "## Parent Goal"; do
+    if ! grep -qF "$section" "$DR_TEMPLATE"; then
+      dt_missing="$dt_missing $section"
+    fi
+  done
+  if [ -z "$dt_missing" ]; then
+    ok "43-template: directive.md template has all five required sections (#45)"
+  else
+    ng "43-template: directive.md missing sections:$dt_missing (#45)"
+  fi
+fi
+
+for cmd in file-directive list-directives activate-directive complete-directive link-directive; do
+  cmd_path="$SHELL_ROOT/.claude/commands/$cmd.md"
+  if [ ! -f "$cmd_path" ]; then
+    ng "43-$cmd: command file missing (#45)"
+    continue
+  fi
+  has_desc=$(awk '/^---$/{c++; next} c==1 && /^description:/{print 1; exit}' "$cmd_path")
+  has_hint=$(awk '/^---$/{c++; next} c==1 && /^argument-hint:/{print 1; exit}' "$cmd_path")
+  if [ "$has_desc" = 1 ] && [ "$has_hint" = 1 ]; then
+    ok "43-$cmd: frontmatter has description + argument-hint (#45)"
+  else
+    ng "43-$cmd: frontmatter missing description or argument-hint (#45)"
+  fi
+done
+
+# 43-reviewer-ref: file-directive, activate-directive, complete-directive
+# must each reference directive-reviewer (the gated step per SPEC §5.10/§5.12/§5.13).
+for cmd in file-directive activate-directive complete-directive; do
+  if grep -qF "directive-reviewer" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
+    ok "43-reviewer-$cmd: command references directive-reviewer at the gated step (#45)"
+  else
+    ng "43-reviewer-$cmd: command does not reference directive-reviewer (#45)"
+  fi
+done
+
+# 43-audit-cat: each non-read-only command names its audit category.
+for pair in "file-directive:directive-file" "activate-directive:directive-activate" "complete-directive:directive-complete" "link-directive:directive-link"; do
+  cmd="${pair%%:*}"
+  cat="${pair##*:}"
+  if grep -qF "$cat" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
+    ok "43-audit-$cmd: command names audit category '$cat' (#45)"
+  else
+    ng "43-audit-$cmd: command does not name audit category '$cat' (#45)"
+  fi
+done
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
