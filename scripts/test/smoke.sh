@@ -3414,41 +3414,78 @@ else
   fi
 fi
 
-for cmd in file-directive list-directives activate-directive complete-directive link-directive; do
+for cmd in file-directive list-directives activate-directive complete-directive link-directive revise-directive block-directive; do
   cmd_path="$SHELL_ROOT/.claude/commands/$cmd.md"
   if [ ! -f "$cmd_path" ]; then
-    ng "43-$cmd: command file missing (#45)"
+    ng "43-$cmd: command file missing (#45/#80)"
     continue
   fi
   has_desc=$(awk '/^---$/{c++; next} c==1 && /^description:/{print 1; exit}' "$cmd_path")
   has_hint=$(awk '/^---$/{c++; next} c==1 && /^argument-hint:/{print 1; exit}' "$cmd_path")
   if [ "$has_desc" = 1 ] && [ "$has_hint" = 1 ]; then
-    ok "43-$cmd: frontmatter has description + argument-hint (#45)"
+    ok "43-$cmd: frontmatter has description + argument-hint (#45/#80)"
   else
-    ng "43-$cmd: frontmatter missing description or argument-hint (#45)"
+    ng "43-$cmd: frontmatter missing description or argument-hint (#45/#80)"
   fi
 done
 
-# 43-reviewer-ref: file-directive, activate-directive, complete-directive
-# must each reference directive-reviewer (the gated step per SPEC §5.10/§5.12/§5.13).
-for cmd in file-directive activate-directive complete-directive; do
+# 43-reviewer-ref: file-directive, activate-directive, complete-directive,
+# revise-directive must each reference directive-reviewer (the gated step per
+# SPEC §5.10/§5.12/§5.13/§5.16). block-directive is intentionally NOT
+# reviewer-gated (annotation-only — SPEC §5.17) and is asserted separately
+# below (43-no-reviewer-block).
+for cmd in file-directive activate-directive complete-directive revise-directive; do
   if grep -qF "directive-reviewer" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
-    ok "43-reviewer-$cmd: command references directive-reviewer at the gated step (#45)"
+    ok "43-reviewer-$cmd: command references directive-reviewer at the gated step (#45/#80)"
   else
-    ng "43-reviewer-$cmd: command does not reference directive-reviewer (#45)"
+    ng "43-reviewer-$cmd: command does not reference directive-reviewer (#45/#80)"
   fi
 done
+
+# 43-annotation-only-block (#80): /block-directive must explicitly declare it
+# is annotation-only / not reviewer-gated (SPEC §5.17 contract). Catches a
+# future drift that adds a reviewer invocation without updating the spec.
+if grep -qE '(not reviewer-gated|annotation[, -]only|does not invoke `?directive-reviewer)' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null; then
+  ok "43-annotation-only-block: /block-directive declares annotation-only / not-reviewer-gated contract (#80)"
+else
+  ng "43-annotation-only-block: /block-directive must declare its annotation-only contract per SPEC §5.17 (#80)"
+fi
 
 # 43-audit-cat: each non-read-only command names its audit category.
-for pair in "file-directive:directive-file" "activate-directive:directive-activate" "complete-directive:directive-complete" "link-directive:directive-link"; do
+for pair in "file-directive:directive-file" "activate-directive:directive-activate" "complete-directive:directive-complete" "link-directive:directive-link" "revise-directive:directive-revise" "block-directive:directive-block"; do
   cmd="${pair%%:*}"
   cat="${pair##*:}"
   if grep -qF "$cat" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
-    ok "43-audit-$cmd: command names audit category '$cat' (#45)"
+    ok "43-audit-$cmd: command names audit category '$cat' (#45/#80)"
   else
-    ng "43-audit-$cmd: command does not name audit category '$cat' (#45)"
+    ng "43-audit-$cmd: command does not name audit category '$cat' (#45/#80)"
   fi
 done
+
+# 43-reason-required (#80): /block-directive must mandate --reason <why>.
+# The argument-hint frontmatter and the Procedure must both name --reason.
+if grep -qE 'argument-hint:.*--reason' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null \
+   && grep -qE '(--reason|`--reason)' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null; then
+  ok "43-reason-required: /block-directive declares --reason in argument-hint + procedure (#80)"
+else
+  ng "43-reason-required: /block-directive must declare --reason in both argument-hint and procedure (#80)"
+fi
+
+# 43-archive-marker (#80): /revise-directive must name the archive comment
+# marker exactly as §5.16 specifies.
+if grep -qF "## Pre-revision body — archived" "$SHELL_ROOT/.claude/commands/revise-directive.md" 2>/dev/null; then
+  ok "43-archive-marker: /revise-directive names the canonical archive comment marker (#80)"
+else
+  ng "43-archive-marker: /revise-directive must name the '## Pre-revision body — archived <ISO date>' marker (#80)"
+fi
+
+# 43-blocked-marker (#80): /block-directive must name the block comment marker
+# exactly as §5.17 specifies.
+if grep -qF "## Blocked:" "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null; then
+  ok "43-blocked-marker: /block-directive names the canonical '## Blocked: <reason>' marker (#80)"
+else
+  ng "43-blocked-marker: /block-directive must name the '## Blocked: <reason>' marker (#80)"
+fi
 
 # ---------- 44. Type-aware hooks + directive-protect matcher (#46) ----------
 # PR #46 wires Type-awareness into pre_tool_use.sh via helpers/issue_type.sh.
