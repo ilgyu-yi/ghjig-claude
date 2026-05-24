@@ -3513,6 +3513,41 @@ else
   fi
 fi
 
+# ---------- 49. Agent files have valid loadable frontmatter (#64 / Directive #62) ----------
+# Claude Code enumerates subagent_type values from .claude/agents/*.md at
+# session start (SPEC §4.9.3). A broken agent file means the harness silently
+# skips that subagent. §49 catches the "agent file unloadable" case
+# independently of routing — even before session restart, a malformed
+# frontmatter would fail to register the agent at all.
+#
+# Check: every .claude/agents/*.md has frontmatter with `name`, `description`,
+# and `tools` keys. tools is a bracketed list containing at minimum Read.
+
+agent_dir="$SHELL_ROOT/.claude/agents"
+all_agents_loadable=1
+agent_count=0
+if [ -d "$agent_dir" ]; then
+  for agent_file in "$agent_dir"/*.md; do
+    [ -e "$agent_file" ] || continue
+    agent_count=$((agent_count + 1))
+    name=$(awk '/^---$/{c++; next} c==1 && /^name:/{print; exit}' "$agent_file")
+    desc=$(awk '/^---$/{c++; next} c==1 && /^description:/{print; exit}' "$agent_file")
+    tools=$(awk '/^---$/{c++; next} c==1 && /^tools:/{print; exit}' "$agent_file")
+    if [ -z "$name" ] || [ -z "$desc" ] || [ -z "$tools" ]; then
+      ng "49: agent $(basename "$agent_file") has incomplete frontmatter (name='$name' desc='$desc' tools='$tools') (#64)"
+      all_agents_loadable=0
+    elif ! printf '%s' "$tools" | grep -qE '\[.*Read.*\]'; then
+      ng "49: agent $(basename "$agent_file") tools missing Read (#64)"
+      all_agents_loadable=0
+    fi
+  done
+fi
+if [ "$all_agents_loadable" = 1 ] && [ "$agent_count" -ge 9 ]; then
+  ok "49: all $agent_count agent files have loadable frontmatter — first-class routing eligible after session restart (SPEC §4.9.3) (#64)"
+elif [ "$all_agents_loadable" = 1 ]; then
+  ng "49: only $agent_count agents found; expected ≥9 (the eight engineering + directive-reviewer) (#64)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

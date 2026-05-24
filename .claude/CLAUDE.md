@@ -43,6 +43,8 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 
 In `unattended` mode, the reviewers above substitute for human review at their respective checkpoints (SPEC §1.5 operating-mode coupling).
 
+**Session-restart caveat** (SPEC §4.9.3): Claude Code enumerates `subagent_type` values from `.claude/agents/*.md` at session start. A reviewer added mid-session falls back to `general-purpose` routing until the next session restart — file presence is necessary but not sufficient. The fallback is functionally complete (the agent's prompt instructs `general-purpose` to behave as the new reviewer); restart is canonical.
+
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
 ## Branch & commit convention
