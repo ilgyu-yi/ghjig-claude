@@ -57,7 +57,7 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 - Edits to `.env`, `*.pem`, `credentials*` blocked
 - Edit/Write outside registry, and `rm -rf`/`mv -f`/`cp -f` with out-of-registry args, blocked
 - SessionStart warns if shell was injected but launched via plain `claude` (not `claude-eng`) — `CLAUDE_ENG_SHELL_ROOT` unset means every hook silently no-ops
-- Hook helper sources go through `safe_source <path> <category>` (in `.claude/hooks/hookrt.sh`). A missing helper file fails-open with `audit_log warn <category> helper-missing` — see SPEC §6.1 fail-policy table for per-helper categories. Mitigation for the session-restart caveat (SPEC §6.1) on new helpers
+- Helper sources — both hook-to-helper (the 5 hook entry-point files) and helper-to-helper (helpers sourcing siblings under `helpers/`) — go through `safe_source <path> <category>` (in `.claude/hooks/hookrt.sh`). A missing helper file fails-open with `audit_log warn <category> helper-missing` — see SPEC §6.1 fail-policy table for per-helper categories. Mitigation for the session-restart caveat on new helpers. Documented exception: the bootstrap-to-runtime shim `helpers/log.sh` → `hookrt.sh` (chicken-and-egg)
 - Every matcher in `pre_tool_use.sh` reaches a decided state per fire. Terminal arms emit one audit record (block/warn/`pass-through`); high-frequency happy paths call `mark_allow <cat>` (silent — no audit record). Silent fall-through without `mark_allow` is the regression `pass_through_trace <cat> "<cmd>"` catches (SPEC §6.1 pass-through invariant)
 
 Escape: `SKIP_HOOKS=<category> SKIP_REASON='<reason>' <command>`. All escapes are audit-logged.

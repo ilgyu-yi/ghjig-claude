@@ -2534,6 +2534,85 @@ else
   ng "safe_source: in-function placement found (regression of #34): $ss_inside"
 fi
 
+# 38j: helper-to-helper safe_source dual-warn (#36) — when git_matcher.sh
+# is missing, BOTH source-sites in a single pre_tool_use invocation must
+# emit a helper-missing warn: the hook-level safe_source at
+# pre_tool_use.sh:26 AND branch_guard.sh's internal safe_source of
+# git_matcher.sh (added by #36). Exactly two warns mentioning the
+# git_matcher.sh basename in the freshly grown audit window.
+#
+# This is the structural enforcer of the SPEC §6.1 invariant after #36:
+# helper-to-helper sources go through safe_source, so missing helpers
+# warn from every site that needed them, not just the hook-level site.
+# Pre-#36, the §38h floor (ss_new >= 1) saw 1 (only the hook-level
+# warn); branch_guard.sh's plain `.` failed silently. Post-#36, both
+# fire and the count is 2.
+
+REAL_AUDIT_38J="$SHELL_ROOT/.claude/audit/audit.jsonl"
+SS38J_PATH="$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+SS38J_BAK="$GH38_DIR/git_matcher.sh.bak.38j"
+
+ss38j_restore() {
+  if [ -n "${SS38J_BAK:-}" ] && [ -f "$SS38J_BAK" ] && [ ! -f "$SS38J_PATH" ]; then
+    mv "$SS38J_BAK" "$SS38J_PATH"
+  fi
+}
+trap 'ss38j_restore' EXIT INT TERM
+
+if [ ! -f "$SS38J_PATH" ]; then
+  ng "38j: helper file not present in repo [git_matcher.sh] (#36)"
+else
+  gh38_reset
+  mv "$SS38J_PATH" "$SS38J_BAK"
+  ss38j_before=$(wc -l < "$REAL_AUDIT_38J" 2>/dev/null | tr -d ' ' || echo 0)
+
+  ss38j_input='{"tool_name":"Bash","tool_input":{"command":"echo benign"}}'
+  (
+    cd "$TMP/fake" || exit 0
+    # shellcheck disable=SC2069
+    printf '%s' "$ss38j_input" \
+      | PATH="$GH38_SHIM:$PATH" \
+        GH_SHIM_STATE="$GH38_STATE" \
+        CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
+  )
+  ss38j_rc=$?
+
+  ss38j_after=$(wc -l < "$REAL_AUDIT_38J" 2>/dev/null | tr -d ' ' || echo 0)
+  ss38j_new=$(( ss38j_after - ss38j_before ))
+  ss38j_tail=""
+  if [ "$ss38j_new" -gt 0 ]; then
+    ss38j_tail=$(tail -"$ss38j_new" "$REAL_AUDIT_38J" 2>/dev/null)
+  fi
+
+  # Restore IMMEDIATELY (before the assertion) so an assertion failure
+  # doesn't leave the suite running without the live helper.
+  mv "$SS38J_BAK" "$SS38J_PATH"
+  SS38J_BAK=""
+
+  # Count helper-missing warns mentioning git_matcher.sh in the new
+  # audit window. Both warns share category=commit-format and
+  # decision=helper-missing; differ only by no-op fields. The reason
+  # field carries the absolute path of the missing helper, so a
+  # basename match isolates git_matcher.sh from any concurrent
+  # unrelated warns.
+  ss38j_count=$(printf '%s\n' "$ss38j_tail" \
+    | grep -c '"category":"commit-format"' \
+    || true)
+  ss38j_gm_count=$(printf '%s\n' "$ss38j_tail" \
+    | grep '"decision":"helper-missing"' \
+    | grep -c 'git_matcher\.sh' \
+    || true)
+
+  if [ "$ss38j_rc" = 0 ] && [ "$ss38j_gm_count" = 2 ]; then
+    ok "safe_source: git_matcher.sh missing → 2 helper-missing warns (hook + branch_guard) (#36)"
+  else
+    ng "safe_source: expected 2 helper-missing warns for git_matcher.sh; got rc=$ss38j_rc commit-format=$ss38j_count gm-helper-missing=$ss38j_gm_count tail=$ss38j_tail (#36)"
+  fi
+fi
+
+trap - EXIT INT TERM
+
 rm -rf "$GH38_DIR"
 
 # ---------- 39. matcher pass-through audit invariant (#33) ----------
