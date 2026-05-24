@@ -2856,6 +2856,194 @@ fi
 trap - EXIT INT TERM
 rm -rf "$SS40_DIR"
 
+# ---------- 41. scripts/setup_project.sh idempotency + scope guards (#43) ----------
+# PR #43 introduces scripts/setup_project.sh — an idempotent bootstrap for the
+# GitHub Project v2 substrate (SPEC §1.7, ADR-0002). The script:
+#   1. Refuses on unregistered target paths (registry guard).
+#   2. Refuses without `gh auth` + `project` scope.
+#   3. On first run: creates the Project (if absent) and the seven fields.
+#   4. On rerun: queries existing fields and skips creates that already exist.
+#
+# §41 mocks `gh` via PATH overlay so the test runs without the `project` token
+# scope, without making real API calls, and without creating GitHub state.
+# The mock records each `gh …` invocation to a log file the assertions inspect.
+
+SP_DIR=$(mktemp -d)
+SP_TARGET="$SP_DIR/target"
+SP_BIN="$SP_DIR/bin"
+mkdir -p "$SP_TARGET" "$SP_BIN"
+(cd "$SP_TARGET" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
+
+# Register $SP_TARGET so the registry guard accepts it. Save and restore the
+# real registry (already swapped to a temp $REG by the §4 setup at the top of
+# this file).
+SP_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$SP_TARGET" >> "$SP_REGISTRY"
+
+# Mock gh — dispatches by subcommand; logs full argv.
+cat > "$SP_BIN/gh" <<'MOCK'
+#!/usr/bin/env bash
+# Mock gh for smoke §41. Logs argv to $GH_MOCK_LOG; emits canned JSON / status.
+printf '%q ' "$@" >> "$GH_MOCK_LOG"; printf '\n' >> "$GH_MOCK_LOG"
+case "${1:-}" in
+  --version) printf 'gh version 2.50.0 (mock)\n' ;;
+  auth)
+    case "${2:-}" in
+      status)
+        if [ "${GH_MOCK_AUTH:-ok}" != ok ]; then
+          echo "You are not logged in" >&2
+          exit 1
+        fi
+        echo "github.com" >&2
+        echo "  - Logged in to github.com as smoke" >&2
+        echo "  - Token scopes: ${GH_MOCK_SCOPES:-gist, repo, project}" >&2
+        ;;
+    esac
+    ;;
+  repo)
+    if [ "${2:-}" = view ]; then
+      # gh repo view --json owner,name -q '...' OR gh repo view --json owner
+      printf '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}'
+    fi
+    ;;
+  project)
+    case "${2:-}" in
+      list)
+        if [ -f "$GH_MOCK_PROJECT_CREATED" ]; then
+          printf '{"projects":[{"number":1,"title":"smoke-repo roadmap","url":"https://gh.test/p/1","owner":{"login":"smoke-owner"}}]}'
+        else
+          printf '{"projects":[]}'
+        fi
+        ;;
+      create)
+        touch "$GH_MOCK_PROJECT_CREATED"
+        printf '{"number":1,"url":"https://gh.test/p/1"}'
+        ;;
+      field-list)
+        if [ -f "$GH_MOCK_PROJECT_CREATED" ] && [ -f "$GH_MOCK_FIELDS_CREATED" ]; then
+          # Second-run: all seven fields present.
+          printf '{"fields":[{"name":"Title"},{"name":"Type"},{"name":"Status"},{"name":"Iteration"},{"name":"Priority"},{"name":"Parent"},{"name":"Confidence"},{"name":"Success Signals"}]}'
+        else
+          # First-run: only the default Title field exists.
+          printf '{"fields":[{"name":"Title"}]}'
+        fi
+        ;;
+      field-create)
+        touch "$GH_MOCK_FIELDS_CREATED"
+        printf '{"id":"PVTSSF_mock"}'
+        ;;
+      link)
+        printf '{"url":"https://gh.test/p/1"}'
+        ;;
+      view)
+        printf '{"number":1,"url":"https://gh.test/p/1"}'
+        ;;
+    esac
+    ;;
+esac
+exit 0
+MOCK
+chmod +x "$SP_BIN/gh"
+
+# Mocked jq passthrough — real jq is fine if present; we don't need to mock it.
+# (If jq isn't installed, smoke §41 can't run; treat that as a skip.)
+if ! command -v jq >/dev/null 2>&1; then
+  ng "41: jq not installed — cannot run mocked smoke (#43)"
+else
+  SP_SCRIPT="$SHELL_ROOT/scripts/setup_project.sh"
+  if [ ! -f "$SP_SCRIPT" ]; then
+    ng "41: scripts/setup_project.sh missing — cannot run mocked smoke (#43)"
+  else
+    # 41a: first-run from registered target → creates project + 7 fields.
+    rm -f "$SP_DIR/gh.log" "$SP_DIR/project-created" "$SP_DIR/fields-created"
+    (
+      cd "$SP_TARGET" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
+      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_AUTH=ok \
+        bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
+    )
+    sp41a_creates=$(grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
+    sp41a_proj_create=$(grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
+    if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 7 ]; then
+      ok "41a: first-run creates project + 7 fields (#43)"
+    else
+      ng "41a: first-run expected ≥1 project-create + 7 field-create; got proj=$sp41a_proj_create field=$sp41a_creates (#43)"
+    fi
+
+    # 41b: second-run (project + fields already exist) → zero new field-creates.
+    rm -f "$SP_DIR/gh.log"
+    (
+      cd "$SP_TARGET" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
+      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_AUTH=ok \
+        bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
+    )
+    sp41b_creates=$(grep -c 'project field-create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
+    sp41b_proj_create=$(grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null || echo 0)
+    if [ "$sp41b_creates" = 0 ] && [ "$sp41b_proj_create" = 0 ]; then
+      ok "41b: second-run idempotent — zero new creates (#43)"
+    else
+      ng "41b: second-run expected 0 creates; got proj=$sp41b_proj_create field=$sp41b_creates (#43)"
+    fi
+
+    # 41c: unregistered path → script refuses with exit 1.
+    SP_OTHER=$(mktemp -d)
+    (cd "$SP_OTHER" && git init -q) || true
+    sp41c_rc=0
+    (
+      cd "$SP_OTHER" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
+      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_AUTH=ok \
+        bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
+    ) || sp41c_rc=$?
+    if [ "$sp41c_rc" -ne 0 ]; then
+      ok "41c: unregistered path → refused with exit $sp41c_rc (#43)"
+    else
+      ng "41c: unregistered path should refuse but exited 0 (#43)"
+    fi
+    rm -rf "$SP_OTHER"
+
+    # 41d: missing `project` scope → script refuses with exit 1.
+    sp41d_rc=0
+    (
+      cd "$SP_TARGET" || exit 0
+      PATH="$SP_BIN:$PATH" \
+      CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+      GH_MOCK_LOG="$SP_DIR/gh.log" \
+      GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
+      GH_MOCK_FIELDS_CREATED="$SP_DIR/fields-created" \
+      GH_MOCK_AUTH=ok \
+      GH_MOCK_SCOPES='gist, repo' \
+        bash "$SP_SCRIPT" </dev/null >/dev/null 2>&1
+    ) || sp41d_rc=$?
+    if [ "$sp41d_rc" -ne 0 ]; then
+      ok "41d: missing project scope → refused with exit $sp41d_rc (#43)"
+    else
+      ng "41d: missing project scope should refuse but exited 0 (#43)"
+    fi
+  fi
+fi
+
+# Remove the target from the registry to avoid leaking into other tests.
+if [ -f "$SP_REGISTRY" ]; then
+  sp_tmp_reg=$(mktemp)
+  grep -vxF "$SP_TARGET" "$SP_REGISTRY" > "$sp_tmp_reg" 2>/dev/null || true
+  mv "$sp_tmp_reg" "$SP_REGISTRY"
+fi
+rm -rf "$SP_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
