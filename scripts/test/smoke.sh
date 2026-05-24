@@ -3145,19 +3145,28 @@ else
     )
     sp41e_graphql=$( { grep -c '^api graphql' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     : "${sp41e_graphql:=0}"
-    # All 5 dir-mode Status option names must appear in the graphql argv (one call carries all five).
-    sp41e_planned=$(  { grep -c 'Planned'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    sp41e_active=$(   { grep -c 'Active'    "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    sp41e_completed=$({ grep -c 'Completed' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    sp41e_blocked=$(  { grep -c 'Blocked'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    sp41e_revised=$(  { grep -c 'Revised'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    : "${sp41e_planned:=0}"; : "${sp41e_active:=0}"; : "${sp41e_completed:=0}"; : "${sp41e_blocked:=0}"; : "${sp41e_revised:=0}"
+    # All 5 dir-mode option names must appear (declared additions) AND all 3
+    # GitHub-default names must appear (additive contract — extras preserved).
+    # AC #1 + AC #2 together require both halves: the mutation payload is the
+    # UNION (3 defaults + 5 declared = 8 options).
+    sp41e_planned=$(   { grep -c 'Planned'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_active=$(    { grep -c 'Active'      "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_completed=$( { grep -c 'Completed'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_blocked=$(   { grep -c 'Blocked'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_revised=$(   { grep -c 'Revised'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_todo=$(      { grep -c 'Todo'        "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_inprog=$(    { grep -c 'In Progress' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    sp41e_done=$(      { grep -c 'Done'        "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    : "${sp41e_planned:=0}";   : "${sp41e_active:=0}"; : "${sp41e_completed:=0}"
+    : "${sp41e_blocked:=0}";   : "${sp41e_revised:=0}"
+    : "${sp41e_todo:=0}";      : "${sp41e_inprog:=0}"; : "${sp41e_done:=0}"
     if [ "$sp41e_graphql" = 1 ] \
        && [ "$sp41e_planned" -ge 1 ] && [ "$sp41e_active" -ge 1 ] \
-       && [ "$sp41e_completed" -ge 1 ] && [ "$sp41e_blocked" -ge 1 ] && [ "$sp41e_revised" -ge 1 ]; then
-      ok "41e: Status drift → 1 graphql mutation carrying all 5 dir-mode options (#76)"
+       && [ "$sp41e_completed" -ge 1 ] && [ "$sp41e_blocked" -ge 1 ] && [ "$sp41e_revised" -ge 1 ] \
+       && [ "$sp41e_todo" -ge 1 ] && [ "$sp41e_inprog" -ge 1 ] && [ "$sp41e_done" -ge 1 ]; then
+      ok "41e: Status drift → 1 graphql mutation; union payload carries 5 dir-mode + 3 default options (#76)"
     else
-      ng "41e: Status drift expected 1 graphql + 5 option names; got graphql=$sp41e_graphql plan=$sp41e_planned act=$sp41e_active comp=$sp41e_completed blk=$sp41e_blocked rev=$sp41e_revised (#76)"
+      ng "41e: Status drift expected 1 graphql + 8 union names; got graphql=$sp41e_graphql plan=$sp41e_planned act=$sp41e_active comp=$sp41e_completed blk=$sp41e_blocked rev=$sp41e_revised todo=$sp41e_todo inprog=$sp41e_inprog done=$sp41e_done (#76)"
     fi
     # Clean up §41e target before §41f reuses the registry.
     sp_tmp_reg=$(mktemp); grep -vxF "$SP_TARGET2" "$SP_REGISTRY" > "$sp_tmp_reg" 2>/dev/null || true

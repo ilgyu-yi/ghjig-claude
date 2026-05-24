@@ -133,6 +133,16 @@ dr_find_project() {
 # read-and-restore round-trip would require a second GraphQL query). Names
 # and option name-matching for selection references are preserved.
 #
+# Safety note: option names are interpolated directly into the GraphQL
+# mutation string. Names containing `"` or `\` are not supported — they
+# would break the mutation parse and trigger the audit warn path. The
+# three declared sets (Type/Status/Priority) all use alphanumeric + space
+# names; the additive-preservation path reads back user-added names from
+# GitHub via `gh project field-list`, so a user who manually created an
+# option with a quote/backslash is the only scenario that hits this. If
+# real friction surfaces, escape via `${o//\\/\\\\}` then `${o//\"/\\\"}`
+# before interpolation.
+#
 # Args: <project_num> <owner> <field_name> <declared_csv>
 # rc:   0 always (failures emit audit warn but do not propagate — the
 #       additive contract means a missed reconcile is not substrate-breaking,
