@@ -15,7 +15,7 @@ Replace an `Active` Directive Issue's body with a new one when scope or success 
    ```
    - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
    - If `directive` label absent: error ("Issue #<directive-id> is not a Directive (`directive` label missing)") and stop.
-   - If the Project Item's `Status != Active` (and not `Blocked` — see Forbidden below for the Blocked path): error and stop.
+   - If the Project Item's `Status != Active`: error and stop. The error message should redirect to `/activate-directive <id>` when the current Status is `Blocked` (per Forbidden below — a Blocked Directive must be unblocked first, which re-runs the reviewer on the current body).
 
 3. **Author the new body** — the user supplies the replacement body (full content, including `## Objective` / `## Success signals` / `## Non-goals` / `## Constraints` / `## Parent Goal` sections per `.claude/templates/directive.md`). Refuse to proceed if the new body is missing any required section.
 
@@ -34,6 +34,8 @@ Replace an `Active` Directive Issue's body with a new one when scope or success 
    *Replaced via /revise-directive. New body follows in the Issue description.*
    ```
    Use `gh issue comment <directive-id> --body-file <file>`. Capture the comment URL for audit.
+
+5.5. **Compute the prior-body sha** — `shasum -a 256 <prior-body-file> | awk '{print $1}'`. Retain in a variable that survives until step 8 (e.g. set it in the same shell scope that will issue the audit_log call — do **not** rely on subshell variable inheritance). The sha is the load-bearing field of step 8's audit line; an empty value silently breaks forensic traceability.
 
 6. **Replace the Issue body** — `gh issue edit <directive-id> --body-file <new-body-file>`.
 
