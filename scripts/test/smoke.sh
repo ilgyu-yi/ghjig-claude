@@ -3076,6 +3076,61 @@ if [ -f "$SP_REGISTRY" ]; then
 fi
 rm -rf "$SP_DIR"
 
+# ---------- 42. directive-reviewer subagent structural sanity (#44) ----------
+# Subagent behavior cannot be invoked from a smoke shell (Claude Code routes
+# Agent calls). What we can verify is the file's structural conformance to
+# the reviewer-subagent contract: frontmatter (name, description, tools),
+# required body sections, and the VERDICT-line format documented in the body.
+# Behavioral validation happens via actual /file-directive and
+# /complete-directive invocations once those commands ship in PR #45.
+
+DR_PATH="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
+if [ ! -f "$DR_PATH" ]; then
+  ng "42: directive-reviewer.md missing (#44)"
+else
+  # 42a: frontmatter has name, description, tools.
+  dr_name=$(awk '/^---$/{c++; next} c==1 && /^name:/{print; exit}' "$DR_PATH")
+  dr_desc=$(awk '/^---$/{c++; next} c==1 && /^description:/{print; exit}' "$DR_PATH")
+  dr_tools=$(awk '/^---$/{c++; next} c==1 && /^tools:/{print; exit}' "$DR_PATH")
+  if [ -n "$dr_name" ] && [ -n "$dr_desc" ] && [ -n "$dr_tools" ]; then
+    ok "42a: directive-reviewer frontmatter has name + description + tools (#44)"
+  else
+    ng "42a: frontmatter missing required key; name='$dr_name' desc='$dr_desc' tools='$dr_tools' (#44)"
+  fi
+
+  # 42b: required body sections present (matches the reviewer-subagent
+  # convention from issue-reviewer.md / plan-reviewer.md).
+  dr_missing=""
+  for section in "## Input" "## Premise" "## Checks" "## Output" "## Rules"; do
+    if ! grep -qF "$section" "$DR_PATH"; then
+      dr_missing="$dr_missing $section"
+    fi
+  done
+  if [ -z "$dr_missing" ]; then
+    ok "42b: directive-reviewer body has all required sections (#44)"
+  else
+    ng "42b: directive-reviewer body missing sections:$dr_missing (#44)"
+  fi
+
+  # 42c: VERDICT-line format documents the three terminal verdicts (matches
+  # SPEC §4.7 / §4.8 reviewer convention).
+  if grep -qE '^- `VERDICT: ship' "$DR_PATH" \
+     && grep -qE '^- `VERDICT: refine' "$DR_PATH" \
+     && grep -qE '^- `VERDICT: block' "$DR_PATH"; then
+    ok "42c: VERDICT-line format documents ship / refine / block (#44)"
+  else
+    ng "42c: VERDICT-line format incomplete (#44)"
+  fi
+
+  # 42d: tools restricted to the standard reviewer read-only set
+  # (matches issue-reviewer.md and plan-reviewer.md).
+  if printf '%s' "$dr_tools" | grep -qE 'Read.*Grep.*Glob.*Bash'; then
+    ok "42d: directive-reviewer tools restricted to [Read, Grep, Glob, Bash] (#44)"
+  else
+    ng "42d: directive-reviewer tools expected [Read, Grep, Glob, Bash]; got '$dr_tools' (#44)"
+  fi
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
