@@ -37,7 +37,9 @@ else
 fi
 
 # ---------- shared resolver helpers ----------
+# shellcheck disable=SC2034  # used by sourced dir_mode_project_resolve.sh
 DR_SCRIPT_NAME=dir_mode_project
+# shellcheck disable=SC2034  # used by sourced dir_mode_project_resolve.sh
 DR_AUDIT_CATEGORY=project-resolve
 # shellcheck source=/dev/null
 . "$CLAUDE_ENG_SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"

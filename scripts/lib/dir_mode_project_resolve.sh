@@ -116,6 +116,7 @@ dr_find_project() {
     audit_log block "$DR_AUDIT_CATEGORY" deny "no-project: $DR_PROJECT_NAME" 2>/dev/null || true
     return 5
   fi
+  # shellcheck disable=SC2034  # consumed by parent script after dr_find_project returns
   DR_PROJECT_NUM="$existing"
   return 0
 }

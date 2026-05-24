@@ -36,7 +36,9 @@ fi
 # stderr prefixes and audit lines stay attributed to setup_project. All
 # guard rcs are translated to `exit 1` to preserve pre-#71 behavior
 # (smoke §41 asserts non-zero, not specific codes).
+# shellcheck disable=SC2034  # used by sourced dir_mode_project_resolve.sh
 DR_SCRIPT_NAME=setup_project
+# shellcheck disable=SC2034  # used by sourced dir_mode_project_resolve.sh
 DR_AUDIT_CATEGORY=project-setup
 # shellcheck source=/dev/null
 . "$CLAUDE_ENG_SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
