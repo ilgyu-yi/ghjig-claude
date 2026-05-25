@@ -2688,18 +2688,27 @@ pt39_run() {
 # whose state is already configured for the pass-through ac-closeout
 # scenario above.
 PT39_TABLE=(
-  "gh pr merge 200 --merge|ac-closeout|pass-through"
+  # Intentionally empty after #83. The original row
+  # ("gh pr merge 200 --merge|ac-closeout|pass-through") encoded the
+  # pre-fix bug behavior — the ac-closeout matcher's case-statement was
+  # missing the rc=1 happy-path arm, so allow-cases fell through to
+  # pass_through_trace. Issue #83's fix added `1) mark_allow ac-closeout`,
+  # making the happy path silent (per SPEC §6.1's mark_allow contract).
+  # §39d below asserts the corrected silence, including the pipe-form
+  # `gh pr merge ... 2>&1 | tail -N` shape that originally triggered #83.
 )
 
-# Subset notes for the v1 cut: only ac-closeout is included here.
+# Subset notes for the v1 cut: only ac-closeout was included originally.
 # Adding the other 10 matchers needs custom setup per matcher (cwd on
 # the right branch for backmerge; pushed-vs-unpushed for --amend; etc.)
-# — those are added incrementally in the Code phase as the matchers are
-# retrofitted. §39b's structural check is the safety net that catches
-# any matcher whose retrofit is forgotten.
+# — those are added incrementally as the matchers are retrofitted. §39b's
+# structural check is the safety net that catches any matcher whose
+# retrofit is forgotten.
 
 p39_fails=0
-for row in "${PT39_TABLE[@]}"; do
+# Guard empty-array iteration under `set -u`. PT39_TABLE is intentionally
+# empty after #83's mark_allow fix; §39d below tests the corrected silence.
+for row in ${PT39_TABLE[@]+"${PT39_TABLE[@]}"}; do
   IFS='|' read -r p39_cmd p39_cat p39_dec <<< "$row"
   p39_before=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
   pt39_run "$p39_cmd" >/dev/null 2>&1
@@ -2760,6 +2769,27 @@ if [ "$p39c_new" = 0 ]; then
 else
   ng "pass-through: benign cmd produced $p39c_new unexpected audit records (#33)"
 fi
+
+# §39d: ac-closeout happy-path silence (#83). When pr_needs_closeout
+# returns 1 (allow: no unchecked AC items), the matcher's `1)` arm calls
+# mark_allow (silent per SPEC §6.1 mark_allow contract) and decides.
+# Pre-fix bug: the case statement had no `1)` arm, so the happy path
+# fell through to pass_through_trace, producing a spurious warn audit
+# line on every successful AC-closed-out merge. Tests both the bare form
+# and the pipe-with-redirect form (`gh pr merge ... 2>&1 | tail -5`) that
+# triggered #83's discovery on PR #77's auto-merge.
+for p39d_cmd in "gh pr merge 200 --merge" "gh pr merge 200 --auto --merge --delete-branch 2>&1 | tail -5"; do
+  p39d_before=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+  pt39_run "$p39d_cmd" >/dev/null 2>&1
+  p39d_after=$(wc -l < "$REAL_AUDIT_39" 2>/dev/null | tr -d ' ' || echo 0)
+  p39d_new=$(( p39d_after - p39d_before ))
+  if [ "$p39d_new" = 0 ]; then
+    ok "pass-through: ac-closeout happy path silent on \`${p39d_cmd:0:40}...\` (#83)"
+  else
+    p39d_tail=$(tail -"$p39d_new" "$REAL_AUDIT_39" 2>/dev/null | tr '\n' '|')
+    ng "pass-through: ac-closeout happy path emitted $p39d_new audit record(s) on \`$p39d_cmd\` — expected silent (mark_allow). tail=$p39d_tail (#83)"
+  fi
+done
 
 rm -rf "$PT39_DIR"
 
