@@ -46,9 +46,47 @@ _audit_json_string() {
   printf '"%s"' "$s"
 }
 
+# _audit_validate_format <category> <decision> <reason> — pre-write
+# format check for known-strict category × decision combinations
+# (issue #87). Returns 0 if the reason matches the documented format
+# OR if the combination is not under format contract; returns 1 if the
+# combination IS under contract and the reason violates it.
+#
+# Adding a new strict combination: append a `<category>) ... ;;` arm
+# below. Keep the smoke §50a regex in lockstep — that scan-time check
+# remains valid for historical lines (before this pre-write validation
+# landed) and as a defense-in-depth tripwire.
+_audit_validate_format() {
+  local category="$1" decision="$2" reason="$3"
+  case "$category" in
+    directive-file)
+      # SPEC §5.10 step 7: `directive: <Objective summary> item=<item-id>
+      # priority=P<N> confidence=<C>`. The `item=<id>` token is mandatory
+      # (issue #71). Smoke §50a scans for this same shape post-hoc.
+      if [ "$decision" = "created" ]; then
+        if ! printf '%s' "$reason" | grep -qE '^directive: .+ item=[^ ]+ priority=P[0-3] confidence=[0-9]+$'; then
+          return 1
+        fi
+      fi
+      ;;
+    # Other directive-* categories (directive-activate, directive-complete,
+    # directive-revise, directive-block, directive-link) do not yet carry
+    # smoke-enforced format contracts. Add arms here as / when the
+    # grandfathering pattern surfaces for them.
+  esac
+  return 0
+}
+
 # audit_log <event> <category> <decision> <reason> — append one JSON
 # record to audit.jsonl. `reason` is user-controllable / filesystem-
 # derived so it's JSON-encoded; other fields are call-site constants.
+#
+# Pre-write format validation (issue #87): for known-strict category ×
+# decision combinations, validate the reason against the documented
+# format. On violation, write a `decision=format-error` line instead of
+# the requested record (backward-compatible "don't lose the audit
+# trail" semantics) and return 1 so the caller can react. The original
+# requested record is NOT written.
 audit_log() {
   local event="$1" category="$2" decision="$3" reason="$4"
   local ts cwd log
@@ -57,8 +95,16 @@ audit_log() {
   log="$CLAUDE_ENG_SHELL_ROOT/.claude/audit/audit.jsonl"
   mkdir -p "$(dirname "$log")"
   local r_reason r_cwd
-  r_reason=$(_audit_json_string "$reason")
   r_cwd=$(_audit_json_string "$cwd")
+  if ! _audit_validate_format "$category" "$decision" "$reason"; then
+    local err_reason
+    err_reason="audit-format-error: rejected ${category}/${decision} — original-reason=${reason}"
+    r_reason=$(_audit_json_string "$err_reason")
+    printf '{"ts":"%s","event":"warn","category":"%s","decision":"format-error","reason":%s,"cwd":%s}\n' \
+      "$ts" "$category" "$r_reason" "$r_cwd" >> "$log"
+    return 1
+  fi
+  r_reason=$(_audit_json_string "$reason")
   printf '{"ts":"%s","event":"%s","category":"%s","decision":"%s","reason":%s,"cwd":%s}\n' \
     "$ts" "$event" "$category" "$decision" "$r_reason" "$r_cwd" >> "$log"
 }

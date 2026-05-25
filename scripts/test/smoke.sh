@@ -4091,6 +4091,81 @@ else
   ng "52b: helper uses zsh-tied-array name as local: $s52b_hits (#82)"
 fi
 
+# ---------- 53. audit_log pre-write format validation (#87) ----------
+# audit_log's pre-write validator catches malformed `directive-* / created`
+# lines at write time, preventing them from landing in audit.jsonl in the
+# first place (long-term replacement for smoke §50a's grandfathering
+# cutoff bumps). On format violation, audit_log writes a
+# `decision=format-error` warn line instead of the requested record and
+# returns 1.
+
+S53_DIR=$(mktemp -d)
+S53_LOG="$S53_DIR/.claude/audit/audit.jsonl"
+mkdir -p "$(dirname "$S53_LOG")"
+
+# §53a: well-formed directive-file/created → written verbatim, rc=0.
+(
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  # shellcheck source=/dev/null
+  . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+  audit_log info directive-file created "directive: smoke test item=PVTI_abc priority=P2 confidence=50"
+)
+s53a_rc=$?
+s53a_last=$(tail -1 "$S53_LOG" 2>/dev/null)
+if [ "$s53a_rc" = 0 ] \
+   && printf '%s' "$s53a_last" | grep -q '"decision":"created"' \
+   && printf '%s' "$s53a_last" | grep -q 'item=PVTI_abc'; then
+  ok "53a: audit_log valid directive-file/created writes verbatim, rc=0 (#87)"
+else
+  ng "53a: rc=$s53a_rc last=$s53a_last (#87)"
+fi
+
+# §53b: malformed directive-file/created (empty item=) → format-error
+# line written, original record NOT written, rc=1.
+s53b_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
+(
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  # shellcheck source=/dev/null
+  . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+  audit_log info directive-file created "directive: bad item= priority=P2 confidence=50"
+)
+s53b_rc=$?
+s53b_after=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
+s53b_added=$(( s53b_after - s53b_before ))
+s53b_last=$(tail -1 "$S53_LOG" 2>/dev/null)
+if [ "$s53b_rc" = 1 ] \
+   && [ "$s53b_added" = 1 ] \
+   && printf '%s' "$s53b_last" | grep -q '"decision":"format-error"' \
+   && printf '%s' "$s53b_last" | grep -q 'audit-format-error'; then
+  ok "53b: audit_log malformed directive-file/created rejected with format-error, rc=1 (#87)"
+else
+  ng "53b: rc=$s53b_rc added=$s53b_added last=$s53b_last (#87)"
+fi
+
+# §53c: non-strict combination (directive-link/created) → written verbatim,
+# rc=0, no format-error even though the regex would reject "directive=#1
+# issue=#2" if mis-applied to it.
+s53c_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
+(
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  # shellcheck source=/dev/null
+  . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+  audit_log info directive-link created "directive=#75 issue=#80"
+)
+s53c_rc=$?
+s53c_after=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
+s53c_added=$(( s53c_after - s53c_before ))
+s53c_last=$(tail -1 "$S53_LOG" 2>/dev/null)
+if [ "$s53c_rc" = 0 ] \
+   && [ "$s53c_added" = 1 ] \
+   && printf '%s' "$s53c_last" | grep -q '"decision":"created"'; then
+  ok "53c: audit_log directive-link/created (non-strict) writes verbatim, rc=0 (#87)"
+else
+  ng "53c: rc=$s53c_rc added=$s53c_added last=$s53c_last (#87)"
+fi
+
+rm -rf "$S53_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
