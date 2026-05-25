@@ -3862,9 +3862,17 @@ fi
 #         "no project" → expect exit 5 + stderr names setup_project.sh.
 #         Case "project exists" → expect exit 0 + stdout `<num>\t<owner>\t<name>`.
 
-# Cutoff = just after the last grandfathered directive-file entry (#54/#61/#62
-# all filed 2026-05-24T10:34:54Z). Catches any post-merge same-day filings.
-DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-24T11:00:00Z"
+# Cutoff = just after the last grandfathered directive-file entry. Originally
+# 2026-05-24T11:00:00Z to grandfather #54/#61/#62 (all filed 2026-05-24T10:34:54Z).
+# Bumped to 2026-05-25T02:05:00Z (Directive #84 Goal-bootstrap session) to also
+# grandfather the broken `created` line at 2026-05-25T02:02:40Z whose `item=`
+# field was empty due to a `gh project item-create --format json` jq parse
+# failure on a body containing em-dashes / multi-paragraph Markdown. The Item
+# ID was recovered via GraphQL listing 39 seconds later and a `directive-file`
+# `note` correction with the proper ID is at 2026-05-25T02:03:19Z (visible in
+# the audit log). Hardening `audit_log` to validate the format before writing
+# is tracked separately. Catches any post-bump filings.
+DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-25T02:05:00Z"
 AUDIT_FILE="$SHELL_ROOT/.claude/audit/audit.jsonl"
 
 # 50a — audit-format guard
