@@ -4049,15 +4049,35 @@ if command -v zsh >/dev/null 2>&1; then
       pr_cache_write 12345 deadbeef abc123 >/dev/null 2>&1
     ' || s52_rc=$?
   s52_file="$S52_DIR/test%2Frepo__pr-12345.json"
-  if [ "$s52_rc" = 0 ] && [ -f "$s52_file" ]; then
-    ok "52a: pr_cache_write succeeds under zsh + cache file written (#82)"
+  # Assert: rc=0 AND file exists AND file contains the sha we wrote.
+  # The sha check catches a future regression where pr_cache_write
+  # silently truncates / produces empty content while still returning 0.
+  if [ "$s52_rc" = 0 ] && [ -f "$s52_file" ] && grep -q 'deadbeef' "$s52_file"; then
+    ok "52a: pr_cache_write succeeds under zsh + sha written to cache file (#82)"
   else
     s52_listing=$(ls "$S52_DIR" 2>/dev/null | tr '\n' ' ')
-    ng "52a: pr_cache_write rc=$s52_rc; cache dir listing: [$s52_listing] (#82)"
+    s52_contents=$(cat "$s52_file" 2>/dev/null | head -c 200)
+    ng "52a: pr_cache_write rc=$s52_rc; dir=[$s52_listing] contents=[$s52_contents] (#82)"
+  fi
+
+  # §52c: round-trip — pr_cache_read under zsh against the file just written
+  # by §52a must return the sha (catches a regression in the read path's
+  # zsh-tied-array rename that §52b's static check would also flag).
+  s52c_rc=0
+  s52c_out=$(PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    zsh -c '
+      . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+      pr_cache_read 12345
+    ' 2>/dev/null) || s52c_rc=$?
+  if [ "$s52c_rc" = 0 ] && [ "$s52c_out" = "deadbeef" ]; then
+    ok "52c: pr_cache_read under zsh returns the sha written by §52a (#82)"
+  else
+    ng "52c: pr_cache_read rc=$s52c_rc out=[$s52c_out] (expected 'deadbeef') (#82)"
   fi
   rm -rf "$S52_DIR"
 else
   ok "52a: zsh not installed — pr_cache.sh zsh-compatibility check skipped (#82)"
+  ok "52c: zsh not installed — pr_cache_read zsh round-trip skipped (#82)"
 fi
 
 # §52b: static check across .claude/hooks/helpers/*.sh — no helper may
