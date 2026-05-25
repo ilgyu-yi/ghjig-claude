@@ -4026,6 +4026,71 @@ DR50_MOCK
   rm -rf "$DR50_DIR"
 fi
 
+# ---------- 52. pr_cache.sh helpers work under zsh (#82) ----------
+# zsh has a built-in tied array $path that mirrors $PATH. A `local path`
+# declaration followed by a scalar assignment clobbers the search path,
+# breaking subsequent command resolution. Pre-#82, pr_cache_read /
+# pr_cache_write / secret_scan_path_allowed all used `local path` and
+# failed with `sed/date: command not found` when sourced under zsh — even
+# though PATH was correct and the binaries resolved via `which`.
+#
+# §52a: invoke pr_cache_write via `zsh -c` against an isolated PR_CACHE_DIR
+# and assert exit 0 + the cache file was written. Skipped when zsh isn't
+# installed (Linux CI runners may lack it; not blocking).
+# §52b: structural — no helper uses a zsh-tied-array name as a local.
+
+if command -v zsh >/dev/null 2>&1; then
+  S52_DIR=$(mktemp -d)
+  s52_rc=0
+  PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    zsh -c '
+      set -e
+      . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+      pr_cache_write 12345 deadbeef abc123 >/dev/null 2>&1
+    ' || s52_rc=$?
+  s52_file="$S52_DIR/test%2Frepo__pr-12345.json"
+  # Assert: rc=0 AND file exists AND file contains the sha we wrote.
+  # The sha check catches a future regression where pr_cache_write
+  # silently truncates / produces empty content while still returning 0.
+  if [ "$s52_rc" = 0 ] && [ -f "$s52_file" ] && grep -q 'deadbeef' "$s52_file"; then
+    ok "52a: pr_cache_write succeeds under zsh + sha written to cache file (#82)"
+  else
+    s52_listing=$(ls "$S52_DIR" 2>/dev/null | tr '\n' ' ')
+    s52_contents=$(cat "$s52_file" 2>/dev/null | head -c 200)
+    ng "52a: pr_cache_write rc=$s52_rc; dir=[$s52_listing] contents=[$s52_contents] (#82)"
+  fi
+
+  # §52c: round-trip — pr_cache_read under zsh against the file just written
+  # by §52a must return the sha (catches a regression in the read path's
+  # zsh-tied-array rename that §52b's static check would also flag).
+  s52c_rc=0
+  s52c_out=$(PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    zsh -c '
+      . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+      pr_cache_read 12345
+    ' 2>/dev/null) || s52c_rc=$?
+  if [ "$s52c_rc" = 0 ] && [ "$s52c_out" = "deadbeef" ]; then
+    ok "52c: pr_cache_read under zsh returns the sha written by §52a (#82)"
+  else
+    ng "52c: pr_cache_read rc=$s52c_rc out=[$s52c_out] (expected 'deadbeef') (#82)"
+  fi
+  rm -rf "$S52_DIR"
+else
+  ok "52a: zsh not installed — pr_cache.sh zsh-compatibility check skipped (#82)"
+  ok "52c: zsh not installed — pr_cache_read zsh round-trip skipped (#82)"
+fi
+
+# §52b: static check across .claude/hooks/helpers/*.sh — no helper may
+# use a zsh-tied-array name (path, fpath, cdpath, manpath, module_path)
+# as a local variable. Excludes comment lines.
+s52b_hits=$(grep -nE '^[[:space:]]*local[[:space:]]+([^=#]*[[:space:]])?(path|fpath|cdpath|manpath|module_path)([[:space:]]|=|$)' \
+  "$SHELL_ROOT/.claude/hooks/helpers/"*.sh 2>/dev/null | grep -v ':[[:space:]]*#' || true)
+if [ -z "$s52b_hits" ]; then
+  ok "52b: no zsh-tied-array names used as locals in .claude/hooks/helpers/*.sh (#82)"
+else
+  ng "52b: helper uses zsh-tied-array name as local: $s52b_hits (#82)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

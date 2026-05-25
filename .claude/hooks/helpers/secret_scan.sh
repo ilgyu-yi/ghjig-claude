@@ -83,21 +83,27 @@ _secret_load_allow_list() {
 # is the portable empty-safe expansion. Without this, smoke (which runs
 # with `set -uo pipefail`) errors before reaching the loop body.
 secret_scan_path_allowed() {
-  local path="$1"
+  # Variable naming: avoid `local path` — zsh has a built-in tied array
+  # $path that mirrors $PATH, and `local path="..."` clobbers the search
+  # path, breaking subsequent command resolution. Use `file_path` instead
+  # (#82). Defensive even though pre_tool_use.sh launches us under bash
+  # today; helpers may be sourced from slash commands or other entrypoints
+  # that run under zsh on macOS.
+  local file_path="$1"
   local entry pat
   for entry in ${SECRET_ALLOW_ENTRIES[@]+"${SECRET_ALLOW_ENTRIES[@]}"}; do
     case "$entry" in
       */)
         pat="${entry%/}"
         # shellcheck disable=SC2254  # intentional unquoted glob in case pattern
-        case "$path" in
+        case "$file_path" in
           $pat) return 0 ;;
           $pat/*) return 0 ;;
         esac
         ;;
       *)
         # shellcheck disable=SC2254  # intentional unquoted glob in case pattern
-        case "$path" in $entry) return 0 ;; esac
+        case "$file_path" in $entry) return 0 ;; esac
         ;;
     esac
   done

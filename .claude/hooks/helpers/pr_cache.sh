@@ -46,25 +46,32 @@ pr_cache_read() {
   #   - file absent           → exit 0, stdout empty (caller treats as first sync)
   #   - file present + valid  → exit 0, stdout = SHA
   #   - file present + corrupt→ exit 2, stderr warning (caller must abort)
-  local path
-  path=$(_pr_cache_path "$1")
-  [ -f "$path" ] || return 0
+  #
+  # Variable naming: avoid `local path` — zsh has a built-in tied array
+  # $path that mirrors $PATH, and `local path` followed by a scalar
+  # assignment clobbers the search path, breaking subsequent command
+  # resolution. Use `cache_path` instead (#82). The same hazard applies
+  # to $fpath, $cdpath, $manpath, $module_path — never use these names
+  # as local variables in helpers that may be sourced under zsh.
+  local cache_path
+  cache_path=$(_pr_cache_path "$1")
+  [ -f "$cache_path" ] || return 0
 
   local sha=""
   if command -v jq >/dev/null 2>&1; then
-    sha=$(jq -er '.last_seen_body_sha256 // ""' "$path" 2>/dev/null)
+    sha=$(jq -er '.last_seen_body_sha256 // ""' "$cache_path" 2>/dev/null)
     if [ $? -ne 0 ]; then
-      printf 'pr_cache: corrupt cache file at %s (jq parse failed)\n' "$path" >&2
+      printf 'pr_cache: corrupt cache file at %s (jq parse failed)\n' "$cache_path" >&2
       return 2
     fi
   else
     # Fallback parse — match the simple flat JSON we write.
-    sha=$(grep -oE '"last_seen_body_sha256"[[:space:]]*:[[:space:]]*"[^"]*"' "$path" 2>/dev/null \
+    sha=$(grep -oE '"last_seen_body_sha256"[[:space:]]*:[[:space:]]*"[^"]*"' "$cache_path" 2>/dev/null \
       | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
     # Heuristic for corruption when jq is missing: file is non-empty but no
     # key was found.
-    if [ -z "$sha" ] && [ -s "$path" ]; then
-      printf 'pr_cache: corrupt cache file at %s (key not found in fallback parse)\n' "$path" >&2
+    if [ -z "$sha" ] && [ -s "$cache_path" ]; then
+      printf 'pr_cache: corrupt cache file at %s (key not found in fallback parse)\n' "$cache_path" >&2
       return 2
     fi
   fi
@@ -73,10 +80,11 @@ pr_cache_read() {
 
 pr_cache_write() {
   local n="$1" body_sha="$2" head="${3:-}"
-  local dir path tmp ts
+  # See pr_cache_read for why `path` is renamed to `cache_path` (#82).
+  local dir cache_path tmp ts
   dir=$(_pr_cache_dir)
-  path=$(_pr_cache_path "$n")
-  tmp="$path.tmp.$$"
+  cache_path=$(_pr_cache_path "$n")
+  tmp="$cache_path.tmp.$$"
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   mkdir -p "$dir" 2>/dev/null || return 1
@@ -94,7 +102,7 @@ pr_cache_write() {
       "$body_sha" "$head" "$ts" > "$tmp" || return 1
   fi
 
-  mv -f "$tmp" "$path"
+  mv -f "$tmp" "$cache_path"
 }
 
 pr_cache_check() {
