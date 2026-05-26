@@ -3907,7 +3907,14 @@ fi
 # `note` correction with the proper ID is at 2026-05-25T02:03:19Z (visible in
 # the audit log). Hardening `audit_log` to validate the format before writing
 # is tracked separately. Catches any post-bump filings.
-DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-25T02:05:00Z"
+#
+# Bumped again to 2026-05-26T03:30:00Z (Directive #92 / v3 cluster-I cutover)
+# to grandfather the LAST v0-shape `item=<PVTI-id>` line, which is #92 itself
+# at 2026-05-26T03:21:23Z — #92 was filed BEFORE its own cluster I cutover
+# flipped the audit token from `item=` to `issue=#<N>`. Post-cutoff lines
+# (#107, #109, and forward) must use the v3 `issue=#<N>` shape per the
+# updated regex below.
+DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-26T03:30:00Z"
 AUDIT_FILE="$SHELL_ROOT/.claude/audit/audit.jsonl"
 
 # 50a — audit-format guard
@@ -3918,10 +3925,11 @@ elif ! command -v jq >/dev/null 2>&1; then
   ng "50a: jq not installed — cannot scan audit log (#71)"
 else
   # Any directive-file/created line with ts >= cutoff whose reason does NOT
-  # match `directive: ... item=<id> priority=P<N> confidence=<N>`.
+  # match `directive: ... issue=#<N> priority=P<N> confidence=<N>` (v3 shape
+  # per ADR-0003 / Directive #92 cluster I; was item=<PVTI-id> in v0/v1).
   bad_lines=$(jq -r --arg cutoff "$DIRECTIVE_FILE_AUDIT_CUTOFF" '
     select(.category=="directive-file" and .decision=="created" and .ts >= $cutoff)
-    | select(.reason | test("^directive: .* item=[^ ]+ priority=P[0-3] confidence=[0-9]+$") | not)
+    | select(.reason | test("^directive: .* issue=#[0-9]+ priority=P[0-3] confidence=[0-9]+$") | not)
     | .reason
   ' "$AUDIT_FILE" 2>/dev/null)
   if [ -z "$bad_lines" ]; then
@@ -4113,26 +4121,26 @@ mkdir -p "$(dirname "$S53_LOG")"
   CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
-  audit_log info directive-file created "directive: smoke test item=PVTI_abc priority=P2 confidence=50"
+  audit_log info directive-file created "directive: smoke test issue=#123 priority=P2 confidence=50"
 )
 s53a_rc=$?
 s53a_last=$(tail -1 "$S53_LOG" 2>/dev/null)
 if [ "$s53a_rc" = 0 ] \
    && printf '%s' "$s53a_last" | grep -q '"decision":"created"' \
-   && printf '%s' "$s53a_last" | grep -q 'item=PVTI_abc'; then
+   && printf '%s' "$s53a_last" | grep -q 'issue=#123'; then
   ok "53a: audit_log valid directive-file/created writes verbatim, rc=0 (#87)"
 else
   ng "53a: rc=$s53a_rc last=$s53a_last (#87)"
 fi
 
-# §53b: malformed directive-file/created (empty item=) → format-error
+# §53b: malformed directive-file/created (empty issue=) → format-error
 # line written, original record NOT written, rc=1.
 s53b_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
   CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
-  audit_log info directive-file created "directive: bad item= priority=P2 confidence=50"
+  audit_log info directive-file created "directive: bad issue= priority=P2 confidence=50"
 )
 s53b_rc=$?
 s53b_after=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
