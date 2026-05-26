@@ -1,0 +1,35 @@
+name: Task
+description: A standalone task or small improvement that doesn't fit a Directive. One-off work — refactor, doc fix, dependency bump.
+title: "chore: <subject>"
+labels: [task]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What needs to be done?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Why now? What changes if this waits? (See SPEC §5.2 rationale triad — MISSION fit / why now / existing coverage.)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable conditions as `- [ ] <item>`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+    validations:
+      required: false
