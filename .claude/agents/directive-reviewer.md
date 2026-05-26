@@ -19,13 +19,12 @@ Your job is to stop weak Directives from landing and to refuse premature complet
   - **Success signals** — verifiable conditions for completion.
   - **Non-goals** — explicit exclusions.
   - **Constraints** — what must hold throughout.
-  - **Parent Goal** — link to the Final Goal this serves.
-- The list of currently `Status=Active` Directives — fetch with:
+  - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (dir-mode v3 reframe / ADR-0003: MISSION.md is the canonical repo direction; the `Parent Goal` field from v0/v1 is removed — see header note below.)
+- The list of currently `Active` Directives — fetch with:
   ```
-  gh project item-list <project-num> --owner <owner> --format json --limit 100 \
-    | jq '.items[] | select(.type=="DraftIssue" or .type=="Issue") | select(.fieldValues[]? | select(.name=="Status" and .text=="Active"))'
+  gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100
   ```
-  Or via `gh issue list --label "Type=Directive" --json number,title,body,state` and filter for open (Active) ones. The 100-cap is a heuristic; if hit, surface in the verdict reason.
+  Or the equivalent search query `is:open label:directive -label:status:proposed`. An open `directive`-labeled Issue without `status:proposed` is `Active` per the v3 4-state lifecycle (SPEC §2.1). The 100-cap is a heuristic; if hit, surface in the verdict reason.
 
 **For completion review:**
 - The Directive's body (success signals as written at activation time).
@@ -43,7 +42,7 @@ You assume no prior knowledge of the main assistant's discussion. The proposed b
 
 ### Common to proposal and completion
 
-**1. Schema completeness** — does the body cover Objective / Success signals / Non-goals / Constraints / Parent Goal?
+**1. Schema completeness** — does the body cover Objective / Success signals / Non-goals / Constraints / MISSION fit?
 - Pass: all five sections present with substantive content (each at least one sentence beyond the heading).
 - Fail (refine): any section missing or stub-only ("TBD", "tbc", a single placeholder word).
 - Fail (block): three or more sections missing — the body is a fragment.
@@ -88,14 +87,14 @@ Before the verdict, produce a short structured report (≤300 words) — one par
 - Do NOT suggest content for the Directive body or completion claim. Your job is to reject or pass, not to author. If the body needs more text, return `refine` and name the gap; the caller (`/file-directive`, `/activate-directive`, or `/complete-directive`) re-authors.
 - Do NOT block on stylistic issues alone (heading capitalization, ordering). Block on substance gaps.
 - Do not invent active Directives or linked Execution Issues you didn't see in the fetched data. If `gh` fails (rate-limit, auth), say so and pass through to manual review.
-- If the parent Goal is absent and the repo has no Goal item yet (early v0 state), do not refuse outright — note the absence in the verdict reason and proceed with checks 1-5 (proposal) or 1-6 (completion). The first Directive in a repo bootstraps the Goal slot.
+- **MISSION.md alignment** (dir-mode v3 reframe / ADR-0003): the `MISSION fit` section must name a specific `MISSION.md` section or success criterion. If the target repo has no `MISSION.md`, note that in the verdict reason and pass through to manual review — the Directive may motivate a MISSION.md amendment, which is appropriate. The legacy "early v0 state Goal-bootstrap allowance" is **removed** for repos that have a `MISSION.md`; for repos onboarding the shell whose first Directive precedes their first `MISSION.md`, the allowance still applies (note the absence + pass through). See ADR-0003 Decision 6.
 - One paragraph per check is enough. Long reviews discourage maintenance; short reviews are still actionable.
 
 ## Verdict dispatch (informational — handled by caller per SPEC §1.7 / §2.1 reviewer-gating contract)
 
-- `ship` → caller proceeds (`/file-directive` files the Draft; `/activate-directive` promotes to a real Issue; `/complete-directive` flips `Status=Completed` and posts the closing comment).
+- `ship` → caller proceeds (`/file-directive` files the Issue with `directive` + `status:proposed` labels; `/activate-directive` removes the `status:proposed` label to flip Status=Active; `/complete-directive` closes the Issue with `--reason completed` and posts the closing comment).
 - `refine` → caller re-authors per the one-line feedback and re-invokes. After two consecutive `refine` verdicts on the latest body, escalate to the user (attended) or treat as `block` (unattended).
-- `block` → caller stops. `/file-directive` and `/activate-directive` park the draft and log to `.claude/state/directive-block.log`. `/complete-directive` leaves `Status=Active`. In unattended mode the rejection is the final word; in attended mode the user can override after reviewing the verdict reason.
+- `block` → caller stops. `/file-directive` and `/activate-directive` park the draft and log to `.claude/state/directive-block.log`. `/complete-directive` leaves the Issue open (Status=Active). In unattended mode the rejection is the final word; in attended mode the user can override after reviewing the verdict reason.
 
 ## Escape
 

@@ -1,64 +1,54 @@
 ---
-description: Promote a Planned Directive to Active — converts the Draft Item to a real Issue, reviewer-gated (SPEC §2.1, §5.12).
-argument-hint: <directive-id>
+description: Activate a Proposed Directive — re-runs directive-reviewer; on `ship` removes the `status:proposed` label (Issue → Active) (dir-mode v3 / ADR-0003).
+argument-hint: <issue-#>
 ---
 
-Transition a Directive from `Status=Planned` to `Status=Active` by promoting the Project Draft Item to a real GitHub Issue. Reviewer-gated.
+Transition a Directive from `Status=Proposed` to `Status=Active` by removing the `status:proposed` label after a fresh `directive-reviewer` pass on the current body (which may have been edited in the GH UI since filing).
+
+In dir-mode v3 (ADR-0003), Status is encoded as labels on the Issue (Issues are SSOT). Project Status field is mirrored by `.github/workflows/issues-to-project-mirror.yml`. `/activate-directive` does NOT write to the Project directly.
 
 ## Procedure
 
-1. **Resolve the Project** — same as `/file-directive` step 1.
-
-2. **Resolve the Draft Item** — `<directive-id>` is the Project Item ID from `/file-directive`'s output. Fetch the item:
+1. **Resolve the Issue** — `<issue-#>` is a GitHub Issue number. Fetch:
    ```bash
-   gh project item-list <project-num> --owner <owner> --format json --limit 100 \
-     | jq --arg id "<directive-id>" '.items[] | select(.id==$id)'
+   gh issue view <issue-#> --json title,body,state,labels
    ```
-   - If not found: print error and stop.
-   - If `Type != Directive`: print error ("Item is not a Directive — `Type=<X>`") and stop.
-   - If `Status != Planned`: print error ("Directive is already `Status=<X>` — use /complete-directive or /list-directives to inspect") and stop.
+   - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
+   - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
+   - If `status:proposed` label absent: error ("Directive is already Active (no `status:proposed` label). Use `/list-directives` to inspect.") and stop.
 
-3. **Reviewer gate** — re-invoke `directive-reviewer` (SPEC §4.9) on the (possibly edited since draft) body. The body may have changed in the GH UI since the original `/file-directive` invocation; the reviewer re-validates schema, scope, and active-Directive conflict against the current state. Parse verdict per `/file-directive` step 4 dispatch.
+2. **Reviewer gate** — re-invoke `directive-reviewer` (SPEC §4.9) on the current body. The body may have changed in the GH UI since filing; the reviewer re-validates schema, scope, and active-Directive conflict against the current state. Parse verdict per `/file-directive` step 2 dispatch.
 
-   On `block`: stop. Status stays `Planned`. Audit `directive-activate blocked "<reason>"`.
+   On `block`: stop. `status:proposed` label stays. Audit `directive-activate blocked "<reason>"`.
 
-4. **Promote to a real Issue**:
-   - Read the Draft Item's title + body.
-   - Ensure the `directive` label exists on the repo (`gh label create directive` if missing; idempotent).
-   - Create the Issue:
-     ```bash
-     gh issue create --title "<Title>" --body "<Body + 'Filed by /activate-directive from Project Item <directive-id>'>" --label "directive"
-     ```
-   - Capture the new Issue number `<N>`.
-
-5. **Link the Issue back to the Project Item** — `gh project item-add <project-num> --owner <owner> --url <issue-url>`. This adds the Issue as a new Project Item; the original Draft Item becomes redundant. Archive the Draft via `gh project item-archive --id <directive-id>` to preserve history without cluttering the view.
-
-6. **Set custom fields** on the new Issue-backed Item:
-   - `Type=Directive` (preserved)
-   - `Status=Active` (changed from Planned)
-   - `Priority`, `Confidence`, `Success Signals`, `Parent` — copied from the archived Draft Item.
-
-7. **Audit log** — `audit_log info directive-activate created "directive: #<N> from-draft=<directive-id>"`.
-
-8. **Output**:
+3. **Remove the `status:proposed` label**:
+   ```bash
+   gh issue edit <issue-#> --remove-label "status:proposed"
    ```
-   Activated Directive #<N>: <Title>
-   Status: Active
-   The original Draft Item <directive-id> is archived.
-   Next: file Execution Issues against this Directive with /file-issue --parent <N>.
+   The Issue is now `Active` (open + `directive` label + no status label).
+
+4. **Audit log** — `audit_log info directive-activate created "directive: #<issue-#> ratified from-sha=<body-sha256>"`.
+
+5. **Mirror sync** — the mirror workflow fires on `issues.unlabeled` and updates the Project Item's Status field from Proposed to Active.
+
+6. **Output**:
+   ```
+   Activated Directive #<issue-#>: <Title>
+   Status: Active (status:proposed label removed)
+   Next: file Execution Issues against this Directive with /file-issue --parent <issue-#>.
    ```
 
 ## Operating mode
 
-- **attended**: step 3's verdict surfaces to the user before activation.
-- **unattended**: step 3's verdict gates directly.
+- **attended**: step 2's verdict surfaces to the user before activation.
+- **unattended**: step 2's verdict gates directly.
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate-directive <id>` bypasses the reviewer. Audit-logged.
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate-directive <issue-#>` bypasses the reviewer. Audit-logged.
 
 ## Forbidden
 
-- Activating a Directive that is `Status != Planned`.
-- Activating an Item whose `Type != Directive`.
-- Creating the real Issue without the `directive` label — that label is the engineering hook's signal (SPEC §6.1 `directive-protect` matcher) that `/work-on <N>` should refuse.
+- Activating an Issue without the `directive` label.
+- Activating an Issue without the `status:proposed` label (not in Proposed state).
+- Writing to the Project Item directly — that's the mirror workflow's job.

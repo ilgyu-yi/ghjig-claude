@@ -1,73 +1,64 @@
 ---
-description: File a new Directive in the dir-mode Project (SPEC §1.7, §2.1, §5.10). AI-assisted authoring with schema enforcement; reviewer-gated before commit.
-argument-hint: [<short description>]
+description: File a new Directive as a GitHub Issue with `directive` + `status:proposed` labels (dir-mode v3 — Issues-as-SSOT per ADR-0003 / Directive #92). Reviewer-gated.
+argument-hint: ""
 ---
 
-Create a new Directive Draft Item in the dir-mode GitHub Project v2.
+Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/directive.md`. Reviewer-gated before `gh issue create`.
+
+In dir-mode v3 (ADR-0003), **Issues are SSOT**. The Project Item that wraps the new Issue is created and populated by `.github/workflows/issues-to-project-mirror.yml` (cluster D mirror workflow) — `/file-directive` does NOT write to the Project directly.
 
 ## Procedure
 
-1. **Resolve the Project** (deterministic gate, SPEC §1.7 Substrate guard, issue #71). Invoke `bash scripts/dir_mode_project.sh resolve` via the Bash tool. The script's exit code is the gate:
-   - **exit 0**: project found. Stdout contains a single line `<project-num>\t<owner>\t<project-name>` (tab-separated; the project-name may contain spaces — e.g., default `<repo-name> roadmap`). Parse via `IFS=$'\t' read -r project_num owner project_name <<<"$STDOUT"` (or equivalent tab-aware split) and proceed to step 2.
-   - **exit non-zero** (1 = registry guard, 2 = no gh auth, 3 = no `project` scope, 4 = no `gh repo view`, 5 = no Project found, 6 = `jq` missing): **STOP**. Print the script's stderr verbatim. If exit code is 5, instruct the user to run `scripts/setup_project.sh`. Do not proceed to step 2.
-
-   **Substitution prohibition.** Do NOT synthesize a Project from any other GitHub artifact — milestones, labels, plain Issues, etc. The script's exit-0 path is the **only** signal that a real Project exists for this target. If the script exits non-zero, `/file-directive` halts; this is by design (SPEC §1.7).
-
-2. **Resolve the parent Goal.** Search the Project for an item with `Type=Goal` (via `gh project item-list <num> --owner <owner> --format json --limit 100`). If absent, ask the user whether to file a new Goal first, OR proceed with `Parent Goal: (no Goal item yet — bootstrap)` as the placeholder. If multiple Goals exist, ask which one this Directive serves.
-
-3. **Author the body** from `.claude/templates/directive.md`:
+1. **Author the body** from `.claude/templates/directive.md`:
    - **Objective** — bounded by concrete artifact-level boundary (issue counts, file paths, AC ticks, merge events). Refuse to proceed if the Objective doesn't name a concrete artifact-level boundary.
    - **Success signals** — 2 to 5 verifiable conditions. Each must be objectively testable by a reasonable engineer.
    - **Non-goals** — at least 2 explicit exclusions.
    - **Constraints** — at least 1 invariant to preserve.
-   - **Parent Goal** — from step 2.
-   - **Confidence** — 0–100; ask the user.
+   - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (Replaces the v0/v1 `Parent Goal` field per ADR-0003 Decision 6.)
+   - **Confidence** — 0-100; ask the user.
 
-4. **Reviewer gate** — invoke the `directive-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Status=Active` Directives, parent Goal reference. Parse the verdict line (`^VERDICT: (ship|refine|block)`).
+2. **Reviewer gate** — invoke the `directive-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
 
    Verdict dispatch (SPEC §2.1, §5.7.1 operating-mode coupling):
-   - **`ship`** → proceed to step 5.
-   - **`refine: <feedback>`** → revise the body per the one-line feedback. Re-invoke `directive-reviewer` on the revised body. After **two** consecutive `refine` verdicts on the latest body, escalate to the user (attended) or treat as `block` (unattended).
-   - **`block: <reason>`** → do NOT create the Draft Item. In attended mode: report the reason and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/directive-block.log` naming the rejected Objective + reason, then stop.
+   - **`ship`** → proceed to step 3.
+   - **`refine: <feedback>`** → revise the body per the one-line feedback. Re-invoke `directive-reviewer` on the revised body. After two consecutive `refine` verdicts, escalate to the user (attended) or treat as `block` (unattended).
+   - **`block: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/directive-block.log` and stop.
 
-5. **Create the Draft Item** in the Project:
+3. **Create the Issue**:
    ```bash
-   gh project item-create <project-num> --owner <owner> --title "<Objective summary, ≤80 chars>" --body "<full body from step 3>" --format json
+   gh issue create \
+     --title "directive: <Objective summary, ≤80 chars>" \
+     --body "<full body from step 1>" \
+     --label "directive" \
+     --label "status:proposed"
    ```
-   The output contains the Item ID — keep it for the next steps.
+   Capture the new Issue number `<N>`.
 
-6. **Set custom fields** on the new Draft Item:
-   - `Type=Directive`
-   - `Status=Planned`
-   - `Priority=<asked from user, default P2>`
-   - `Confidence=<from step 3>`
-   - `Success Signals=<copy of the Success signals section>`
-   - `Parent=<parent Goal reference or "(no Goal)">`
+4. **Audit log** — `audit_log info directive-file created "directive: <Objective summary> issue=#<N> priority=P<P> confidence=<C>"`.
 
-   Use `gh project item-edit --id <item-id> --field-id <field-id> --text <value>` (or `--single-select-option-id` for SINGLE_SELECT fields; resolve field IDs once via `gh project field-list`).
+   The `issue=#<id>` token replaces the v0/v1 `item=<PVTI-id>` token (Issues are SSOT now per ADR-0003).
 
-7. **Audit log** — `audit_log info directive-file created "directive: <Objective summary> item=<item-id> priority=P<N> confidence=<C>"`.
+5. **Mirror sync** — the `issues-to-project-mirror.yml` workflow fires on `issues.opened` and populates the Project Item's fields. `/file-directive` does NOT wait for the mirror; it returns immediately after the audit line.
 
-   The `item=<item-id>` token is **mandatory** — `<item-id>` is the Draft Item ID returned by step 5's `gh project item-create … --format json | jq -r '.id'`, always available by the time this step runs. Substituting `milestone=#N`, `issue=#N`, or any other identifier is a contract violation (issue #71). Smoke §50a scans `.claude/audit/audit.jsonl` after every CI run and fails on format drift.
-
-8. **Output** — print:
+6. **Output**:
    ```
-   Filed Directive (Draft Item <id>): <Objective summary>
-   Status: Planned
-   Next: /activate-directive <id>  when ready to promote to a real Issue.
+   Filed Directive Issue #<N>: <Objective summary>
+   Status: Proposed (label: status:proposed)
+   Next: /activate-directive <N> when ready (re-runs reviewer; removes status:proposed → Active).
    ```
 
 ## Operating mode
 
-- **attended** (default): step 4 surfaces the verdict to the user before applying it; the user may override a `block` with `SKIP_HOOKS=directive-review SKIP_REASON='<why>'` on a re-invocation.
-- **unattended**: step 4's verdict gates directly; `block` parks the draft as described.
+- **attended** (default): step 2 surfaces the verdict to the user before applying.
+- **unattended**: step 2's verdict gates directly.
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /file-directive <args>` bypasses the reviewer gate. Audit-logged per SPEC §7. Reserved for cases where a human accepts recorded responsibility for the override.
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /file-directive` bypasses the reviewer gate. Audit-logged.
 
 ## Forbidden
 
-- Creating a Draft Item with an empty or stub-only Objective.
+- Creating an Issue with an empty or stub-only Objective.
 - Skipping the reviewer gate without `SKIP_HOOKS=directive-review`.
-- Setting `Type=Directive` on an Item that is not a Draft Item or a real Issue (the field is `Type`-awareness's primary key per SPEC §1.7).
+- Writing directly to the Project Item — that's the mirror workflow's job.
+- Setting the `directive` label without `status:proposed` — Proposed is the first state for any new Directive.

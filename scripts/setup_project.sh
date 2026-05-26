@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # scripts/setup_project.sh — idempotent bootstrap for the dir-mode Project v2 substrate.
 #
-# Creates (or finds) a single GitHub Project v2 named "<repo-name> roadmap"
-# (override via $CLAUDE_ENG_PROJECT_NAME) and ensures the six script-managed
-# custom fields exist with the schema locked by docs/ADRs/0002-…:
-#   Type, Status, Priority (SINGLE_SELECT); Parent, Success Signals (TEXT); Confidence (NUMBER).
+# v3 schema (ADR-0003): the Project is a DERIVED view; Issues are SSOT. The
+# mirror workflow (.github/workflows/issues-to-project-mirror.yml) populates
+# Project Items from Issue state. This script ensures the field schema the
+# mirror writes into:
+#   Type     SINGLE_SELECT — Directive,Execution   (Goal removed in v3 per ADR-0003 Decision 6)
+#   Status   SINGLE_SELECT — Proposed,Active,Blocked,Completed   (4-state per ADR-0003 Decision 7)
+#   Priority SINGLE_SELECT — P0,P1,P2,P3
+#   Parent   TEXT          — mirrored from Issue body line-1 `Parent Directive: #N` marker
 # The Iteration field is user-managed (gh CLI lacks ITERATION data-type support);
 # the script prints a one-time hint when it's missing.
+#
+# v3 removes: Confidence (NUMBER) and Success Signals (TEXT) fields — per
+# ADR-0003 Decision 7, content moves to Issue body sections; the Project
+# carries only the structural-metadata mirror.
 #
 # Refuses on:
 #   - cwd not in $CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt (registry guard)
@@ -104,12 +112,13 @@ ensure_field() {
   audit_log info project-setup created "field: $name ($data_type)" 2>/dev/null || true
 }
 
-ensure_field "Type"            SINGLE_SELECT "Goal,Directive,Execution"
-ensure_field "Status"          SINGLE_SELECT "Planned,Active,Completed,Blocked,Revised"
-ensure_field "Priority"        SINGLE_SELECT "P0,P1,P2,P3"
-ensure_field "Parent"          TEXT
-ensure_field "Confidence"      NUMBER
-ensure_field "Success Signals" TEXT
+ensure_field "Type"     SINGLE_SELECT "Directive,Execution"
+ensure_field "Status"   SINGLE_SELECT "Proposed,Active,Blocked,Completed"
+ensure_field "Priority" SINGLE_SELECT "P0,P1,P2,P3"
+ensure_field "Parent"   TEXT
+# v3 (ADR-0003): Confidence and Success Signals fields removed.
+# Confidence + Success Signals content lives in Directive Issue body sections.
+# Goal Type option removed; MISSION.md is the canonical direction.
 
 # ---------- link project to repo ----------
 # Best-effort: gh project link is idempotent server-side (re-linking the same

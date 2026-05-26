@@ -3072,11 +3072,13 @@ else
     sp41a_proj_create=$( { grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
     : "${sp41a_creates:=0}"
     : "${sp41a_proj_create:=0}"
-    # Six CLI-managed fields per ADR-0002 "Iteration constraint" — Iteration is user-managed.
-    if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 6 ]; then
-      ok "41a: first-run creates project + 6 fields (Iteration user-managed) (#43)"
+    # v3 schema (ADR-0003): 4 CLI-managed fields (Type / Status / Priority / Parent).
+    # Goal Type option removed; Confidence + Success Signals fields removed.
+    # Iteration stays user-managed.
+    if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 4 ]; then
+      ok "41a: first-run creates project + 4 fields (v3 schema per ADR-0003) (#43/#96)"
     else
-      ng "41a: first-run expected ≥1 project-create + 6 field-create; got proj=$sp41a_proj_create field=$sp41a_creates (#43)"
+      ng "41a: first-run expected ≥1 project-create + 4 field-create (v3); got proj=$sp41a_proj_create field=$sp41a_creates (#43/#96)"
     fi
 
     # 41b: second-run (project + fields already exist) → zero new field-creates.
@@ -3144,11 +3146,13 @@ else
       ng "41d: missing project scope should refuse but exited 0 (#43)"
     fi
 
-    # 41e: option reconciliation — drift case (#76).
-    # All 6 fields pre-seeded; Status has GitHub-default options
-    # (Todo,In Progress,Done) instead of the declared dir-mode set.
-    # Expect: exactly one `gh api graphql` call (the Status reconcile),
-    # carrying all 5 dir-mode option names in its argv.
+    # 41e: option reconciliation — drift case (v3 schema per ADR-0003).
+    # Status pre-seeded with GitHub-default options (Todo, In Progress, Done);
+    # declared v3 set is (Proposed, Active, Blocked, Completed). Expect: one
+    # `gh api graphql` mutation whose payload UNIONS the 3 defaults with the
+    # 4 v3 declared options = 7 total names. (Type field carries the legacy
+    # Goal,Directive,Execution from a v0 substrate — v3 declares only
+    # Directive,Execution, which is a subset; no Type reconcile fires.)
     SP_DIR2=$(mktemp -d)
     SP_TARGET2="$SP_DIR2/target"
     mkdir -p "$SP_TARGET2"
@@ -3157,8 +3161,12 @@ else
     printf '%s\n' "$SP_TARGET2" >> "$SP_REGISTRY"
     mkdir -p "$SP_DIR2/fields" "$SP_DIR2/options"
     touch "$SP_DIR2/project-created"
+    # v3 script declares 4 fields; pre-seed extra legacy fields (Confidence,
+    # Success_Signals) so we cover the v0→v3 migration case where they exist
+    # but are no longer declared. setup_project.sh skips fields it doesn't
+    # declare (no destructive delete; cluster I's migration handles deletion).
     for f in Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR2/fields/$f"; done
-    # SINGLE_SELECT option states: Type + Priority aligned with declared; Status drifted.
+    # Pre-seed v0 Type option set; v3 declared is subset — no Type reconcile.
     printf 'Goal,Directive,Execution\n' > "$SP_DIR2/options/Type"
     printf 'Todo,In Progress,Done\n'    > "$SP_DIR2/options/Status"
     printf 'P0,P1,P2,P3\n'              > "$SP_DIR2/options/Priority"
@@ -3175,39 +3183,35 @@ else
     )
     sp41e_graphql=$( { grep -c '^api graphql' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     : "${sp41e_graphql:=0}"
-    # All 5 dir-mode option names must appear (declared additions) AND all 3
-    # GitHub-default names must appear (additive contract — extras preserved).
-    # AC #1 + AC #2 together require both halves: the mutation payload is the
-    # UNION (3 defaults + 5 declared = 8 options).
-    sp41e_planned=$(   { grep -c 'Planned'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
+    # All 4 v3 Status names + all 3 GitHub-default names must appear in the
+    # mutation payload (additive contract: union, not replace).
+    sp41e_proposed=$(  { grep -c 'Proposed'    "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_active=$(    { grep -c 'Active'      "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_completed=$( { grep -c 'Completed'   "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_blocked=$(   { grep -c 'Blocked'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    sp41e_revised=$(   { grep -c 'Revised'     "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_todo=$(      { grep -c 'Todo'        "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_inprog=$(    { grep -c 'In Progress' "$SP_DIR2/gh.log" 2>/dev/null; } || true)
     sp41e_done=$(      { grep -c 'Done'        "$SP_DIR2/gh.log" 2>/dev/null; } || true)
-    : "${sp41e_planned:=0}";   : "${sp41e_active:=0}"; : "${sp41e_completed:=0}"
-    : "${sp41e_blocked:=0}";   : "${sp41e_revised:=0}"
-    : "${sp41e_todo:=0}";      : "${sp41e_inprog:=0}"; : "${sp41e_done:=0}"
+    : "${sp41e_proposed:=0}"; : "${sp41e_active:=0}"; : "${sp41e_completed:=0}"
+    : "${sp41e_blocked:=0}"
+    : "${sp41e_todo:=0}";     : "${sp41e_inprog:=0}"; : "${sp41e_done:=0}"
     if [ "$sp41e_graphql" = 1 ] \
-       && [ "$sp41e_planned" -ge 1 ] && [ "$sp41e_active" -ge 1 ] \
-       && [ "$sp41e_completed" -ge 1 ] && [ "$sp41e_blocked" -ge 1 ] && [ "$sp41e_revised" -ge 1 ] \
+       && [ "$sp41e_proposed" -ge 1 ] && [ "$sp41e_active" -ge 1 ] \
+       && [ "$sp41e_completed" -ge 1 ] && [ "$sp41e_blocked" -ge 1 ] \
        && [ "$sp41e_todo" -ge 1 ] && [ "$sp41e_inprog" -ge 1 ] && [ "$sp41e_done" -ge 1 ]; then
-      ok "41e: Status drift → 1 graphql mutation; union payload carries 5 dir-mode + 3 default options (#76)"
+      ok "41e: v3 Status drift → 1 graphql mutation; union payload carries 4 v3 + 3 default options (#76/#96)"
     else
-      ng "41e: Status drift expected 1 graphql + 8 union names; got graphql=$sp41e_graphql plan=$sp41e_planned act=$sp41e_active comp=$sp41e_completed blk=$sp41e_blocked rev=$sp41e_revised todo=$sp41e_todo inprog=$sp41e_inprog done=$sp41e_done (#76)"
+      ng "41e: v3 Status drift expected 1 graphql + 7 union names; got graphql=$sp41e_graphql prop=$sp41e_proposed act=$sp41e_active comp=$sp41e_completed blk=$sp41e_blocked todo=$sp41e_todo inprog=$sp41e_inprog done=$sp41e_done (#76/#96)"
     fi
     # Clean up §41e target before §41f reuses the registry.
     sp_tmp_reg=$(mktemp); grep -vxF "$SP_TARGET2" "$SP_REGISTRY" > "$sp_tmp_reg" 2>/dev/null || true
     mv "$sp_tmp_reg" "$SP_REGISTRY"
     rm -rf "$SP_DIR2"
 
-    # 41f: option reconciliation — idempotent (already-aligned) case (#76).
-    # All 6 fields pre-seeded; Status options already equal the dir-mode set.
-    # Expect: zero `gh api graphql` calls AND stdout marker
-    # `options already aligned` (proves the helper ran and recognized alignment,
-    # not that it skipped silently).
+    # 41f: option reconciliation — idempotent (v3-aligned) case.
+    # Status pre-seeded with the v3 4-state set (Proposed,Active,Blocked,
+    # Completed) — exactly matches the declared set. Expect: zero `gh api
+    # graphql` calls AND stdout marker `options already aligned`.
     SP_DIR3=$(mktemp -d)
     SP_TARGET3="$SP_DIR3/target"
     mkdir -p "$SP_TARGET3"
@@ -3216,9 +3220,9 @@ else
     printf '%s\n' "$SP_TARGET3" >> "$SP_REGISTRY"
     mkdir -p "$SP_DIR3/fields" "$SP_DIR3/options"
     touch "$SP_DIR3/project-created"
-    for f in Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR3/fields/$f"; done
-    printf 'Goal,Directive,Execution\n'                   > "$SP_DIR3/options/Type"
-    printf 'Planned,Active,Completed,Blocked,Revised\n'   > "$SP_DIR3/options/Status"
+    for f in Type Status Priority Parent; do touch "$SP_DIR3/fields/$f"; done
+    printf 'Directive,Execution\n'                        > "$SP_DIR3/options/Type"
+    printf 'Proposed,Active,Blocked,Completed\n'          > "$SP_DIR3/options/Status"
     printf 'P0,P1,P2,P3\n'                                > "$SP_DIR3/options/Priority"
     (
       cd "$SP_TARGET3" || exit 0
@@ -3361,8 +3365,8 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 - §42e must be self-contained inside `scripts/test/smoke.sh`; no new helper scripts under `scripts/test/` or new entries in the registry.
 - The env-var guard must be a single `if` at the top of §42e — no scattered checks inside individual `ok`/`ng` calls.
 
-## Parent Goal
-First Directive in this synthetic test environment — bootstraps the Goal slot per directive-reviewer rule "The first Directive in a repo bootstraps the Goal slot".
+## MISSION fit
+Serves MISSION's `Success looks like > The flow holds in unattended runs` criterion — synthetic test environment per dir-mode v3 (ADR-0003); the v0/v1 `Parent Goal` field is replaced by MISSION fit in v3.
 PROMPT_EOF
     dr_ship_out=$(claude -p --agent directive-reviewer "$dr_ship_prompt" 2>&1 || true)
     # Capture the LAST `^VERDICT:` line anchored on the documented delimiters
@@ -3404,8 +3408,8 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 - §42e must be self-contained inside `scripts/test/smoke.sh`.
 - The env-var guard must be a single `if` at the top of §42e.
 
-## Parent Goal
-First Directive in this synthetic test environment.
+## MISSION fit
+Synthetic test environment per dir-mode v3 (ADR-0003); the v0/v1 `Parent Goal` field is replaced by MISSION fit in v3.
 PROMPT_EOF
     dr_refine_out=$(claude -p --agent directive-reviewer "$dr_refine_prompt" 2>&1 || true)
     dr_refine_verdict=$(printf '%s\n' "$dr_refine_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
@@ -3432,15 +3436,16 @@ if [ ! -f "$DR_TEMPLATE" ]; then
   ng "43: .claude/templates/directive.md missing (#45)"
 else
   dt_missing=""
-  for section in "## Objective" "## Success signals" "## Non-goals" "## Constraints" "## Parent Goal"; do
+  # v3 (ADR-0003 Decision 6): Parent Goal field replaced by MISSION fit.
+  for section in "## Objective" "## Success signals" "## Non-goals" "## Constraints" "## MISSION fit"; do
     if ! grep -qF "$section" "$DR_TEMPLATE"; then
       dt_missing="$dt_missing $section"
     fi
   done
   if [ -z "$dt_missing" ]; then
-    ok "43-template: directive.md template has all five required sections (#45)"
+    ok "43-template: directive.md template has all five required sections (v3 schema per ADR-0003) (#45/#96)"
   else
-    ng "43-template: directive.md missing sections:$dt_missing (#45)"
+    ng "43-template: directive.md missing sections:$dt_missing (#45/#96)"
   fi
 fi
 
@@ -4530,6 +4535,78 @@ if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; t
   fi
 else
   ok "57g: python3+pyyaml not available — YAML parse check skipped (#96/cluster D)"
+fi
+
+# ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
+# Cluster E (commands) + F (directive-reviewer) + G (setup_project.sh) + H
+# (SPEC §1.7/§2.1/§5.10-§5.18) per ADR-0003. Structural sanity for the
+# substrate flip from Project-Items-as-SSOT (v0) to Issues-as-SSOT (v3).
+
+# 58a: every dir-mode command file mentions Issues are SSOT or ADR-0003.
+s58a_missing=""
+for cmd in file-directive activate-directive complete-directive block-directive revise-directive list-directives link-directive; do
+  cmd_path="$SHELL_ROOT/.claude/commands/$cmd.md"
+  [ -f "$cmd_path" ] || { s58a_missing="$s58a_missing $cmd(missing)"; continue; }
+  if ! grep -qE '(ADR-0003|Issues-as-SSOT|Issues are SSOT|dir-mode v3)' "$cmd_path" 2>/dev/null; then
+    s58a_missing="$s58a_missing $cmd"
+  fi
+done
+if [ -z "$s58a_missing" ]; then
+  ok "58a: all 7 dir-mode commands reference ADR-0003 / Issues-as-SSOT (#96/cluster E)"
+else
+  ng "58a: dir-mode commands missing v3 references:$s58a_missing (#96/cluster E)"
+fi
+
+# 58b: /file-directive emits issue=#<N> audit token (not item=PVTI_...).
+if grep -qE 'issue=#' "$SHELL_ROOT/.claude/commands/file-directive.md" 2>/dev/null \
+   && ! grep -qE 'item=<item-id>|item=PVTI_' "$SHELL_ROOT/.claude/commands/file-directive.md" 2>/dev/null; then
+  ok "58b: /file-directive uses issue=#<N> audit token (Issues-as-SSOT) (#96/cluster E)"
+else
+  ng "58b: /file-directive missing issue=#<N> or still uses item=<id> (#96/cluster E)"
+fi
+
+# 58c: directive-reviewer drops Goal-bootstrap allowance, adds MISSION.md alignment check.
+DR_AGENT="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
+if grep -qE 'MISSION\.md alignment|MISSION fit' "$DR_AGENT" 2>/dev/null \
+   && grep -qE 'ADR-0003' "$DR_AGENT" 2>/dev/null; then
+  ok "58c: directive-reviewer names MISSION.md alignment + ADR-0003 (#96/cluster F)"
+else
+  ng "58c: directive-reviewer missing v3 update (#96/cluster F)"
+fi
+
+# 58d: setup_project.sh declares the v3 4-state Status options + 2-option Type.
+SP_SH="$SHELL_ROOT/scripts/setup_project.sh"
+if grep -qE 'Proposed,Active,Blocked,Completed' "$SP_SH" 2>/dev/null \
+   && grep -qE 'Directive,Execution' "$SP_SH" 2>/dev/null \
+   && ! grep -qE 'ensure_field "Confidence"|ensure_field "Success Signals"' "$SP_SH" 2>/dev/null; then
+  ok "58d: setup_project.sh declares v3 4-state Status + Directive/Execution Type; Confidence + Success Signals dropped (#96/cluster G)"
+else
+  ng "58d: setup_project.sh v3 schema check failed (#96/cluster G)"
+fi
+
+# 58e: SPEC §2.1 lifecycle table has exactly 4 state rows.
+# Count rows matching the `| Proposed |` / `| Active |` / `| Blocked |` / `| Completed |` shape.
+s58e_count=0
+for state in Proposed Active Blocked Completed; do
+  if grep -qE "^\| \`$state\`" "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+    s58e_count=$((s58e_count+1))
+  fi
+done
+# Verify Planned and Revised are NOT in the state-table rows.
+s58e_planned=$(grep -cE "^\| \`Planned\`" "$SHELL_ROOT/SPEC.md" 2>/dev/null || true)
+s58e_revised=$(grep -cE "^\| \`Revised\`" "$SHELL_ROOT/SPEC.md" 2>/dev/null || true)
+: "${s58e_planned:=0}"; : "${s58e_revised:=0}"
+if [ "$s58e_count" = 4 ] && [ "$s58e_planned" = 0 ] && [ "$s58e_revised" = 0 ]; then
+  ok "58e: SPEC §2.1 state-table has exactly 4 v3 states (Proposed/Active/Blocked/Completed); Planned and Revised removed (#96/cluster H)"
+else
+  ng "58e: SPEC §2.1 state-table v3: 4-count=$s58e_count planned=$s58e_planned revised=$s58e_revised (expected 4/0/0) (#96/cluster H)"
+fi
+
+# 58f: SPEC §1.7 substrate paragraph names "Issues are SSOT" / ADR-0003.
+if grep -qE 'Issues-as-SSOT|Issues are SSOT|ADR-0003' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "58f: SPEC §1.7 names Issues-as-SSOT / ADR-0003 (#96/cluster H)"
+else
+  ng "58f: SPEC §1.7 missing v3 substrate naming (#96/cluster H)"
 fi
 
 # ---------- restore registry ----------
