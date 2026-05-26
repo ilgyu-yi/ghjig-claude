@@ -4649,6 +4649,80 @@ else
   ng "59c: MISSION.md missing ADR-0003 cross-reference (#96/cluster I)"
 fi
 
+# ---------- 60. user-global ~/.claude/ carve-out on protected-branch matcher (#91) ----------
+# Issue #91: the protected-branch matcher in pre_tool_use.sh used to fire
+# on ANY target path when the current branch was protected, even for
+# user-global memory writes under $HOME/.claude/ that have nothing to do
+# with the repo's branch state. Fix: a $HOME/.claude/ carve-out skips
+# the branch + out-of-scope checks while keeping the sensitive-file check
+# active.
+
+# Set up a registered cwd on a protected branch ('main') so the matcher
+# enters the protected-branch branch. Separate from $TMP/fake which is
+# intentionally on a non-protected branch.
+S60_DIR=$(mktemp -d)
+S60_TARGET="$S60_DIR/target"
+mkdir -p "$S60_TARGET"
+S60_TARGET=$(cd "$S60_TARGET" && pwd -P)
+(cd "$S60_TARGET" && git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
+ git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+printf '%s\n' "$S60_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+
+# Helper: invoke pre_tool_use.sh with a synthesized Edit input from $S60_TARGET.
+s60_edit_run() {
+  local target_path="$1"
+  (
+    cd "$S60_TARGET" || exit 1
+    printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$target_path" \
+      | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
+  )
+  return $?
+}
+
+# §60a: Edit on $HOME/.claude/projects/<dummy>/memory/foo.md while on main
+#       → allow (carve-out fires; branch check skipped).
+s60a_target="$HOME/.claude/projects/smoke-fake/memory/foo.md"
+s60_edit_run "$s60a_target"
+case $? in
+  0) ok "60a: Edit on \$HOME/.claude/... allowed on protected branch (carve-out) (#91)" ;;
+  *) ng "60a: expected rc=0 (allow), got rc=$? on \$HOME/.claude/... (#91)" ;;
+esac
+
+# §60b: Edit on an in-repo file ($S60_TARGET/SPEC.md) while on main
+#       → still blocked (protected-branch check applies; carve-out does
+#       NOT fire because target is not under $HOME/.claude/).
+s60b_target="$S60_TARGET/some-file.md"
+s60_edit_run "$s60b_target"
+case $? in
+  2) ok "60b: Edit on in-repo file still blocked on protected branch (#91)" ;;
+  *) ng "60b: expected rc=2 (block), got rc=$? on in-repo file (#91)" ;;
+esac
+
+# §60c: Edit on $HOME/.claude/.../credentials → still blocked
+#       (sensitive-file check fires regardless of carve-out).
+s60c_target="$HOME/.claude/projects/smoke-fake/credentials"
+s60_edit_run "$s60c_target"
+case $? in
+  2) ok "60c: Sensitive-file edit blocked under \$HOME/.claude/ (sensitive check survives carve-out) (#91)" ;;
+  *) ng "60c: expected rc=2 (sensitive block), got rc=$? on credentials file (#91)" ;;
+esac
+
+# §60d: Edit on /tmp/random.md while on main → still blocked
+#       (out-of-scope check fires; /tmp is not $HOME/.claude/ so carve-out
+#       doesn't apply).
+s60d_target=$(mktemp -u)/random.md
+s60_edit_run "$s60d_target"
+case $? in
+  2) ok "60d: Out-of-scope edit (/tmp/...) still blocked on protected branch (#91)" ;;
+  *) ng "60d: expected rc=2 (block), got rc=$? on /tmp/... (#91)" ;;
+esac
+
+# Cleanup §60.
+sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$sp_tmp_reg" 2>/dev/null || true
+mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
+rm -rf "$S60_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

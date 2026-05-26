@@ -418,17 +418,32 @@ case "$tool" in
     # Shell self-modification: skip all checks.
     case "$target/" in "$SHELL_ROOT"/*) exit 0 ;; esac
 
+    # User-global auto-memory carve-out (issue #91): paths under
+    # $HOME/.claude/ are legitimate write targets for the persistent
+    # memory tier and other Claude Code user-global state. The branch
+    # check (protected-branch on the current repo) doesn't apply
+    # because the file isn't tracked by the current repo's git, and
+    # the out-of-scope (registry) check doesn't apply because
+    # user-global state is intentionally outside the registry. The
+    # sensitive-file check (.env / *.pem / credentials*) STILL fires
+    # — no carve-out for that, because writing a credentials file
+    # into ~/.claude/ would be just as bad.
+    user_global_memory=
+    case "$target/" in
+      "$HOME"/.claude/*) user_global_memory=1 ;;
+    esac
+
     # Edit on protected branch
-    if is_protected_branch; then
+    if is_protected_branch && [ -z "$user_global_memory" ]; then
       should_skip branch || block branch "edit on protected branch blocked: $target"
     fi
 
     # Outside registry
-    if ! path_in_scope "$target"; then
+    if [ -z "$user_global_memory" ] && ! path_in_scope "$target"; then
       should_skip out-of-scope || block out-of-scope "edit outside registry blocked: $target"
     fi
 
-    # Sensitive files
+    # Sensitive files — applies regardless of user_global_memory.
     base=$(basename "$target")
     case "$base" in
       .env|.env.*|*.pem|credentials|credentials.*|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*)
