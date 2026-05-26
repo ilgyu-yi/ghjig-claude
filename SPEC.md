@@ -411,7 +411,7 @@ A Directive (dir-mode artifact, §1.7) moves through five states, all entered vi
 
 **Escape hatch.** `SKIP_HOOKS=directive-review SKIP_REASON='<why>' /complete-directive <id>` (and the equivalent on `/file-directive`, `/activate-directive`, `/revise-directive`) bypasses the reviewer; the bypass is audit-logged per §7. Use is reserved for cases where the reviewer's verdict is wrong and a human accepts the recorded responsibility — not a normalized routing. `/block-directive` is not reviewer-gated (annotation-only — no body change) and therefore has no review-skip variant.
 
-**Audit categories** for dir-mode events: `directive-file`, `directive-activate`, `directive-complete`, `directive-revise`, `directive-block`, `directive-link`, `directive-review`, `directive-protect`, `triage` (added by v3 reframe / Directive #92 cluster B — decisions: `decided` with action=accept|reject, `refiled`, `rejected-skip`), `trusted-filer-mutate` (cluster C — decisions: `deny`, `allow`). All append to `.claude/audit/audit.jsonl` per §6/§7.
+**Audit categories** for dir-mode events: `directive-file`, `directive-activate`, `directive-complete`, `directive-revise`, `directive-block`, `directive-link`, `directive-review`, `directive-protect`, `triage` (added by v3 reframe / Directive #92 cluster B — decisions: `decided` with action=accept|reject, `refiled`, `rejected-skip`), `trusted-filer-mutate` (cluster C — decisions: `deny`, `allow`), `mirror-stale-warn` (cluster D — reserved for `issues-to-project-mirror.yml` failures; v1+ monitoring, currently emits nothing — see brief §7 / Directive #92 brief). All append to `.claude/audit/audit.jsonl` per §6/§7.
 
 ---
 

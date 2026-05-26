@@ -4457,6 +4457,81 @@ else
   ng "56j: /triage does not reference triage-reviewer (#94)"
 fi
 
+# ---------- 57. issues-to-project-mirror workflow (cluster D, #96 / Directive #92) ----------
+# Cluster D of v3 reframe (brief §7). Structural sanity for the one-direction
+# Issue → Project mirror workflow.
+
+MIRROR_WF="$SHELL_ROOT/.github/workflows/issues-to-project-mirror.yml"
+
+# 57a: workflow file exists.
+if [ -f "$MIRROR_WF" ]; then
+  ok "57a: issues-to-project-mirror workflow file present (#96/cluster D)"
+else
+  ng "57a: .github/workflows/issues-to-project-mirror.yml missing (#96/cluster D)"
+fi
+
+# 57b: workflow triggers cover all 8 issue event types (brief §7).
+s57b_missing=""
+for evt in opened edited labeled unlabeled closed reopened milestoned demilestoned; do
+  grep -q "$evt" "$MIRROR_WF" 2>/dev/null || s57b_missing="$s57b_missing $evt"
+done
+if [ -z "$s57b_missing" ]; then
+  ok "57b: workflow trigger covers all 8 issue event types (#96/cluster D)"
+else
+  ng "57b: workflow trigger missing:$s57b_missing (#96/cluster D)"
+fi
+
+# 57c: workflow derives Type from labels (Directive vs Execution).
+if grep -q 'type_val="Directive"' "$MIRROR_WF" 2>/dev/null \
+   && grep -q 'type_val="Execution"' "$MIRROR_WF" 2>/dev/null; then
+  ok "57c: workflow derives Type from labels (Directive/Execution) (#96/cluster D)"
+else
+  ng "57c: workflow missing Type derivation (#96/cluster D)"
+fi
+
+# 57d: workflow names all 4 v3 Status values AND the closed→Completed
+# precedence appears before status:proposed / status:blocked branches.
+# Brief §7 locks: closed → Completed beats label-driven branches.
+s57d_missing=""
+for state in Proposed Active Blocked Completed; do
+  grep -q "$state" "$MIRROR_WF" 2>/dev/null || s57d_missing="$s57d_missing $state"
+done
+s57d_closed_line=$(grep -n 'CLOSED' "$MIRROR_WF" 2>/dev/null | head -1 | cut -d: -f1)
+s57d_proposed_line=$(grep -n 'status:proposed' "$MIRROR_WF" 2>/dev/null | head -1 | cut -d: -f1)
+if [ -z "$s57d_missing" ] \
+   && [ -n "$s57d_closed_line" ] && [ -n "$s57d_proposed_line" ] \
+   && [ "$s57d_closed_line" -lt "$s57d_proposed_line" ]; then
+  ok "57d: workflow names all 4 v3 Status values + CLOSED→Completed precedes status:proposed (#96/cluster D)"
+else
+  ng "57d: 57d status check failed: missing=$s57d_missing closed_line=$s57d_closed_line proposed_line=$s57d_proposed_line (#96/cluster D)"
+fi
+
+# 57e: workflow parses `Parent Directive: #N` body marker.
+if grep -qE 'Parent Directive: #' "$MIRROR_WF" 2>/dev/null; then
+  ok "57e: workflow parses Parent Directive body marker (#96/cluster D)"
+else
+  ng "57e: workflow missing Parent Directive marker parse (#96/cluster D)"
+fi
+
+# 57f: workflow does NOT mirror Iteration (per Decision 5).
+# Heuristic: no `Iteration` field write nor `iteration_val` variable.
+if ! grep -qE 'iteration_val|--field-id[^\n]+Iteration|Iteration.*item-edit' "$MIRROR_WF" 2>/dev/null; then
+  ok "57f: workflow does NOT mirror Iteration (per Decision 5) (#96/cluster D)"
+else
+  ng "57f: workflow appears to mirror Iteration (Decision 5 violation) (#96/cluster D)"
+fi
+
+# 57g: workflow YAML parses cleanly (when pyyaml available).
+if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
+  if python3 -c "import yaml; yaml.safe_load(open('$MIRROR_WF'))" 2>/dev/null; then
+    ok "57g: issues-to-project-mirror workflow YAML parses cleanly (#96/cluster D)"
+  else
+    ng "57g: issues-to-project-mirror YAML parse failed (#96/cluster D)"
+  fi
+else
+  ok "57g: python3+pyyaml not available — YAML parse check skipped (#96/cluster D)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

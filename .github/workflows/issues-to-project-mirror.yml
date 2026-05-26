@@ -1,0 +1,199 @@
+name: issues-to-project-mirror
+
+# Cluster D of dir-mode v3 reframe (Directive #92 brief §7, Issue #96 umbrella).
+#
+# One-direction sync: Issue events → Project Item fields. The Project remains
+# a derived view; Issues are SSOT (§1.7). On `issues.{opened, edited, labeled,
+# unlabeled, closed, reopened, milestoned, demilestoned}`, derive the four
+# mirrored fields from the Issue's labels + body + open/closed state, and
+# write them to the Project Item that wraps this Issue (creating the Item
+# if it doesn't exist yet).
+#
+# Mirrored fields:
+#   - Type      ← `directive` label → Directive; else → Execution
+#   - Status    ← labels + open/closed → Proposed | Active | Blocked | Completed
+#                 (v3 4-state lifecycle; Revised dropped per Decision 7)
+#   - Priority  ← P0 / P1 / P2 / P3 label
+#   - Parent    ← body line 1 `Parent Directive: #N` (the marker `/file-issue
+#                 --parent` writes per SPEC §5.2)
+#
+# NOT mirrored:
+#   - Iteration (user-managed on Project, owner-cadence — brief Decision 5)
+#   - Confidence / Success Signals (content lives in body, not field per
+#     v3 schema)
+#
+# Failures degrade gracefully — the Project view goes stale, but Issues
+# remain authoritative. A `mirror-stale-warn` audit category is reserved
+# in SPEC §2.1 for future monitoring (brief §7 deferred to v1+).
+#
+# Repo target: $CLAUDE_ENG_PROJECT_NAME (default: "<repo-name> roadmap")
+# under the repo owner. The workflow resolves these via `gh repo view` +
+# `gh project list`, matching the substrate-guard pattern from issue #71.
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened, milestoned, demilestoned]
+
+permissions:
+  issues: read
+  contents: read
+  # Project v2 mutations require explicit organization/user-level token grants
+  # beyond GITHUB_TOKEN's default scope. The workflow handles a missing scope
+  # gracefully (per brief §7: graceful degradation).
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve Project + Item + derive field values
+        id: derive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Resolve owner + repo from the workflow env. Project name:
+          # "<repo-name> roadmap" by default; CLAUDE_ENG_PROJECT_NAME override.
+          owner="${REPO%/*}"
+          repo_name="${REPO#*/}"
+          project_name="${CLAUDE_ENG_PROJECT_NAME:-$repo_name roadmap}"
+
+          # Find the Project by name. If absent, no-op (graceful: this repo
+          # may not have a Project set up; mirror is best-effort).
+          project_num=$(gh project list --owner "$owner" --format json --limit 100 2>/dev/null \
+            | jq -r --arg name "$project_name" \
+              '.projects[]? | select(.title==$name) | .number' \
+            | head -1)
+          if [ -z "$project_num" ]; then
+            echo "mirror: no Project named '$project_name' for owner '$owner' — graceful no-op"
+            exit 0
+          fi
+          echo "project_num=$project_num" >> "$GITHUB_OUTPUT"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+
+          # Derive Type from labels.
+          labels_json=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json labels --jq '[.labels[].name]')
+          type_val="Execution"
+          if printf '%s' "$labels_json" | jq -e 'index("directive") != null' >/dev/null 2>&1; then
+            type_val="Directive"
+          fi
+          echo "type_val=$type_val" >> "$GITHUB_OUTPUT"
+
+          # Derive Status from labels + open/closed.
+          state=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json state --jq '.state')
+          status_val="Active"
+          if [ "$state" = "CLOSED" ]; then
+            status_val="Completed"
+          elif printf '%s' "$labels_json" | jq -e 'index("status:proposed") != null' >/dev/null 2>&1; then
+            status_val="Proposed"
+          elif printf '%s' "$labels_json" | jq -e 'index("status:blocked") != null' >/dev/null 2>&1; then
+            status_val="Blocked"
+          fi
+          echo "status_val=$status_val" >> "$GITHUB_OUTPUT"
+
+          # Derive Priority from P0..P3 label (first match wins).
+          priority_val=""
+          for p in P0 P1 P2 P3; do
+            if printf '%s' "$labels_json" | jq -e --arg p "$p" 'index($p) != null' >/dev/null 2>&1; then
+              priority_val="$p"
+              break
+            fi
+          done
+          echo "priority_val=$priority_val" >> "$GITHUB_OUTPUT"
+
+          # Derive Parent from body line 1 `Parent Directive: #N` marker.
+          parent_val=""
+          body=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json body --jq '.body')
+          first_line=$(printf '%s\n' "$body" | head -1 || true)
+          if printf '%s' "$first_line" | grep -qE '^Parent Directive: #[0-9]+$'; then
+            parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Directive: #([0-9]+)$/#\1/')
+          fi
+          echo "parent_val=$parent_val" >> "$GITHUB_OUTPUT"
+
+          echo "mirror: type=$type_val status=$status_val priority=$priority_val parent=$parent_val"
+
+      - name: Find or add Item; resolve field IDs; write derived values
+        if: steps.derive.outputs.project_num
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          PROJECT_NUM: ${{ steps.derive.outputs.project_num }}
+          OWNER: ${{ steps.derive.outputs.owner }}
+          TYPE_VAL: ${{ steps.derive.outputs.type_val }}
+          STATUS_VAL: ${{ steps.derive.outputs.status_val }}
+          PRIORITY_VAL: ${{ steps.derive.outputs.priority_val }}
+          PARENT_VAL: ${{ steps.derive.outputs.parent_val }}
+        run: |
+          set -euo pipefail
+
+          issue_url="https://github.com/${REPO}/issues/${ISSUE_NUM}"
+
+          # Resolve / add the Project Item that wraps this Issue. Idempotent —
+          # `gh project item-add` errors with "Item already exists" if present;
+          # fall through to listing to recover the id.
+          item_id=$(gh project item-list "$PROJECT_NUM" --owner "$OWNER" --format json --limit 200 2>/dev/null \
+            | jq -r --arg url "$issue_url" \
+              '.items[]? | select(.content.url == $url) | .id' \
+            | head -1)
+          if [ -z "$item_id" ]; then
+            # Add — capture id from --format json.
+            item_id=$(gh project item-add "$PROJECT_NUM" --owner "$OWNER" --url "$issue_url" --format json 2>/dev/null \
+              | jq -r '.id // empty')
+            if [ -z "$item_id" ]; then
+              echo "mirror: failed to add Item for $issue_url — graceful no-op (Project access scope likely missing)"
+              exit 0
+            fi
+          fi
+          echo "mirror: item_id=$item_id"
+
+          # Resolve Project node id + field ids in one GraphQL pass.
+          fields_json=$(gh project field-list "$PROJECT_NUM" --owner "$OWNER" --format json --limit 100 2>/dev/null)
+          project_id=$(gh project view "$PROJECT_NUM" --owner "$OWNER" --format json 2>/dev/null | jq -r '.id')
+
+          field_id() {
+            printf '%s' "$fields_json" | jq -r --arg n "$1" '.fields[]? | select(.name==$n) | .id // empty'
+          }
+          option_id() {
+            local field="$1" opt="$2"
+            printf '%s' "$fields_json" \
+              | jq -r --arg field "$field" --arg opt "$opt" \
+                '.fields[]? | select(.name==$field) | .options[]? | select(.name==$opt) | .id // empty'
+          }
+
+          # Write each mirrored field. Each call is best-effort; a failure
+          # on one field doesn't abort the others.
+          type_field_id=$(field_id "Type")
+          type_opt_id=$(option_id "Type" "$TYPE_VAL")
+          if [ -n "$type_field_id" ] && [ -n "$type_opt_id" ]; then
+            gh project item-edit --id "$item_id" --project-id "$project_id" \
+              --field-id "$type_field_id" --single-select-option-id "$type_opt_id" >/dev/null 2>&1 || true
+          fi
+
+          status_field_id=$(field_id "Status")
+          status_opt_id=$(option_id "Status" "$STATUS_VAL")
+          if [ -n "$status_field_id" ] && [ -n "$status_opt_id" ]; then
+            gh project item-edit --id "$item_id" --project-id "$project_id" \
+              --field-id "$status_field_id" --single-select-option-id "$status_opt_id" >/dev/null 2>&1 || true
+          fi
+
+          if [ -n "$PRIORITY_VAL" ]; then
+            priority_field_id=$(field_id "Priority")
+            priority_opt_id=$(option_id "Priority" "$PRIORITY_VAL")
+            if [ -n "$priority_field_id" ] && [ -n "$priority_opt_id" ]; then
+              gh project item-edit --id "$item_id" --project-id "$project_id" \
+                --field-id "$priority_field_id" --single-select-option-id "$priority_opt_id" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          if [ -n "$PARENT_VAL" ]; then
+            parent_field_id=$(field_id "Parent")
+            if [ -n "$parent_field_id" ]; then
+              gh project item-edit --id "$item_id" --project-id "$project_id" \
+                --field-id "$parent_field_id" --text "$PARENT_VAL" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          echo "mirror: synced issue #${ISSUE_NUM} → item ${item_id} (type=${TYPE_VAL} status=${STATUS_VAL} priority=${PRIORITY_VAL:-—} parent=${PARENT_VAL:-—})"
