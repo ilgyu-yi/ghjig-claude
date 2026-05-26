@@ -103,12 +103,16 @@ for item_id in $item_ids; do
 done
 echo "migrate_v3: snapshotted $saved items to $snap_dir"
 
-# Step 3: delete each item.
-# We use --owner because user-owned Project Items can be deleted with that scope.
+# Step 3: delete each item. `gh project item-delete` requires both the
+# Project number AND `--owner` in non-interactive contexts. Without
+# `--owner`, every call fails with "owner is required when not running
+# interactively" and the migration silently no-ops (caught when the v3
+# cutover ran 2026-05-26; PR #105 fixes the script after the cutover
+# completed inline).
 deleted=0
 skipped=0
 for item_id in $item_ids; do
-  if gh project item-delete --id "$item_id" 2>/dev/null; then
+  if gh project item-delete "$project_num" --owner "$owner" --id "$item_id" >/dev/null 2>&1; then
     deleted=$((deleted+1))
   else
     # Idempotent: item already deleted, or transient error.
