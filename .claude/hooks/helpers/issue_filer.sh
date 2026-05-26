@@ -45,7 +45,12 @@ is_trusted_filer() {
   name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
   cache_file="$cache_dir/${owner}__${name}__${issue}"
 
-  local assoc
+  # Initialize explicitly: `local assoc` (no value) leaves the var
+  # in a "declared-unset" state under bash 5+ with `set -u`, and the
+  # `[ -z "$assoc" ]` check below would trigger an unbound-variable
+  # exit. macOS bash 3.2 happens to treat `local var` as empty-string
+  # by default; ubuntu CI's bash 5.x is strict. Always initialize.
+  local assoc=""
   if [ -f "$cache_file" ]; then
     assoc=$(cat "$cache_file" 2>/dev/null) || assoc=""
   fi
