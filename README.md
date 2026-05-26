@@ -27,6 +27,21 @@ export PATH="$PWD/bin:$PATH"
 alias claude-eng="$PWD/bin/claude-eng"
 ```
 
+### Versioning
+
+The shell version is stored in the top-level `VERSION` file as a single line of [semver](https://semver.org) 0.x — `MAJOR.MINOR.PATCH` with `MAJOR=0` throughout v0. Tags follow `v` + semver (e.g., `v0.2.0`).
+
+```bash
+claude-eng --version       # → prints the VERSION-file contents (or `git describe` fallback)
+```
+
+`--version` is short-circuited before registry resolution and the scope guard, so it works from any cwd including unregistered paths.
+
+**v0 conventions** (locked by Directive #122):
+- Format is semver 0.x. Per [SemVer 2.0 §4](https://semver.org/#spec-item-4), 0.x carries no compatibility guarantees — bumps within 0.x are informational signals, not contracts.
+- Bumping out of 0.x (to `1.0.0`) is reserved for the first non-self adopter dogfooding. No hook / CI / onboard enforces semver bump semantics at v0.
+- Tags are pushed manually by the maintainer after a meaningful milestone merges to `main` (no per-PR cadence).
+
 ## Quick start
 
 ```bash

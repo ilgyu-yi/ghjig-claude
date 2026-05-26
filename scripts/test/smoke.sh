@@ -4952,6 +4952,36 @@ else
   ng "63g: onboard_target --tier 2 --dry-run missing one or more required labels (regression-guard for label-parser drift) (#118)"
 fi
 
+# ---------- 64. version surface (#123 / Directive #122) ----------
+# 64a — VERSION file is exactly one non-empty line (semver 0.x format
+# locked by Directive #122 constraint #1; no comments, no trailing
+# blank lines).
+s64a_lines=$(wc -l < "$SHELL_ROOT/VERSION" 2>/dev/null | tr -d ' ')
+s64a_content=$(tr -d '[:space:]' < "$SHELL_ROOT/VERSION" 2>/dev/null)
+if [ "$s64a_lines" = "1" ] && [ -n "$s64a_content" ]; then
+  ok "64a: VERSION is exactly one non-empty line (#123)"
+else
+  ng "64a: VERSION is not single non-empty line (lines=$s64a_lines content_empty=$([ -z "$s64a_content" ] && echo yes || echo no)) (#123)"
+fi
+
+# 64b — `bin/claude-eng --version` exits 0 from an unregistered cwd and
+# emits the shell's own VERSION (not the underlying `claude` CLI's
+# version). Confirms the --version short-circuit runs before the
+# registry/scope guard AND before `exec claude` (Directive #122
+# constraint #3; required because line 39 of bin/claude-eng currently
+# `exec`s to `claude`, so any pre-fix forward-through gets caught here).
+s64b_tmp=$(mktemp -d)
+s64b_out=$(cd "$s64b_tmp" && "$SHELL_ROOT/bin/claude-eng" --version 2>/dev/null)
+s64b_rc=$?
+rm -rf "$s64b_tmp"
+s64b_expected=$(cat "$SHELL_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]')
+s64b_got=$(printf '%s' "$s64b_out" | tr -d '[:space:]')
+if [ "$s64b_rc" = "0" ] && [ -n "$s64b_out" ] && [ "$s64b_got" = "$s64b_expected" ]; then
+  ok "64b: bin/claude-eng --version exits 0 with shell's VERSION ('$s64b_expected') from unregistered cwd (#123)"
+else
+  ng "64b: bin/claude-eng --version did not return shell's VERSION (rc=$s64b_rc expected='$s64b_expected' got='$s64b_got') (#123)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
