@@ -14,8 +14,8 @@
 - <What must hold throughout the Directive's lifetime. e.g., "Do not change attended/unattended mode semantics.">
 - <Constraint 2>
 
-## Parent Goal
-<Link to the Final Goal this Directive serves. e.g., "Final Goal: claude-eng-shell supports directing work alongside engineering work within a single shell, single repo." If no Goal exists yet (early v0 state), state "No Goal item yet — bootstrap.">
+## MISSION fit
+<Which `MISSION.md` section or success criterion does this Directive serve? One sentence naming the section. e.g., "Serves MISSION's 'Success looks like > The directing layer works' criterion — completes the §2.1 state diagram so the Directive lifecycle is fully executable end-to-end." (Replaces the v0/v1 `Parent Goal` field per ADR-0003 Decision 6. If the repo has no `MISSION.md` yet, say so honestly — the Directive may motivate a MISSION amendment.)>
 
 ## Confidence
 <Number 0–100. Self-assessment of hypothesis quality at filing time. Lower numbers are OK — Directives can be filed under uncertainty as long as the success signals are verifiable.>

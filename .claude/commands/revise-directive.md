@@ -1,29 +1,32 @@
 ---
-description: Revise an Active Directive's body — archives prior body as a comment, reviewer-gates the new body, transient Status=Revised → back to Active (SPEC §2.1, §5.16).
-argument-hint: <directive-id>
+description: Revise an Active Directive Issue's body — archives prior body as a comment, reviewer-gates the new body, replaces the Issue body (no Status flip per ADR-0003 Decision 7).
+argument-hint: <issue-#>
 ---
 
-Replace an `Active` Directive Issue's body with a new one when scope or success signals changed. The prior body is preserved as a comment for history; the new body is reviewer-gated. Project `Status` flips to `Revised` as an audit beat, then returns to `Active` so the Directive remains workable.
+Replace an `Active` Directive Issue's body with a new one when scope or success signals changed. The prior body is preserved as a comment for history; the new body is reviewer-gated. No transient Status state — per ADR-0003 Decision 7, `Revised` was dropped; the audit-log entry + the archive comment ARE the revision evidence.
+
+In dir-mode v3 (ADR-0003), Issues are SSOT. The Project Item is unchanged by this command (body content isn't mirrored to Project fields).
 
 ## Procedure
 
-1. **Resolve the Project** — same as `/file-directive` step 1.
-
-2. **Resolve the Directive Issue** — `<directive-id>` is the GitHub Issue # for an activated Directive. Fetch:
+1. **Resolve the Issue** — `<issue-#>` is a GitHub Issue number. Fetch:
    ```bash
-   gh issue view <directive-id> --json title,body,state,labels
+   gh issue view <issue-#> --json title,body,state,labels
    ```
    - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
-   - If `directive` label absent: error ("Issue #<directive-id> is not a Directive (`directive` label missing)") and stop.
-   - If the Project Item's `Status != Active`: error and stop. The error message should redirect to `/activate-directive <id>` when the current Status is `Blocked` (per Forbidden below — a Blocked Directive must be unblocked first, which re-runs the reviewer on the current body).
+   - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
+   - If `status:proposed` label present: error ("Directive is Proposed; revise the body via `gh issue edit` directly until activation") and stop. (Proposed Directives haven't been reviewer-vetted yet; activation is the first reviewer gate. Revising a Proposed Directive without re-activation is a contract gap — file a new `/activate-directive` invocation after the body edit instead.)
+   - If `status:blocked` label present: error ("Directive is Blocked; unblock via `/activate-directive` first — that command re-runs the reviewer on the current body") and stop.
 
-3. **Author the new body** — the user supplies the replacement body (full content, including `## Objective` / `## Success signals` / `## Non-goals` / `## Constraints` / `## Parent Goal` sections per `.claude/templates/directive.md`). Refuse to proceed if the new body is missing any required section.
+2. **Author the new body** — the user supplies the replacement body (full content per `.claude/templates/directive.md`: Objective / Success signals / Non-goals / Constraints / MISSION fit). Refuse to proceed if any required section is missing.
 
-4. **Reviewer gate** — invoke `directive-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently `Status=Active` Directives (filter out the Directive being revised — it's about to change), parent Goal reference. Parse the verdict per `/file-directive` step 4 dispatch.
+3. **Reviewer gate** — invoke `directive-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently Active Directives (filter out this one — it's about to change), MISSION.md content. Parse the verdict per `/file-directive` step 2 dispatch.
 
-   - **`ship`** → proceed to step 5.
-   - **`refine: <feedback>`** → revise the proposed new body per the one-line feedback. Re-invoke `directive-reviewer` on the revised body. After two consecutive `refine` verdicts on the latest body, escalate to the user (attended) or treat as `block` (unattended).
-   - **`block: <reason>`** → stop. Leave the Issue body and Status unchanged. Audit `directive-revise blocked "<reason>"`. No archive comment, no audit `reconciled` line. Status stays `Active`.
+   - **`ship`** → proceed to step 4.
+   - **`refine: <feedback>`** → revise the proposed new body per the one-line feedback. Re-invoke. After two consecutive `refine` verdicts, escalate (attended) or treat as `block` (unattended).
+   - **`block: <reason>`** → stop. Leave the Issue body unchanged. Audit `directive-revise blocked "<reason>"`. No archive comment, no `reconciled` audit line.
+
+4. **Compute the prior-body sha** — `shasum -a 256 <prior-body-file> | awk '{print $1}'`. Retain across step 5-7.
 
 5. **Archive the prior body** — post a comment on the Directive Issue:
    ```markdown
@@ -33,40 +36,33 @@ Replace an `Active` Directive Issue's body with a new one when scope or success 
 
    *Replaced via /revise-directive. New body follows in the Issue description.*
    ```
-   Use `gh issue comment <directive-id> --body-file <file>`. Capture the comment URL for audit.
+   Use `gh issue comment <issue-#> --body-file <file>`. Capture the comment URL for audit.
 
-5.5. **Compute the prior-body sha** — `shasum -a 256 <prior-body-file> | awk '{print $1}'`. Retain in a variable that survives until step 8 (e.g. set it in the same shell scope that will issue the audit_log call — do **not** rely on subshell variable inheritance). The sha is the load-bearing field of step 8's audit line; an empty value silently breaks forensic traceability.
+6. **Replace the Issue body** — `gh issue edit <issue-#> --body-file <new-body-file>`.
 
-6. **Replace the Issue body** — `gh issue edit <directive-id> --body-file <new-body-file>`.
+7. **Audit log** — `audit_log info directive-revise reconciled "directive: #<issue-#> from-sha=<prior-body-sha256> archive-comment=<comment-url>"`. The sha lets a future investigator correlate the archived comment with the replaced body bytes.
 
-7. **Flip Status to Revised, then back to Active** — find the Project Item that wraps Issue `<directive-id>`, then:
-   ```bash
-   gh project item-edit --id <item-id> --project-id <proj-id> --field-id <Status-field-id> --single-select-option-id <Revised-option-id>
-   gh project item-edit --id <item-id> --project-id <proj-id> --field-id <Status-field-id> --single-select-option-id <Active-option-id>
-   ```
-   The transient `Revised` state matters for the audit trail and `/list-directives --status=Revised` introspection; it should not be observed as a long-lived state.
-
-8. **Audit log** — `audit_log info directive-revise reconciled "directive: #<directive-id> from-sha=<prior-body-sha256> archive-comment=<comment-url>"`. The prior-body sha lets a future investigator correlate the archived comment with the replaced body bytes.
+8. **Mirror sync** — the mirror workflow fires on `issues.edited` and re-syncs whatever fields are derived from body content (today: Parent, derived from line-1 `Parent Directive: #N` marker — unchanged in a typical Directive revision).
 
 9. **Output**:
    ```
-   Revised Directive #<directive-id>: <Title>
+   Revised Directive #<issue-#>: <Title>
    Prior body archived in comment: <comment-url>
-   Status: Active (transitioned Active → Revised → Active)
+   Status: unchanged (no transient state per ADR-0003 Decision 7)
    ```
 
 ## Operating mode
 
-- **attended**: step 4's verdict surfaces to the user before applying the revision.
-- **unattended**: step 4's verdict gates directly; `block` leaves the body unchanged.
+- **attended**: step 3's verdict surfaces to the user before applying.
+- **unattended**: step 3's verdict gates directly; `block` leaves body unchanged.
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /revise-directive <id>` bypasses the reviewer (SPEC §2.1, §7). Audit-logged. Reserved for cases where the reviewer's verdict is wrong and a human accepts the recorded responsibility — not a normalized routing. The archive comment + body replacement still fire.
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /revise-directive <issue-#>` bypasses the reviewer. Audit-logged.
 
 ## Forbidden
 
-- Revising a Directive whose Project `Status != Active`. A `Blocked` Directive must be unblocked via `/activate-directive` first (which re-runs the reviewer); a `Completed` Directive is immutable (file a new Directive instead).
-- Replacing the body without posting the archive comment — the comment is the canonical history of the prior version.
-- Replacing the body before the reviewer's `ship` verdict — the gate exists to prevent low-quality revisions from silently overwriting reviewer-vetted contracts.
-- Leaving `Status=Revised` as the final state — the field must return to `Active` at the end of the flow (Forbidden by the transient-state contract in SPEC §2.1 / §5.16).
+- Revising a Directive whose label state is not Active (`status:proposed` or `status:blocked` Issues route differently).
+- Replacing the body without posting the archive comment.
+- Replacing the body before the reviewer's `ship` verdict.
+- Re-introducing a transient `Revised` state — dropped per ADR-0003 Decision 7; the audit-log + archive comment ARE the evidence.
