@@ -1,0 +1,29 @@
+name: Discussion
+description: An observation or half-formed idea; develop in comments, close as `promoted` or `no-action` (SPEC §5.19).
+title: "discussion: <subject>"
+labels: [discussion]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Discussion tier** (SPEC §5.19): use this when you have a deliberately-ambiguous observation — a "weird but not a bug" report, a half-formed idea, a smell, an RFC-style probe. Develop it in comments. Close via exactly one of two paths:
+        - **promoted** — a concrete Issue (bug / task / Directive) was filed; close-as-completed with a `promoted to #M` comment.
+        - **no-action** — the discussion concluded nothing needs doing; close-as-not-planned with a one-line reason.
+
+        No acceptance criteria, no MISSION fit, no rationale triad — those belong in the conversation, not in the form.
+
+  - type: textarea
+    id: body
+    attributes:
+      label: What you noticed
+      description: One-paragraph framing of the observation. Comments expand from here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Related Issues / PRs (optional)
+      description: Links to related Issues or PRs that motivated this discussion.
+    validations:
+      required: false

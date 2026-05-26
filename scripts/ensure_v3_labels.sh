@@ -8,6 +8,7 @@
 #   - status:blocked   — Directive in Blocked state (per SPEC §2.1 v3)
 #   - task             — standalone task / improvement (task.yml)
 #   - needs-triage     — applied by auto-needs-triage.yml on raw filings
+#   - discussion       — observation / half-formed idea (SPEC §5.19; Issue #112)
 #
 # Already-existing labels that v3 relies on (no creation needed):
 #   - directive, bug, enhancement, documentation, duplicate, wontfix,
@@ -30,5 +31,6 @@ ensure_label "status:proposed" "FBCA04" "Directive proposed; awaiting maintainer
 ensure_label "status:blocked"  "B60205" "Directive cannot proceed without external input (SPEC §5.17)"
 ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
 ensure_label "needs-triage"    "D4C5F9" "Issue filed without a template — awaiting maintainer triage classification"
+ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
 
 echo "ensure_v3_labels: done."
