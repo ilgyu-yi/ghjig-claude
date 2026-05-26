@@ -4609,6 +4609,46 @@ else
   ng "58f: SPEC §1.7 missing v3 substrate naming (#96/cluster H)"
 fi
 
+# ---------- 59. v3 migration script + MISSION.md (#96 / cluster I) ----------
+# Cluster I (brief §8) — one-shot snapshot + delete migration. Structural
+# sanity: script exists with --confirm gate, MISSION.md populated.
+
+# 59a: migrate_v3.sh exists, is executable, refuses without --confirm.
+MIG_SH="$SHELL_ROOT/scripts/migrate_v3.sh"
+if [ -x "$MIG_SH" ]; then
+  s59a_out=$(bash "$MIG_SH" 2>&1 || true)
+  if printf '%s' "$s59a_out" | grep -qE 'DESTRUCTIVE'; then
+    ok "59a: migrate_v3.sh requires --confirm + warns DESTRUCTIVE (#96/cluster I)"
+  else
+    ng "59a: migrate_v3.sh missing DESTRUCTIVE warning on no-confirm invocation (#96/cluster I)"
+  fi
+else
+  ng "59a: scripts/migrate_v3.sh missing or not executable (#96/cluster I)"
+fi
+
+# 59b: MISSION.md exists with the 5 canonical sections.
+MISSION="$SHELL_ROOT/MISSION.md"
+if [ -f "$MISSION" ]; then
+  s59b_missing=""
+  for section in "## What this exists for" "## Success looks like" "## Who this is for" "## Explicitly NOT goals" "## Stakeholders"; do
+    grep -qF "$section" "$MISSION" 2>/dev/null || s59b_missing="$s59b_missing $section"
+  done
+  if [ -z "$s59b_missing" ]; then
+    ok "59b: MISSION.md has all 5 canonical sections (#96/cluster I)"
+  else
+    ng "59b: MISSION.md missing sections:$s59b_missing (#96/cluster I)"
+  fi
+else
+  ng "59b: MISSION.md missing (#96/cluster I)"
+fi
+
+# 59c: MISSION.md references ADR-0003 (supersession context).
+if grep -qE 'ADR-0003' "$MISSION" 2>/dev/null; then
+  ok "59c: MISSION.md cross-references ADR-0003 (#96/cluster I)"
+else
+  ng "59c: MISSION.md missing ADR-0003 cross-reference (#96/cluster I)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
