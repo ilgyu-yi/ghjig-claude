@@ -4449,6 +4449,14 @@ else
   ng "56i: SPEC §5.18 /triage subsection missing (#94)"
 fi
 
+# 56j: /triage command references triage-reviewer by name (composition lock).
+# Catches a future refactor that misnames or replaces the reviewer subagent.
+if grep -q "triage-reviewer" "$TRIAGE_CMD" 2>/dev/null; then
+  ok "56j: /triage references triage-reviewer subagent by name (#94)"
+else
+  ng "56j: /triage does not reference triage-reviewer (#94)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
