@@ -4,6 +4,23 @@ set -euo pipefail
 CLAUDE_ENG_SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 export CLAUDE_ENG_SHELL_ROOT
 
+# --version short-circuit (Issue #123 / Directive #122): runs before the
+# registry/scope guard so it works from any cwd, and before `exec claude`
+# so it returns the shell's VERSION rather than the underlying CLI's.
+# Fallback: git describe; on both-fail, diagnostic to stderr + exit 1.
+if [ "${1:-}" = "--version" ]; then
+  if [ -s "$CLAUDE_ENG_SHELL_ROOT/VERSION" ]; then
+    cat "$CLAUDE_ENG_SHELL_ROOT/VERSION"
+    exit 0
+  fi
+  if v=$(git -C "$CLAUDE_ENG_SHELL_ROOT" describe --tags --always 2>/dev/null) && [ -n "$v" ]; then
+    printf '%s\n' "$v"
+    exit 0
+  fi
+  printf 'claude-eng: VERSION file missing/empty and git describe unavailable\n' >&2
+  exit 1
+fi
+
 # If the first arg is a directory, check if it's registered; offer to register if not.
 if [ $# -gt 0 ] && [ -d "$1" ]; then
   target_path=$(cd "$1" && pwd -P)
