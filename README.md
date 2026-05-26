@@ -8,7 +8,7 @@ An operating shell for [Claude Code](https://docs.claude.com/claude-code) that r
 - **Doc → Test → Code work order** — strict for `feat`/`docs`/contract changes; relaxed for `fix`/`refactor`/`perf` per SPEC §1.2.
 - **Active SSOT maintenance** — docs change alongside code; merged PR bodies are durable cross-session memory via SessionStart.
 - **Two operating modes** — **eng-mode** handles engineering execution (issue → PR → merge); **dir-mode** handles directing maintenance (Final Goal → Directive → Execution Issue). Same workflow pattern (generate → review → gated approval → audit), different artifact types and reviewer. Manual mode switching in v0 — orchestration is v1+ (SPEC §0.4 / §1.7 / §2.1).
-- **Nine subagents** — `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `directive-reviewer`. The five reviewers (`code-`, `security-`, `issue-`, `plan-`, `directive-`) substitute for human-confirm checkpoints in `unattended` mode.
+- **Ten subagents** — `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `directive-reviewer`, `triage-reviewer`. The six reviewers (`code-`, `security-`, `issue-`, `plan-`, `directive-`, `triage-`) substitute for human-confirm checkpoints in `unattended` mode.
 - **Hooks enforce discipline** — protected branches, force push, backmerges (`git merge main` on a feature branch), secret exposure, malformed commits, sensitive files, paths outside the registry, `gh pr merge` when a linked issue has unchecked AC and no `## AC closeout` comment (`/ship` step 7.6 invokes `scripts/ac_closeout.sh` to satisfy by construction). Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>'` and audit-logged at `.claude/audit/audit.jsonl`. Secret-scan hits emit `<file>:<line>: <pattern-id>` markers and honor a `.shellsecretignore` allow-list at the target-repo root (SPEC §6.1 / §7 — the structural tuning mechanism for repeated false positives, preferred over normalizing `SKIP_HOOKS=secret`). SessionStart warns when a workspace was injected but launched via plain `claude` instead of `claude-eng` (otherwise every hook would silently no-op — see SPEC §6.5(c)).
 
 ## Install
@@ -102,6 +102,6 @@ All optional. Per-target state files live under `.claude/state/` (gitignored); e
 ## Verify
 
 ```bash
-./scripts/test/smoke.sh           # ~280 assertions across hooks, helpers, slash commands
+./scripts/test/smoke.sh           # ~350+ assertions across hooks, helpers, slash commands
 ./scripts/build_toc.sh --check    # SPEC.md TOC freshness
 ```
