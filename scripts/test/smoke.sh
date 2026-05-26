@@ -4166,6 +4166,82 @@ fi
 
 rm -rf "$S53_DIR"
 
+# ---------- 54. Issue templates + auto-needs-triage workflow (#93 / Directive #92) ----------
+# Cluster A of the v3 reframe (dir-mode-v3 brief §9.1): the .github/ISSUE_TEMPLATE/*.yml
+# files plus the auto-needs-triage workflow. Structural sanity — files exist + parse
+# as YAML + the templates carry the expected `name`/`description`/`body` top-level keys
+# + the four expected labels are named in the right templates.
+
+# 54a: all five template / config files exist.
+s54a_missing=""
+for f in config.yml directive-proposal.yml execution-under-directive.yml task.yml bug-report.yml; do
+  [ -f "$SHELL_ROOT/.github/ISSUE_TEMPLATE/$f" ] || s54a_missing="$s54a_missing $f"
+done
+if [ -z "$s54a_missing" ]; then
+  ok "54a: all 5 Issue template / config files present (#93)"
+else
+  ng "54a: Issue template files missing:$s54a_missing (#93)"
+fi
+
+# 54b: auto-needs-triage workflow exists.
+if [ -f "$SHELL_ROOT/.github/workflows/auto-needs-triage.yml" ]; then
+  ok "54b: auto-needs-triage workflow present (#93)"
+else
+  ng "54b: .github/workflows/auto-needs-triage.yml missing (#93)"
+fi
+
+# 54c: workflow fires on `issues.opened`.
+if grep -qE "^[[:space:]]+types:[[:space:]]*\[opened\]" "$SHELL_ROOT/.github/workflows/auto-needs-triage.yml" 2>/dev/null; then
+  ok "54c: auto-needs-triage workflow fires on issues.opened (#93)"
+else
+  ng "54c: auto-needs-triage workflow trigger missing `types: [opened]` (#93)"
+fi
+
+# 54d: directive-proposal template applies `directive` + `status:proposed` labels at filing.
+if grep -qE "^labels:[[:space:]]*\[directive,[[:space:]]*status:proposed\]" "$SHELL_ROOT/.github/ISSUE_TEMPLATE/directive-proposal.yml" 2>/dev/null; then
+  ok "54d: directive-proposal applies [directive, status:proposed] labels at filing (#93)"
+else
+  ng "54d: directive-proposal.yml labels frontmatter missing or wrong shape (#93)"
+fi
+
+# 54e: execution-under-directive requires a Parent Directive number input field.
+if grep -qE "id:[[:space:]]*parent-directive" "$SHELL_ROOT/.github/ISSUE_TEMPLATE/execution-under-directive.yml" 2>/dev/null; then
+  ok "54e: execution-under-directive declares required parent-directive field (#93)"
+else
+  ng "54e: execution-under-directive.yml missing parent-directive input (#93)"
+fi
+
+# 54f: ensure_v3_labels.sh creates the four new labels.
+if [ -x "$SHELL_ROOT/scripts/ensure_v3_labels.sh" ] \
+   && grep -q "status:proposed" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && grep -q "status:blocked" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && grep -q "needs-triage" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && grep -q "ensure_label.*\"task\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh"; then
+  ok "54f: ensure_v3_labels.sh creates status:proposed + status:blocked + task + needs-triage (#93)"
+else
+  ng "54f: ensure_v3_labels.sh missing or doesn't name all 4 new labels (#93)"
+fi
+
+# 54g: YAML structural sanity via python+pyyaml when available.
+if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
+  s54g_fails=0
+  s54g_list=""
+  for f in "$SHELL_ROOT"/.github/ISSUE_TEMPLATE/*.yml "$SHELL_ROOT"/.github/workflows/auto-needs-triage.yml; do
+    [ -f "$f" ] || continue
+    if ! python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
+      s54g_fails=$((s54g_fails+1))
+      s54g_list="$s54g_list $(basename "$f")"
+    fi
+  done
+  if [ "$s54g_fails" = 0 ]; then
+    ok "54g: all 6 template + workflow YAML files parse cleanly (#93)"
+  else
+    ng "54g: $s54g_fails YAML parse failures:$s54g_list (#93)"
+  fi
+else
+  ok "54g: python3+pyyaml not available — YAML parse check skipped (#93)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

@@ -1,0 +1,55 @@
+name: Execution Issue (under a Directive)
+description: "File an Execution Issue parented under an active Directive. The `Parent Directive: #N` body marker is required."
+title: "<type>: <subject>"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An Execution Issue is a **concrete unit of work** parented under a Directive. It implements a slice of the Directive's success signals. After filing, `/work-on <N>` creates a branch + draft PR + planner output.
+
+        If your work is not under any Directive, file as a `task` instead. If you don't know whether a Directive exists, leave the field blank and the maintainer's `/triage` step will route.
+
+  - type: input
+    id: parent-directive
+    attributes:
+      label: Parent Directive number
+      description: 'The number of the active Directive this Issue serves (e.g., 92). The Issue body will have `Parent Directive: #<N>` injected as line 1 so `/reflect` and the dir-mode-post-merge workflow find it.'
+      placeholder: "92"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What needs to be done? One paragraph.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable conditions, one per line, as `- [ ] <item>`. Each must be mechanically testable (grep / file-exists / smoke section / SPEC diff).
+      placeholder: |
+        - [ ] `.claude/commands/<name>.md` exists with frontmatter + Procedure / Forbidden sections.
+        - [ ] Smoke section asserts the command file's contract markers.
+        - [ ] No regression in existing smoke.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this Issue does NOT cover. Helps reviewer triage.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+    validations:
+      required: false

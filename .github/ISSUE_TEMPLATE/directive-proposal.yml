@@ -1,0 +1,82 @@
+name: Directive proposal
+description: Propose a Directive — a medium-term directional context that scopes several Execution Issues. See SPEC §1.7 / §2.1. Maintainer triages via `/triage`.
+title: "directive: <one-line objective>"
+labels: [directive, status:proposed]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A Directive is a **directing context**, not a unit of work. It names what scope of work is worth doing over a few weeks and gives Execution Issues a coherent parent to live under. The maintainer reviews this proposal via `/triage` and either accepts (Status → Active) or rejects (refiled in a different template).
+
+        Before filing, scan [`MISSION.md`](../blob/main/MISSION.md) and the [open Directives](https://github.com/ilgyu-yi/claude-eng-shell/issues?q=is%3Aopen+label%3Adirective) to make sure this proposal doesn't duplicate existing direction.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One paragraph naming what this Directive is trying to achieve. Bound by a concrete artifact-level boundary (file paths, issue counts, AC ticks, merge events) — not "improve" or "optimize" without a target.
+      placeholder: |
+        Promote the two §2.1 state-table entries currently marked "(v1+)" — Revised and Blocked — from placeholder rows to executable commands. Concrete artifacts: .claude/commands/{revise,block}-directive.md, SPEC §2.1 + new §5.x subsections, smoke section.
+    validations:
+      required: true
+
+  - type: textarea
+    id: success-signals
+    attributes:
+      label: Success signals
+      description: 2-5 verifiable conditions for completion. Each must be objectively testable by a reasonable engineer — name the artifact / metric / state that demonstrates the signal is met.
+      placeholder: |
+        - /revise-directive on an Active Directive produces a `## Pre-revision body — archived <ISO date>` comment + body replacement + audit line.
+        - SPEC §2.1 state diagram + table contain zero `(v1+)` parentheticals.
+        - Smoke 282/282 with new §43 assertions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: At least 2 explicit exclusions. What this Directive does NOT cover. Sharper non-goals tighten scope clarity.
+      placeholder: |
+        - Does NOT add /derive-next-directive (sibling v1+ item, separate Directive).
+        - Does NOT modify directive-reviewer's existing checks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: At least 1 invariant to preserve throughout the Directive's lifetime. Reviewer-gating, mode semantics, audit shape, etc.
+      placeholder: |
+        - Preserve §2.1 reviewer-gating contract — both commands re-invoke directive-reviewer.
+        - Preserve audit_log <event> <category> <decision> <reason> shape.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mission-fit
+    attributes:
+      label: MISSION fit
+      description: Which `MISSION.md` section or success criterion does this Directive serve? One sentence. (If MISSION.md doesn't yet exist or doesn't cover this, say so honestly — the Directive may motivate a MISSION amendment.)
+      placeholder: |
+        Serves MISSION § "Success looks like > The directing layer works" — completes the §2.1 state diagram so the Directive lifecycle is fully executable end-to-end.
+    validations:
+      required: true
+
+  - type: textarea
+    id: confidence
+    attributes:
+      label: Confidence (0-100)
+      description: Self-assessment of hypothesis quality at filing time. Lower numbers are OK — Directives can be filed under uncertainty as long as success signals are verifiable. Optional but encouraged.
+      placeholder: "75"
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional — links to prior discussions, related Issues, ADRs.
+    validations:
+      required: false
