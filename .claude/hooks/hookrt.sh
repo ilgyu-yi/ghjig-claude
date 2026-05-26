@@ -65,7 +65,7 @@ _audit_validate_format() {
       # The `issue=#<N>` token replaces the v0/v1 `item=<PVTI-id>` token —
       # Issues are SSOT now. Smoke §50a scans for this same shape post-hoc.
       if [ "$decision" = "created" ]; then
-        if ! printf '%s' "$reason" | grep -qE '^directive: .+ item=[^ ]+ priority=P[0-3] confidence=[0-9]+$'; then
+        if ! printf '%s' "$reason" | grep -qE '^directive: .+ issue=#[0-9]+ priority=P[0-3] confidence=[0-9]+$'; then
           return 1
         fi
       fi
