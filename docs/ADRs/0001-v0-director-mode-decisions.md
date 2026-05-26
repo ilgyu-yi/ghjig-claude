@@ -1,8 +1,10 @@
 # ADR 0001: v0 director-mode core decisions
 
 - Date: 2026-05-24
-- Status: Accepted
+- Status: Accepted (Partially Superseded — see header note)
 - Context PR: #42 (tracker: #41)
+
+> **Header note (2026-05-26 / Directive #92 cluster J2)**: the Goal-as-substrate-item portion of this ADR is **superseded by [ADR-0003](0003-issues-ssot-substrate.md)** (dir-mode v3 reframe). Specifically: (1) the "GitHub Projects v2 as substrate" decision is narrowed — Project v2 is now a *derived-view* substrate (mirrored from Issues), not the SSOT; (2) the "Goal / Directive / Execution as Project Item types" decision is partially superseded — `Goal` is eliminated as an artifact (MISSION.md is the canonical direction); `Directive` and `Execution` move to Issues-as-SSOT with the Project as a one-direction-mirrored view. All other decisions in this ADR (the work-order, the audit-log shape, the subagent framework, the attended/unattended mode axis) are retained.
 
 ## Context
 

@@ -1,8 +1,10 @@
 # ADR 0002: Directive / Project v2 field schema
 
 - Date: 2026-05-24
-- Status: Accepted
+- Status: Accepted (Superseded — see header note)
 - Context PR: #48 (tracker: #41 child #2 / issue #43)
+
+> **Header note (2026-05-26 / Directive #92 cluster J2)**: this ADR is **substantively superseded by [ADR-0003](0003-issues-ssot-substrate.md)** (dir-mode v3 reframe — Issues-as-SSOT substrate). The Project v2 field schema documented here remains the *derived-view* schema (the mirror workflow's target field set), but it is no longer the authoritative SSOT for dir-mode state. Specific changes per ADR-0003: (1) `Type` field loses the `Goal` option (Goal artifact eliminated; MISSION.md is canonical); (2) `Status` field's option set narrows from 5 (`Planned / Active / Completed / Blocked / Revised`) to 4 (`Proposed / Active / Blocked / Completed`) — `Revised` is dropped; `Planned` is renamed to `Proposed` to align with the OSS-standard "filed but not yet triaged" semantic; (3) `Confidence` and `Success Signals` Project fields are removed (content moves to Issue body sections); (4) `Iteration` stays user-managed on Project per ADR-0003 Decision 5; (5) `Parent` stays as TEXT, mirrored from the Issue body's `Parent Directive: #N` line-1 marker. The two-layer idempotency contract (field existence + SINGLE_SELECT option-set correctness, from issue #76) carries forward to the v3 schema. `scripts/setup_project.sh` is updated in cluster G to declare the v3 field schema; the mirror workflow (cluster D, `.github/workflows/issues-to-project-mirror.yml`) is the runtime data path that populates fields from Issue state. This ADR is preserved as the historical lock document for v0 substrate; future per-field decisions reference ADR-0003.
 
 ## Context
 
