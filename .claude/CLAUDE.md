@@ -7,7 +7,7 @@ issue → branch → draft PR → checklist commits → ready PR → merge. Ever
 
 Default autonomy ceiling stops at PR-ready (`attended` mode). See SPEC §5.7.1 for the `unattended` opt-in.
 
-**Dir-mode** (SPEC §1.7) extends the same pattern one level up: Final Goal → Directive → Execution Issue. Same generate → review → gated → audit shape; reviewer is `directive-reviewer` (§4.9). Mode switching is manual in v0; orchestration is v1+ (§0.4). Dir-mode commands live in §5.10–§5.14.
+**Dir-mode** (SPEC §1.7) extends the same pattern one level up: `MISSION.md` → Directive Issue → Execution Issue. Same generate → review → gated → audit shape; reviewer is `directive-reviewer` (§4.9). Mode switching is manual in v0; orchestration is v1+ (§0.4). Dir-mode commands live in §5.10–§5.14.
 
 ## Work order: Doc → Test → Code
 1. **Doc** — Write the behavior/contract to be changed into the SSOT (MISSION, README, CLAUDE.md, ARCHITECTURE, ADR) first.

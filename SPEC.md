@@ -123,7 +123,7 @@ An operating shell for Claude Code that runs on top of the standard GitHub workf
 The shell covers two layers of the same workflow:
 
 - **Engineering execution** — issue → branch → draft PR → checklist commits → ready PR → merge. Per the GitHub-standard flow.
-- **Directing maintenance** — Final Goal → Directive → Execution Issue, where a Directive is a medium-term directional context that scopes several issues without being directly executable.
+- **Directing maintenance** — `MISSION.md` → Directive Issue → Execution Issue, where a Directive is a medium-term directional context that scopes several issues without being directly executable.
 
 Both layers use the same generate → review → mode-based-approval → audit pattern (§1.5). See §1.7 for the eng-mode / dir-mode split, §2.1 for the Directive lifecycle, §4.9 for the dir-mode reviewer.
 
@@ -157,7 +157,7 @@ The directional layer (§1.7, §2.1, §4.9, §5.10–§5.17) ships in v0 as a th
 - Auto-detection of Directive completion based on success-signal evaluation.
 - Auto-revision of Directives based on engineering outcomes.
 - Directive dependency graph or visualization.
-- Multi-Final-Goal support.
+- Multi-MISSION support (multiple canonical-direction docs per shell instance).
 - External Director-tool integration interface (e.g., webhook receivers).
 - Stop conditions / kill switches / budget controls (deferred with the orchestrator).
 - `roadmap-reviewer` subagent (optional v1+; deferred unless v0 operating experience surfaces real friction).
@@ -278,14 +278,14 @@ The shell operates in two **modes**, distinguished by the *type of artifact* bei
 | Mode | Artifact type | Generate-subagent(s) | Review-subagent | Approval rule |
 |------|---------------|----------------------|------------------|---------------|
 | **eng-mode** | Execution Issue, PR, Commit | `planner`, `doc-writer`, `test-writer`, `explorer` | `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer` | attended: human / unattended: reviewer verdict (§1.5) |
-| **dir-mode** | Directive (Draft Item or Issue), Final Goal | `planner`, `doc-writer`, `explorer` | `directive-reviewer` (§4.9) | attended: human / unattended: `directive-reviewer` verdict |
+| **dir-mode** | Directive Issue | `planner`, `doc-writer`, `explorer` | `directive-reviewer` (§4.9) | attended: human / unattended: `directive-reviewer` verdict |
 
 **Hierarchy of artifacts** that the two modes act on:
 
 ```
-Final Goal           ← human-defined long-term anchor
+MISSION.md           ← human-defined long-term anchor (doc-as-code)
   ↓
-Directive            ← directing context, revisable, medium-term (dir-mode)
+Directive Issue      ← directing context, revisable, medium-term (dir-mode)
   ↓
 Execution Issue      ← concrete unit of work (eng-mode)
   ↓
@@ -831,7 +831,7 @@ The dir-mode workflow (§1.7) uses one new reviewer subagent in v0. A second is 
 
 #### 4.9.2 roadmap-reviewer (v1+, deferred)
 
-Cross-Directive coherence check — Goal alignment, Directive sequencing, drift detection. Not required for v0 (§0.4). Will be designed once v0 operating experience surfaces the friction.
+Cross-Directive coherence check — MISSION alignment, Directive sequencing, drift detection. Not required for v0 (§0.4). Will be designed once v0 operating experience surfaces the friction.
 
 #### 4.9.3 Session-restart caveat for new reviewer subagents
 
