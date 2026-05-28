@@ -81,7 +81,7 @@ fi
 # artifact type). Plus extra labels not in ensure_v3_labels.sh: directive,
 # P0/P1/P2/P3 — installed inline since those labels are not the v3-bootstrap
 # scope of ensure_v3_labels.sh.
-echo "onboard_target: tier 2 — installing 10-label v3 set..."
+echo "onboard_target: tier 2 — installing 11-label v3 set..."
 
 ensure_label() {
   local name="$1" color="$2" desc="$3"
@@ -102,6 +102,7 @@ if [ -n "$DRY_RUN" ]; then
   ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
   ensure_label "needs-triage"    "D4C5F9" "Issue filed without a template — awaiting maintainer triage classification"
   ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
+  ensure_label "skip-changelog"  "CCCCCC" "PR exempt from fragment-gate; no end-user observable change (SPEC §18.6)"
 else
   bash "$CLAUDE_ENG_SHELL_ROOT/scripts/ensure_v3_labels.sh" 2>&1 | sed 's/^/  /'
 fi
@@ -113,10 +114,10 @@ ensure_label "P1" "D93F0B" "Priority 1 — next"
 ensure_label "P2" "FBCA04" "Priority 2 — soon"
 ensure_label "P3" "0E8A16" "Priority 3 — eventually"
 
-echo "onboard_target: tier 2 labels done (10 total: 5 from ensure_v3_labels.sh + 5 inline)."
+echo "onboard_target: tier 2 labels done (11 total: 6 from ensure_v3_labels.sh + 5 inline)."
 
 if [ "$TIER" = 2 ]; then
-  audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=2 labels=10"
+  audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=2 labels=11"
   exit 0
 fi
 
@@ -139,7 +140,7 @@ if [ -n "$DRY_RUN" ]; then
 else
   cp "$SUBSTRATE_ROOT/ISSUE_TEMPLATE/"*.yml "$TARGET_GITHUB/ISSUE_TEMPLATE/"
   cp "$SUBSTRATE_ROOT/workflows/"*.yml "$TARGET_GITHUB/workflows/"
-  echo "  copied 6 ISSUE_TEMPLATE files + 3 workflow files into $TARGET_GITHUB/"
+  echo "  copied 6 ISSUE_TEMPLATE files + 4 workflow files into $TARGET_GITHUB/"
 fi
 
 # Open a PR if there are changes. Idempotent: skip if no diff.

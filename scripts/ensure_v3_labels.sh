@@ -9,6 +9,7 @@
 #   - task             — standalone task / improvement (task.yml)
 #   - needs-triage     — applied by auto-needs-triage.yml on raw filings
 #   - discussion       — observation / half-formed idea (SPEC §5.19; Issue #112)
+#   - skip-changelog   — PR-time opt-out for the release-backbone fragment-gate (SPEC §18.6)
 #
 # Already-existing labels that v3 relies on (no creation needed):
 #   - directive, bug, enhancement, documentation, duplicate, wontfix,
@@ -32,5 +33,6 @@ ensure_label "status:blocked"  "B60205" "Directive cannot proceed without extern
 ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
 ensure_label "needs-triage"    "D4C5F9" "Issue filed without a template — awaiting maintainer triage classification"
 ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
+ensure_label "skip-changelog"  "CCCCCC" "PR exempt from fragment-gate; no end-user observable change (SPEC §18.6)"
 
 echo "ensure_v3_labels: done."

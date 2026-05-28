@@ -4864,20 +4864,20 @@ fi
 # canonical-source directory, /onboard-dir-mode skill, scripts/onboard_target.sh,
 # and per-command graceful-degradation preflight references.
 
-# §63a: canonical-source directory has the 9 expected files.
+# §63a: canonical-source directory has the 10 expected files.
 S63_SUB="$SHELL_ROOT/.claude/templates/target-substrate"
 s63a_count=0
 for f in ISSUE_TEMPLATE/config.yml ISSUE_TEMPLATE/directive-proposal.yml \
          ISSUE_TEMPLATE/execution-under-directive.yml ISSUE_TEMPLATE/task.yml \
          ISSUE_TEMPLATE/bug-report.yml ISSUE_TEMPLATE/discussion.yml \
          workflows/auto-needs-triage.yml workflows/issues-to-project-mirror.yml \
-         workflows/dir-mode-post-merge.yml; do
+         workflows/dir-mode-post-merge.yml workflows/check-changelog.yml; do
   [ -f "$S63_SUB/$f" ] && s63a_count=$((s63a_count + 1))
 done
-if [ "$s63a_count" = 9 ]; then
-  ok "63a: target-substrate canonical-source has 9 files (6 ISSUE_TEMPLATE + 3 workflows) (#118)"
+if [ "$s63a_count" = 10 ]; then
+  ok "63a: target-substrate canonical-source has 10 files (6 ISSUE_TEMPLATE + 4 workflows) (#118 + #133)"
 else
-  ng "63a: target-substrate canonical-source missing files: expected 9, found $s63a_count (#118)"
+  ng "63a: target-substrate canonical-source missing files: expected 10, found $s63a_count (#118 + #133)"
 fi
 
 # §63b: /onboard-dir-mode skill file exists with tiered procedure.
@@ -4940,16 +4940,16 @@ fi
 # exercise label parsing; §63g closes the gap.
 s63g_out=$("$SHELL_ROOT/scripts/onboard_target.sh" --tier 2 --dry-run 2>&1 || true)
 s63g_ok=1
-for required in "status:proposed" "status:blocked" "discussion" "task" "needs-triage"; do
+for required in "status:proposed" "status:blocked" "discussion" "task" "needs-triage" "skip-changelog"; do
   if ! printf '%s' "$s63g_out" | grep -qE "gh label create '$required'"; then
     s63g_ok=0
     break
   fi
 done
 if [ "$s63g_ok" = 1 ]; then
-  ok "63g: onboard_target --tier 2 --dry-run emits gh label create for all v3-bootstrap labels including status:proposed + status:blocked (#118)"
+  ok "63g: onboard_target --tier 2 --dry-run emits gh label create for all v3-bootstrap labels including status:proposed + status:blocked + skip-changelog (#118 + #133)"
 else
-  ng "63g: onboard_target --tier 2 --dry-run missing one or more required labels (regression-guard for label-parser drift) (#118)"
+  ng "63g: onboard_target --tier 2 --dry-run missing one or more required labels (regression-guard for label-parser drift) (#118 + #133)"
 fi
 
 # ---------- 64. version surface (#123 / Directive #122) ----------
@@ -5171,6 +5171,73 @@ if [ "$s65h_ok" = 1 ]; then
   ok "65h: /release skill body locks reviewer-gate + unattended + post-merge gh release recipe + no third-party Actions (#131)"
 else
   ng "65h: /release skill-body grep-locks failed:$s65h_reasons (#131)"
+fi
+
+# ---------- 66. check-changelog.yml workflow (#133 / Directive #128) ----------
+# §66 locks the per-PR fragment-gate workflow contract: file exists at the
+# shell repo AND at canonical-source path AND they are byte-identical AND
+# trigger semantics + label-bypass label install all wired correctly.
+
+S66_SHELL_WF="$SHELL_ROOT/.github/workflows/check-changelog.yml"
+S66_CANON_WF="$SHELL_ROOT/.claude/templates/target-substrate/workflows/check-changelog.yml"
+
+# §66a — workflow file exists at both shell repo root AND canonical source.
+if [ -f "$S66_SHELL_WF" ] && [ -f "$S66_CANON_WF" ]; then
+  ok "66a: check-changelog.yml workflow exists at .github/ AND canonical-source path (#133)"
+else
+  ng "66a: check-changelog.yml workflow missing (shell=$([ -f "$S66_SHELL_WF" ] && echo yes || echo no) canon=$([ -f "$S66_CANON_WF" ] && echo yes || echo no)) (#133)"
+fi
+
+# §66b — byte-identical via diff exit-0; single-source-of-truth invariant.
+if [ -f "$S66_SHELL_WF" ] && [ -f "$S66_CANON_WF" ] && diff -q "$S66_SHELL_WF" "$S66_CANON_WF" >/dev/null 2>&1; then
+  ok "66b: check-changelog.yml shell-root and canonical-source are byte-identical (#133)"
+else
+  ng "66b: check-changelog.yml drift between shell-root and canonical-source (#133)"
+fi
+
+# §66c — trigger semantics: pull_request event with labeled + unlabeled types
+# so the skip-changelog opt-out re-runs the check, and branches filter
+# includes main + *-maintenance per SPEC §18.6.
+s66c_ok=0
+if [ -f "$S66_SHELL_WF" ]; then
+  s66c_ok=1
+  for required in 'pull_request' 'opened' 'synchronize' 'reopened' 'labeled' 'unlabeled' 'main' '*-maintenance' 'skip-changelog'; do
+    if ! grep -qF "$required" "$S66_SHELL_WF"; then
+      s66c_ok=0
+      break
+    fi
+  done
+fi
+if [ "$s66c_ok" = 1 ]; then
+  ok "66c: check-changelog.yml triggers cover pull_request opened/synchronize/reopened/labeled/unlabeled on main + *-maintenance + skip-changelog bypass (#133)"
+else
+  ng "66c: check-changelog.yml trigger semantics drift — missing one of {pull_request, opened, synchronize, reopened, labeled, unlabeled, main, *-maintenance, skip-changelog} (#133)"
+fi
+
+# §66d — ensure_v3_labels.sh enumerates skip-changelog. The label is the
+# documented opt-out per SPEC §18.6; its absence from the bootstrap label
+# set would break the workflow's bypass path in adopting repos.
+S66_LABELS="$SHELL_ROOT/scripts/ensure_v3_labels.sh"
+if [ -f "$S66_LABELS" ] && grep -q 'skip-changelog' "$S66_LABELS"; then
+  ok "66d: ensure_v3_labels.sh enumerates skip-changelog label (#133)"
+else
+  ng "66d: ensure_v3_labels.sh missing skip-changelog label entry (#133)"
+fi
+
+# §66e — workflow's bash logic uses bash + gh only (no third-party Actions
+# beyond actions/checkout which Issue #133 Notes explicitly carves out as
+# the canonical equivalent of git clone).
+if [ -f "$S66_SHELL_WF" ]; then
+  # Find uses: lines whose target is not under actions/ (the GitHub-shipped
+  # namespace). Any hit is a third-party dependency.
+  s66e_bad=$(grep -E '^\s*-?\s*uses:\s+' "$S66_SHELL_WF" 2>/dev/null | grep -vE 'uses:\s+actions/' || true)
+  if [ -z "$s66e_bad" ]; then
+    ok "66e: check-changelog.yml has no third-party GitHub Actions (actions/checkout carve-out only) (#133)"
+  else
+    ng "66e: check-changelog.yml references third-party Action(s): $s66e_bad (#133)"
+  fi
+else
+  ng "66e: check-changelog.yml missing — cannot assert action provenance (#133)"
 fi
 
 # ---------- restore registry ----------
