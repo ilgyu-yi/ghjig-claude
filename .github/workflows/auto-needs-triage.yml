@@ -5,6 +5,20 @@ name: auto-needs-triage
 # filings already get their `labels:` frontmatter applied; only template-free
 # (raw) filings have an empty label set.
 #
+# Filer-aware skip (Issue #165, discussion #164): the label is applied ONLY to
+# label-free Issues filed by UNTRUSTED authors. Trusted filers — `author_association`
+# in {OWNER, MEMBER, MAINTAINER, COLLABORATOR} per SPEC §1.5 filer-aware
+# invariants — skip the label entirely. Rationale: the `/triage` classification
+# gate (SPEC §5.18) exists for external/untrusted filings; trusted filings have
+# always been ACCEPT verdicts in practice (6/6 in repo history), making the
+# label a no-op on this population. Narrowing the trigger preserves the gate
+# for its designed case without the trusted-filer false-positive load.
+#
+# Audit surface for the workflow-side skip: this workflow's GitHub Actions run
+# log (NOT `audit.jsonl` — workflow runner cannot reach the local hook audit).
+# Manual override for a maintainer who needs `needs-triage` on a trusted-filer
+# Issue: `gh issue edit <N> --add-label needs-triage` after filing.
+#
 # Idempotent: the workflow's only effect is `gh issue edit --add-label needs-triage`,
 # which is a no-op if the label is already present. Skipping condition prevents
 # self-triggering loops (a workflow-applied label change does not re-fire this
@@ -32,8 +46,13 @@ jobs:
           labels=$(gh issue view "$n" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | length')
           echo "count=$labels" >> "$GITHUB_OUTPUT"
 
-      - name: Apply needs-triage on label-free Issue
-        if: steps.labels.outputs.count == '0'
+      - name: Apply needs-triage on label-free Issue (untrusted filers only)
+        if: >-
+          steps.labels.outputs.count == '0'
+          && github.event.issue.author_association != 'OWNER'
+          && github.event.issue.author_association != 'MEMBER'
+          && github.event.issue.author_association != 'MAINTAINER'
+          && github.event.issue.author_association != 'COLLABORATOR'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

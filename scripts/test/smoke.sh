@@ -5302,10 +5302,12 @@ else
   ng "67b: auto-needs-triage.yml missing author_association reference (#165)"
 fi
 
-# §67c — apply step's if: is a compound predicate (contains &&). The
-# pre-change `if: steps.labels.outputs.count == '0'` is single-predicate;
-# the new form is `count == '0' && author_association != 'OWNER' && ...`.
-if [ -f "$S67_WF" ] && grep -qE 'if:.*&&.*author_association' "$S67_WF"; then
+# §67c — apply step's if: is a compound predicate combining count AND
+# author_association via `&&`. The pre-change `if: steps.labels.outputs.count
+# == '0'` is single-predicate; the new form is `count == '0' && author_association
+# != 'OWNER' && ...`. Newline-tolerant: the YAML may use folded-scalar (`>-`)
+# form spreading the predicate across lines.
+if [ -f "$S67_WF" ] && tr '\n' ' ' < "$S67_WF" | grep -qE "count == '0' +&& +github\.event\.issue\.author_association"; then
   ok "67c: auto-needs-triage.yml apply-step if: combines count AND author_association via && (#165)"
 else
   ng "67c: auto-needs-triage.yml apply-step if: missing compound && predicate with author_association (#165)"
