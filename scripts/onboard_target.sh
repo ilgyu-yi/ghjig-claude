@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # scripts/onboard_target.sh — install the v3 substrate into the current
 # target repo (cwd). Tier-aware (--tier 1|2|3). Idempotent. PR-based file
-# installs per ADR-0004 Decision 2. Audit-logged.
+# installs via a PR to the target (never direct push). Audit-logged.
 #
 # Invoked from /onboard-dir-mode (.claude/commands/onboard-dir-mode.md).
 #
-# Tier semantics (per ADR-0004 Decision 4):
+# Tier semantics (SPEC §1.7 Substrate-in-target contract):
 #   1 — no-op (eng-mode only; no substrate installed).
 #   2 — labels: the 10-label v3 set via `gh label create --force`.
 #   3 — tier 2 + ISSUE_TEMPLATE + workflows (via PR) + Project v2.
@@ -153,12 +153,12 @@ if [ -z "$DRY_RUN" ]; then
     git -C "$(pwd)" add .github/
     git -C "$(pwd)" commit -m "chore: onboard claude-eng-shell dir-mode v3 substrate
 
-Installs ISSUE_TEMPLATE files + dir-mode workflows per ADR-0004 Decision 1.
-Reversibility: per ADR-0004 reversibility paths — git rm .github/ISSUE_TEMPLATE/<file>
+Installs ISSUE_TEMPLATE files + dir-mode workflows (SPEC §1.7 Substrate-in-target contract).
+Reversibility: git rm .github/ISSUE_TEMPLATE/<file>
 or .github/workflows/<file> removes any installed file via a normal PR."
     git -C "$(pwd)" push -u origin "$BRANCH"
     gh pr create --title "chore: onboard claude-eng-shell dir-mode v3 substrate" \
-      --body "Installs ISSUE_TEMPLATE files + dir-mode workflows per ADR-0004 Decision 1. Reversibility paths documented in the ADR."
+      --body "Installs ISSUE_TEMPLATE files + dir-mode workflows (SPEC §1.7 Substrate-in-target contract). Reversibility paths documented in the ADR."
   fi
 fi
 

@@ -42,5 +42,5 @@ Same in attended and unattended.
 
 - Linking two Directives (v0 non-goal — directive dependency graph deferred per SPEC §0.4).
 - Overwriting an existing different `Parent Directive: #<other>` marker without explicit user confirmation. If the Issue is already linked to a *different* Directive, stop and report rather than silently re-parenting.
-- Skipping the body-marker step — the regex `^Parent Directive: #(\d+)$` is consumed by `/reflect`, the dir-mode-post-merge workflow, AND the issues-to-project-mirror workflow (SPEC §5.2, §5.7, ADR-0003).
+- Skipping the body-marker step — the regex `^Parent Directive: #(\d+)$` is consumed by `/reflect`, the dir-mode-post-merge workflow, AND the issues-to-project-mirror workflow (SPEC §5.2, §5.7).
 - Writing to the Project Item's `Parent` field directly — that's the mirror workflow's job.

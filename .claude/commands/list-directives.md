@@ -59,5 +59,5 @@ Same output in `attended` and `unattended` modes.
 ## Forbidden
 
 - Mutating any field. This is read-only.
-- Querying the Project — Issues are SSOT per ADR-0003; the Project is a derived view that may lag. Always read from `gh issue list`.
+- Querying the Project — Issues are SSOT; the Project is a derived view that may lag. Always read from `gh issue list`.
 - Hiding `Type=Directive` items that match the filter.

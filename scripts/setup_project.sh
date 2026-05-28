@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # scripts/setup_project.sh — idempotent bootstrap for the dir-mode Project v2 substrate.
 #
-# v3 schema (ADR-0003): the Project is a DERIVED view; Issues are SSOT. The
+# Project schema: the Project is a DERIVED view; Issues are SSOT. The
 # mirror workflow (.github/workflows/issues-to-project-mirror.yml) populates
 # Project Items from Issue state. This script ensures the field schema the
 # mirror writes into:
-#   Type     SINGLE_SELECT — Directive,Execution   (Goal removed in v3 per ADR-0003 Decision 6)
-#   Status   SINGLE_SELECT — Proposed,Active,Blocked,Completed   (4-state per ADR-0003 Decision 7)
+#   Type     SINGLE_SELECT — Directive,Execution   (MISSION.md replaces a Goal artifact)
+#   Status   SINGLE_SELECT — Proposed,Active,Blocked,Completed   (4-state lifecycle)
 #   Priority SINGLE_SELECT — P0,P1,P2,P3
 #   Parent   TEXT          — mirrored from Issue body line-1 `Parent Directive: #N` marker
 # The Iteration field is user-managed (gh CLI lacks ITERATION data-type support);
 # the script prints a one-time hint when it's missing.
 #
 # v3 removes: Confidence (NUMBER) and Success Signals (TEXT) fields — per
-# ADR-0003 Decision 7, content moves to Issue body sections; the Project
+# Confidence + Success Signals live in the Issue body, not Project fields; the Project
 # carries only the structural-metadata mirror.
 #
 # Refuses on:
@@ -116,7 +116,7 @@ ensure_field "Type"     SINGLE_SELECT "Directive,Execution"
 ensure_field "Status"   SINGLE_SELECT "Proposed,Active,Blocked,Completed"
 ensure_field "Priority" SINGLE_SELECT "P0,P1,P2,P3"
 ensure_field "Parent"   TEXT
-# v3 (ADR-0003): Confidence and Success Signals fields removed.
+# Confidence and Success Signals live in the Issue body, not Project fields.
 # Confidence + Success Signals content lives in Directive Issue body sections.
 # Goal Type option removed; MISSION.md is the canonical direction.
 

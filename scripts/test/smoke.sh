@@ -3072,11 +3072,11 @@ else
     sp41a_proj_create=$( { grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
     : "${sp41a_creates:=0}"
     : "${sp41a_proj_create:=0}"
-    # v3 schema (ADR-0003): 4 CLI-managed fields (Type / Status / Priority / Parent).
+    # Schema: 4 CLI-managed fields (Type / Status / Priority / Parent).
     # Goal Type option removed; Confidence + Success Signals fields removed.
     # Iteration stays user-managed.
     if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 4 ]; then
-      ok "41a: first-run creates project + 4 fields (v3 schema per ADR-0003) (#43/#96)"
+      ok "41a: first-run creates project + 4 fields (#43/#96)"
     else
       ng "41a: first-run expected ≥1 project-create + 4 field-create (v3); got proj=$sp41a_proj_create field=$sp41a_creates (#43/#96)"
     fi
@@ -3146,7 +3146,7 @@ else
       ng "41d: missing project scope should refuse but exited 0 (#43)"
     fi
 
-    # 41e: option reconciliation — drift case (v3 schema per ADR-0003).
+    # 41e: option reconciliation — drift case.
     # Status pre-seeded with GitHub-default options (Todo, In Progress, Done);
     # declared v3 set is (Proposed, Active, Blocked, Completed). Expect: one
     # `gh api graphql` mutation whose payload UNIONS the 3 defaults with the
@@ -3366,7 +3366,7 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 - The env-var guard must be a single `if` at the top of §42e — no scattered checks inside individual `ok`/`ng` calls.
 
 ## MISSION fit
-Serves MISSION's `Success looks like > The flow holds in unattended runs` criterion — synthetic test environment per dir-mode v3 (ADR-0003); the v0/v1 `Parent Goal` field is replaced by MISSION fit in v3.
+Serves MISSION's `Success looks like > The flow holds in unattended runs` criterion — synthetic test environment for the dir-mode workflow.
 PROMPT_EOF
     dr_ship_out=$(claude -p --agent directive-reviewer "$dr_ship_prompt" 2>&1 || true)
     # Capture the LAST `^VERDICT:` line anchored on the documented delimiters
@@ -3409,7 +3409,7 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 - The env-var guard must be a single `if` at the top of §42e.
 
 ## MISSION fit
-Synthetic test environment per dir-mode v3 (ADR-0003); the v0/v1 `Parent Goal` field is replaced by MISSION fit in v3.
+Synthetic test environment for the dir-mode workflow.
 PROMPT_EOF
     dr_refine_out=$(claude -p --agent directive-reviewer "$dr_refine_prompt" 2>&1 || true)
     dr_refine_verdict=$(printf '%s\n' "$dr_refine_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
@@ -3436,14 +3436,14 @@ if [ ! -f "$DR_TEMPLATE" ]; then
   ng "43: .claude/templates/directive.md missing (#45)"
 else
   dt_missing=""
-  # v3 (ADR-0003 Decision 6): Parent Goal field replaced by MISSION fit.
+  # Parent Goal field is not part of the directive template; MISSION fit is the canonical anchor.
   for section in "## Objective" "## Success signals" "## Non-goals" "## Constraints" "## MISSION fit"; do
     if ! grep -qF "$section" "$DR_TEMPLATE"; then
       dt_missing="$dt_missing $section"
     fi
   done
   if [ -z "$dt_missing" ]; then
-    ok "43-template: directive.md template has all five required sections (v3 schema per ADR-0003) (#45/#96)"
+    ok "43-template: directive.md template has all five required sections (#45/#96)"
   else
     ng "43-template: directive.md missing sections:$dt_missing (#45/#96)"
   fi
@@ -3932,7 +3932,7 @@ elif ! command -v jq >/dev/null 2>&1; then
 else
   # Any directive-file/created line with ts >= cutoff whose reason does NOT
   # match `directive: ... issue=#<N> priority=P<N> confidence=<N>` (v3 shape
-  # per ADR-0003 / Directive #92 cluster I; was item=<PVTI-id> in v0/v1).
+  # (Issues are SSOT; the audit-log token references the Issue number).
   bad_lines=$(jq -r --arg cutoff "$DIRECTIVE_FILE_AUDIT_CUTOFF" '
     select(.category=="directive-file" and .decision=="created" and .ts >= $cutoff)
     | select(.reason | test("^directive: .* issue=#[0-9]+ priority=P[0-3] confidence=[0-9]+$") | not)
@@ -4553,12 +4553,12 @@ fi
 
 # ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
 # Cluster E (commands) + F (directive-reviewer) + G (setup_project.sh) + H
-# (SPEC §1.7/§2.1/§5.10-§5.18) per ADR-0003. Structural sanity for the
+# (SPEC §1.7/§2.1/§5.10-§5.18). Structural sanity for the
 # substrate flip from Project-Items-as-SSOT (v0) to Issues-as-SSOT (v3).
 
 # 58a: every dir-mode command file operates on the Issue substrate
 # (gh issue invocation OR explicit `directive` / `status:` label reference).
-# Replaces the prior ADR-0003 / Issues-as-SSOT / dir-mode-v3 token assertion
+# Replaces the prior token assertion
 # (cluster E #96) which was tied to migration-era qualifiers stripped by
 # Directive #149 / Issue #151. The intent is unchanged: prevent regression
 # to Project-Items-as-SSOT by requiring each dir-mode command file to assert
@@ -4586,12 +4586,13 @@ else
 fi
 
 # 58c: directive-reviewer drops Goal-bootstrap allowance, adds MISSION.md alignment check.
+# Pattern updated (#162): directive-reviewer asserts MISSION.md alignment — the
+# load-bearing structural claim this gate protects.
 DR_AGENT="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
-if grep -qE 'MISSION\.md alignment|MISSION fit' "$DR_AGENT" 2>/dev/null \
-   && grep -qE 'ADR-0003' "$DR_AGENT" 2>/dev/null; then
-  ok "58c: directive-reviewer names MISSION.md alignment + ADR-0003 (#96/cluster F)"
+if grep -qE 'MISSION\.md alignment|MISSION fit' "$DR_AGENT" 2>/dev/null; then
+  ok "58c: directive-reviewer names MISSION.md alignment (#96/cluster F; updated #162)"
 else
-  ng "58c: directive-reviewer missing v3 update (#96/cluster F)"
+  ng "58c: directive-reviewer missing MISSION.md alignment check (#96/cluster F; updated #162)"
 fi
 
 # 58d: setup_project.sh declares the v3 4-state Status options + 2-option Type.
@@ -4622,11 +4623,13 @@ else
   ng "58e: SPEC §2.1 state-table v3: 4-count=$s58e_count planned=$s58e_planned revised=$s58e_revised (expected 4/0/0) (#96/cluster H)"
 fi
 
-# 58f: SPEC §1.7 substrate paragraph names "Issues are SSOT" / ADR-0003.
-if grep -qE 'Issues-as-SSOT|Issues are SSOT|ADR-0003' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
-  ok "58f: SPEC §1.7 names Issues-as-SSOT / ADR-0003 (#96/cluster H)"
+# 58f: SPEC §1.7 substrate paragraph asserts "Issues" as substrate + "derived view" Project.
+# Pattern updated (#162): the structural assertion is phrased against the inlined SPEC prose.
+if grep -qiE 'all dir-mode state lives on GitHub Issues' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qE 'derived view' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "58f: SPEC §1.7 asserts Issues-as-substrate + Project-as-derived-view (#96/cluster H; updated #162)"
 else
-  ng "58f: SPEC §1.7 missing v3 substrate naming (#96/cluster H)"
+  ng "58f: SPEC §1.7 missing substrate / derived-view naming (#96/cluster H; updated #162)"
 fi
 
 # ---------- 59. v3 migration script + MISSION.md (#96 / cluster I) ----------
@@ -4662,11 +4665,14 @@ else
   ng "59b: MISSION.md missing (#96/cluster I)"
 fi
 
-# 59c: MISSION.md references ADR-0003 (supersession context).
-if grep -qE 'ADR-0003' "$MISSION" 2>/dev/null; then
-  ok "59c: MISSION.md cross-references ADR-0003 (#96/cluster I)"
+# 59c: MISSION.md declares the operational MISSION-fit contract for Directives.
+# Pattern updated (#162): the prior cross-reference and supersession framing were removed
+# as migration-era scaffolding; the load-bearing operational claim ("Every Directive's
+# MISSION fit field references a section of this file") remains and is what this gate asserts.
+if grep -qE "Every Directive's \`## MISSION fit\` field references a section of this file" "$MISSION" 2>/dev/null; then
+  ok "59c: MISSION.md declares the Directive MISSION-fit contract (#96/cluster I; updated #162)"
 else
-  ng "59c: MISSION.md missing ADR-0003 cross-reference (#96/cluster I)"
+  ng "59c: MISSION.md missing the Directive MISSION-fit contract sentence (#96/cluster I; updated #162)"
 fi
 
 # ---------- 60. user-global ~/.claude/ carve-out on protected-branch matcher (#91) ----------
@@ -4743,29 +4749,28 @@ sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SHELL_ROOT/.claude/state/registr
 mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
 rm -rf "$S60_DIR"
 
-# ---------- 61. target-substrate foundation: ADR-0004 + SPEC §1.7 (#114) ----------
-# Issue #114 (foundation slice of Directive #107) lands the design foundation
-# for target-substrate installation: ADR-0004 declares the boundary expansion
-# (shell now installs `.github/` files + labels into targets via /onboard-dir-mode);
-# SPEC §1.7 names the "Substrate-in-target contract" subsection (three-tier
-# feature model + graceful-degradation principle + reversibility contract).
-# §61 is a static-file regression: catches "ADR-0004 removed" or "SPEC §1.7
-# subsection deleted" in a future PR.
+# ---------- 61. target-substrate foundation: SPEC §1.7 Substrate-in-target contract (#114) ----------
+# Issue #114 (foundation slice of Directive #107) landed the design foundation
+# for target-substrate installation. The boundary-expansion rationale + three-tier
+# feature model + graceful-degradation principle + reversibility contract now live
+# inline in SPEC §1.7's "Substrate-in-target contract" subsection. §61 is a
+# static-file regression: catches "SPEC §1.7 subsection deleted" or "three-tier
+# / graceful-degradation / reversibility clauses removed" in a future PR.
 
-# §61a: ADR-0004 file exists.
-if [ -f "$SHELL_ROOT/docs/ADRs/0004-target-substrate-foundation.md" ]; then
-  ok "61a: ADR-0004 target-substrate-foundation exists (#114)"
+# §61a: SPEC §1.7 names the "Substrate-in-target contract" subsection.
+if grep -q "Substrate-in-target contract" "$SHELL_ROOT/SPEC.md"; then
+  ok "61a: SPEC §1.7 names 'Substrate-in-target contract' subsection (#114; updated #162)"
 else
-  ng "61a: ADR-0004 target-substrate-foundation missing at docs/ADRs/0004-target-substrate-foundation.md (#114)"
+  ng "61a: SPEC §1.7 missing 'Substrate-in-target contract' subsection (#114; updated #162)"
 fi
 
-# §61b: SPEC §1.7 names the "Substrate-in-target contract" subsection AND
-# references ADR-0004.
-if grep -q "Substrate-in-target contract" "$SHELL_ROOT/SPEC.md" \
-   && grep -qE "ADR-0004|0004-target-substrate-foundation" "$SHELL_ROOT/SPEC.md"; then
-  ok "61b: SPEC §1.7 names 'Substrate-in-target contract' + ADR-0004 reference (#114)"
+# §61b: SPEC §1.7 carries the three load-bearing target-substrate clauses inline.
+if grep -q "Three-tier feature model" "$SHELL_ROOT/SPEC.md" \
+   && grep -q "Graceful-degradation principle" "$SHELL_ROOT/SPEC.md" \
+   && grep -q "Reversibility contract" "$SHELL_ROOT/SPEC.md"; then
+  ok "61b: SPEC §1.7 carries Three-tier / Graceful-degradation / Reversibility clauses inline (#114; updated #162)"
 else
-  ng "61b: SPEC §1.7 missing 'Substrate-in-target contract' subsection or ADR-0004 reference (#114)"
+  ng "61b: SPEC §1.7 missing one or more target-substrate clauses (#114; updated #162)"
 fi
 
 # ---------- 62. discussion-tier lifecycle: skills + enforcement + /triage (#116) ----------
@@ -4916,7 +4921,7 @@ s63d_rc=0
 "$SHELL_ROOT/scripts/onboard_target.sh" --tier 1 --dry-run >/dev/null 2>&1 || s63d_rc=$?
 # The script exits 1 if `gh repo view` cannot resolve (not in a gh repo context).
 # Smoke runs from the shell repo where gh is authed, so exit 0 expected. If
-# gh auth is missing, accept rc=1 as graceful-failure (per ADR-0004 fail-open).
+# gh auth is missing, accept rc=1 as graceful-failure (per the graceful-degradation principle, SPEC §1.7).
 if [ "$s63d_rc" = 0 ] || [ "$s63d_rc" = 1 ]; then
   ok "63d: onboard_target.sh --tier 1 --dry-run is non-destructive (rc=$s63d_rc; expected 0 or 1) (#118)"
 else
@@ -4941,11 +4946,14 @@ else
   ng "63e: substrate preflight missing in some dir-mode commands: $s63e_count/7 (#118; updated #151)"
 fi
 
-# §63f: ADR-0004 reversibility paths referenced from /onboard-dir-mode.
-if grep -q "ADR-0004" "$SHELL_ROOT/.claude/commands/onboard-dir-mode.md"; then
-  ok "63f: /onboard-dir-mode references ADR-0004 reversibility framing (#118)"
+# §63f: reversibility paths referenced from /onboard-dir-mode.
+# Pattern updated (#162): reversibility content lives inline in SPEC §1.7 and
+# /onboard-dir-mode cross-refs that. The structural assertion is that the skill
+# names the reversibility contract or the SPEC subsection that anchors it.
+if grep -qE "reversibility|Reversibility|Substrate-in-target" "$SHELL_ROOT/.claude/commands/onboard-dir-mode.md"; then
+  ok "63f: /onboard-dir-mode references reversibility / Substrate-in-target framing (#118; updated #162)"
 else
-  ng "63f: /onboard-dir-mode missing ADR-0004 reference (#118)"
+  ng "63f: /onboard-dir-mode missing reversibility / Substrate-in-target reference (#118; updated #162)"
 fi
 
 # §63g: tier-2 dry-run produces label-create lines for BOTH status:proposed

@@ -16,7 +16,7 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
    - **Success signals** — 2 to 5 verifiable conditions. Each must be objectively testable by a reasonable engineer.
    - **Non-goals** — at least 2 explicit exclusions.
    - **Constraints** — at least 1 invariant to preserve.
-   - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (Replaces the v0/v1 `Parent Goal` field per ADR-0003 Decision 6.)
+   - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (MISSION.md replaces a separate parent-goal artifact.)
    - **Priority** — one of `P0` / `P1` / `P2` / `P3`; ask the user. Defaults to `P2` in unattended mode if not specified. The matching label is applied to the Issue at create time.
    - **Confidence** — 0-100; ask the user.
 
@@ -42,7 +42,7 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
 
    Both `<P>` and `<C>` are populated from the step-1 collection — emitting them with the placeholder literal (`priority=P<P>`) drops the format-validation contract in `.claude/hooks/hookrt.sh:_audit_validate_format` and produces a `directive-file/format-error` warn entry instead of the requested `created` record. Use the captured values.
 
-   The `issue=#<id>` token replaces the v0/v1 `item=<PVTI-id>` token (Issues are SSOT now per ADR-0003).
+   The `issue=#<id>` token is the canonical reference (Issues are SSOT).
 
 5. **Mirror sync** — the `issues-to-project-mirror.yml` workflow fires on `issues.opened` and populates the Project Item's fields. `/file-directive` does NOT wait for the mirror; it returns immediately after the audit line.
 

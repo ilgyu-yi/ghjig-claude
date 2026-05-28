@@ -1,9 +1,9 @@
 ---
-description: Install the dir-mode substrate (labels + Issue templates + workflows + Project) into a target repo. Tier-aware. Idempotent. PR-based file installs per ADR-0004.
+description: Install the dir-mode substrate (labels + Issue templates + workflows + Project) into a target repo. Tier-aware. Idempotent. PR-based file installs (SPEC §1.7 Substrate-in-target contract).
 argument-hint: [--tier 1|2|3] [--dry-run]
 ---
 
-Install the dir-mode substrate into the current target repo (cwd). Per ADR-0004:
+Install the dir-mode substrate into the current target repo (cwd). Three-tier model (SPEC §1.7 Substrate-in-target contract):
 
 - **Tier 1**: no install — eng-mode works without the dir-mode substrate.
 - **Tier 2**: install the 10-label dir-mode set via `gh label create --force`. Unlocks `/file-directive` / `/activate-directive` / `/complete-directive` directly against Issues. No Project mirror.
@@ -32,7 +32,7 @@ Each tier is a strict superset. Re-running is idempotent at every step.
        - `ISSUE_TEMPLATE/{config,directive-proposal,execution-under-directive,task,bug-report,discussion}.yml`
        - `workflows/{auto-needs-triage,issues-to-project-mirror,dir-mode-post-merge,check-changelog}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied.
      - Creates branch `onboard-dir-mode-substrate`, commits the files, pushes, opens a PR via `gh pr create --title "chore: onboard claude-eng-shell dir-mode substrate"` — **target maintainer reviews + merges**.
-     - Direct push to target's `main` is forbidden (protected-branch hook fires; this is by design per ADR-0004 Decision 2).
+     - Direct push to target's `main` is forbidden (protected-branch hook fires; PR-based install is the canonical path — SPEC §1.7 Bootstrap path).
    - Project v2 setup: invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/setup_project.sh` (idempotent — creates the Project if absent, reconciles fields if present).
 
 7. **Audit log** — `audit_log info onboard-dir-mode created "target=<owner>/<repo> tier=<N>"`.
@@ -48,7 +48,7 @@ Each tier is a strict superset. Re-running is idempotent at every step.
 ## Idempotency contract
 
 - Re-running with the same tier produces no new artifacts: labels via `--force` overwrite-without-error; ISSUE_TEMPLATE / workflow files re-committed are no-op if `git diff` is empty (the install script `git diff --quiet` checks before committing).
-- Downgrades are out-of-scope (the maintainer reverts manually per ADR-0004 reversibility paths).
+- Downgrades are out-of-scope (the maintainer reverts manually per the reversibility paths in SPEC §1.7).
 
 ## Operating mode
 
@@ -62,6 +62,6 @@ Each tier is a strict superset. Re-running is idempotent at every step.
 ## Forbidden
 
 - Direct push to target's `main` branch (protected-branch hook enforces this).
-- Installing files outside the target's `.github/` (the canonical-substrate allow-list is the typed boundary per ADR-0004 Decision 1).
-- Auto-deleting target files (uninstall is the maintainer's call; ADR-0004 reversibility paths name the manual commands).
+- Installing files outside the target's `.github/` (the canonical-substrate allow-list is the typed boundary; SPEC §1.7 Substrate-in-target contract).
+- Auto-deleting target files (uninstall is the maintainer's call; SPEC §1.7 Reversibility contract names the manual commands).
 - Skipping the audit log (the trail is the foundation for `/audit` queries).
