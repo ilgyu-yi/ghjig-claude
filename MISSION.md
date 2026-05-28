@@ -20,7 +20,7 @@ Directives should be evaluated against this two-sided principle, not against abs
 Twelve months out, the shell's success is best summarized as **a Claude Code session running in `unattended` mode against a real engineering issue produces a merged PR whose quality matches what a careful senior engineer would have produced in the same hours.** That requires:
 
 - **The flow holds in unattended runs.** Clean execution end-to-end (issue → branch → Doc → Test → Code → /ship → merge) is the dominant path, not the exception. Hard blockers (incompatible plan, secret detected, AC unticked) surface as audit-logged `parked` states rather than silent regressions.
-- **The directing layer works.** A team that picks up claude-eng-shell uses the dir-mode hierarchy (Goal → Directive → Execution Issue) to plan two or three weeks of work, ship it under reviewer gates, and reach the Directive's success signals without revising the shell. claude-eng-shell itself is the first concrete example.
+- **The directing layer works.** A team that picks up claude-eng-shell uses the dir-mode hierarchy (`MISSION.md` → Directive Issue → Execution Issue) to plan two or three weeks of work, ship it under reviewer gates, and reach the Directive's success signals without revising the shell. claude-eng-shell itself is the first concrete example.
 - **Multiple repos run on it.** At least two unrelated upstream repos — beyond claude-eng-shell itself — adopt the shell as their canonical Claude Code workflow. Each contributes friction back into the SPEC.
 - **The escape hatch stays narrow.** Audit-log queries (`/audit`) show that bypasses (`SKIP_HOOKS=...`) cluster in the small set of legitimate cases the SPEC names — not as a normalized routing around inconvenient gates.
 - **The v1+ orchestrator lands.** Automatic mode-switching between eng-mode and dir-mode, kill-switches, and budget controls (SPEC §0.4) ship after v0 operating experience surfaces the right design for them.
@@ -51,4 +51,4 @@ Secondary users include teams adopting AI-assisted engineering more broadly, who
 
 ---
 
-*Last reviewed: 2026-05-26. Updated by Directive #92 cluster I migration (transcribed from PVTI #84, the v0/v1 Goal-as-Item artifact that this MISSION.md supersedes).*
+*Last reviewed: 2026-05-28. Originally migrated by Directive #92 cluster I (transcribed from PVTI #84, the v0/v1 Goal-as-Item artifact that this MISSION.md supersedes). The `## The mechanism` section was added in PR #138 and extended to the dual-aspect form in PR #140.*
