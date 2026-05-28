@@ -47,7 +47,7 @@ Phase B. Translates the Phase A doc into a failing test, confirms the failure is
 
 ## Reviewers
 
-Reviewers never author content. Each emits a `VERDICT:` line — exactly one of `ship`, `refine: <one-line>`, `block: <reason>` — which the caller dispatches per SPEC §1.5 operating-mode coupling. In `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly.
+Reviewers never author content. Each emits a `VERDICT:` line whose values vary per reviewer — most use `ship` / `refine: <one-line>` / `block: <reason>`; `code-reviewer` uses `ship` / `ship after fix` / `block (blocker)` (SPEC §4.5); `triage-reviewer` uses `ACCEPT` / `REJECT — refile as <template>` (SPEC §4.10). Per SPEC §1.5 operating-mode coupling: in `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly.
 
 ### code-reviewer
 
@@ -55,7 +55,7 @@ Pre-commit / pre-PR review. Auto-invoked by `/review` and `/ship`.
 
 - **When**: at the ship gate before `gh pr ready`, and any time `/review` runs.
 - **Input**: diff + PR body + MISSION + issue body. No chat context — the reviewer is deliberately uninformed by the conversation that produced the diff, so its verdict comes from the artifacts alone.
-- **Output**: `ship` / `refine` / `block` with `path:line` anchors on findings.
+- **Output**: `ship` / `ship after fix` / `block (blocker)` with `path:line` anchors on findings.
 - **Spec**: SPEC §4.5.
 
 ### security-reviewer
@@ -92,7 +92,7 @@ Quality check on a proposed Directive body (`/file-directive`, `/activate-direct
 - **When**: every Directive transition that mutates body content or asserts completion. Annotation-only `/block-directive` does not run this reviewer (no body change).
 - **Input**: proposed body or evidence + list of currently Active Directives + MISSION.
 - **Output**: `ship` / `refine` / `block`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check.
-- **Spec**: SPEC §4.9.
+- **Spec**: SPEC §4.9.1.
 
 ### triage-reviewer
 
