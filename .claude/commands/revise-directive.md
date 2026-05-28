@@ -5,11 +5,11 @@ argument-hint: <issue-#>
 
 Replace an `Active` Directive Issue's body with a new one when scope or success signals changed. The prior body is preserved as a comment for history; the new body is reviewer-gated. No transient Status state — per ADR-0003 Decision 7, `Revised` was dropped; the audit-log entry + the archive comment ARE the revision evidence.
 
-In dir-mode v3 (ADR-0003), Issues are SSOT. The Project Item is unchanged by this command (body content isn't mirrored to Project fields).
+Issues are SSOT. The Project Item is unchanged by this command (body content isn't mirrored to Project fields).
 
 ## Procedure
 
-0. **Step 0 — substrate preflight** (ADR-0004; #118): verify the target satisfies this command's tier requirement. Tier 2 minimum for all dir-mode commands (10-label v3 set must exist). If `gh label list | grep -qx directive` fails, exit with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"`. Fail-open on `gh` network errors per ADR-0004 reversibility framing.
+0. **Substrate preflight**: abort with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"` if `gh label list | grep -qx directive` fails. Fail-open on `gh` network errors.
 
 1. **Resolve the Issue** — `<issue-#>` is a GitHub Issue number. Fetch:
    ```bash

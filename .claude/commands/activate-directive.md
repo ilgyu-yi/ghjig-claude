@@ -1,15 +1,15 @@
 ---
-description: Activate a Proposed Directive — re-runs directive-reviewer; on `ship` removes the `status:proposed` label (Issue → Active) (dir-mode v3 / ADR-0003).
+description: Activate a Proposed Directive — re-runs directive-reviewer; on `ship` removes the `status:proposed` label (Issue → Active).
 argument-hint: <issue-#>
 ---
 
 Transition a Directive from `Status=Proposed` to `Status=Active` by removing the `status:proposed` label after a fresh `directive-reviewer` pass on the current body (which may have been edited in the GH UI since filing).
 
-In dir-mode v3 (ADR-0003), Status is encoded as labels on the Issue (Issues are SSOT). Project Status field is mirrored by `.github/workflows/issues-to-project-mirror.yml`. `/activate-directive` does NOT write to the Project directly.
+Status is encoded as labels on the Issue (Issues are SSOT). Project Status field is mirrored by `.github/workflows/issues-to-project-mirror.yml`. `/activate-directive` does NOT write to the Project directly.
 
 ## Procedure
 
-0. **Step 0 — substrate preflight** (ADR-0004; #118): verify the target satisfies this command's tier requirement. Tier 2 minimum for all dir-mode commands (10-label v3 set must exist). If `gh label list | grep -qx directive` fails, exit with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"`. Fail-open on `gh` network errors per ADR-0004 reversibility framing.
+0. **Substrate preflight**: abort with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"` if `gh label list | grep -qx directive` fails. Fail-open on `gh` network errors.
 
 1. **Resolve the Issue** — `<issue-#>` is a GitHub Issue number. Fetch:
    ```bash

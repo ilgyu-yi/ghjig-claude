@@ -1,15 +1,15 @@
 ---
-description: Close a Directive Issue as Completed — directive-reviewer evaluates evidence; closes Issue with --reason completed (dir-mode v3 / ADR-0003).
+description: Close a Directive Issue as Completed — directive-reviewer evaluates evidence; closes Issue with --reason completed.
 argument-hint: <issue-#>
 ---
 
 Close a Directive Issue with `--reason completed`. Requires `directive-reviewer` evaluation of success-signal satisfaction by linked Execution Issues.
 
-In dir-mode v3 (ADR-0003), Issue close-as-completed IS the Status=Completed signal. The Project Item's Status field follows via `.github/workflows/issues-to-project-mirror.yml`.
+Issue close-as-completed IS the Status=Completed signal. The Project Item's Status field follows via `.github/workflows/issues-to-project-mirror.yml`.
 
 ## Procedure
 
-0. **Step 0 — substrate preflight** (ADR-0004; #118): verify the target satisfies this command's tier requirement. Tier 2 minimum for all dir-mode commands (10-label v3 set must exist). If `gh label list | grep -qx directive` fails, exit with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"`. Fail-open on `gh` network errors per ADR-0004 reversibility framing.
+0. **Substrate preflight**: abort with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"` if `gh label list | grep -qx directive` fails. Fail-open on `gh` network errors.
 
 1. **Resolve the Issue** — `<issue-#>` is a GitHub Issue number. Fetch:
    ```bash

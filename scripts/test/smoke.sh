@@ -4556,19 +4556,25 @@ fi
 # (SPEC §1.7/§2.1/§5.10-§5.18) per ADR-0003. Structural sanity for the
 # substrate flip from Project-Items-as-SSOT (v0) to Issues-as-SSOT (v3).
 
-# 58a: every dir-mode command file mentions Issues are SSOT or ADR-0003.
+# 58a: every dir-mode command file operates on the Issue substrate
+# (gh issue invocation OR explicit `directive` / `status:` label reference).
+# Replaces the prior ADR-0003 / Issues-as-SSOT / dir-mode-v3 token assertion
+# (cluster E #96) which was tied to migration-era qualifiers stripped by
+# Directive #149 / Issue #151. The intent is unchanged: prevent regression
+# to Project-Items-as-SSOT by requiring each dir-mode command file to assert
+# its Issue-substrate contract in the body.
 s58a_missing=""
 for cmd in file-directive activate-directive complete-directive block-directive revise-directive list-directives link-directive; do
   cmd_path="$SHELL_ROOT/.claude/commands/$cmd.md"
   [ -f "$cmd_path" ] || { s58a_missing="$s58a_missing $cmd(missing)"; continue; }
-  if ! grep -qE '(ADR-0003|Issues-as-SSOT|Issues are SSOT|dir-mode v3)' "$cmd_path" 2>/dev/null; then
+  if ! grep -qE '(gh issue|`directive` label|`status:)' "$cmd_path" 2>/dev/null; then
     s58a_missing="$s58a_missing $cmd"
   fi
 done
 if [ -z "$s58a_missing" ]; then
-  ok "58a: all 7 dir-mode commands reference ADR-0003 / Issues-as-SSOT (#96/cluster E)"
+  ok "58a: all 7 dir-mode commands assert Issue-substrate contract (#96/cluster E; updated #151)"
 else
-  ng "58a: dir-mode commands missing v3 references:$s58a_missing (#96/cluster E)"
+  ng "58a: dir-mode commands missing Issue-substrate refs:$s58a_missing (#96/cluster E; updated #151)"
 fi
 
 # 58b: /file-directive emits issue=#<N> audit token (not item=PVTI_...).
@@ -4917,18 +4923,22 @@ else
   ng "63d: onboard_target.sh --tier 1 --dry-run unexpected rc=$s63d_rc (#118)"
 fi
 
-# §63e: each of the 7 dir-mode command procedure files contains a "step 0 preflight" reference.
+# §63e: each of the 7 dir-mode command procedure files contains a substrate
+# preflight step. Pattern broadened (#151) to match both the original
+# "Step 0 ... preflight" phrasing and the compressed "Substrate preflight"
+# one-liner introduced by Directive #149 / Issue #151 (the 4-line boilerplate
+# was de-duplicated to a single shared statement per AC #4).
 s63e_count=0
 for cmd in file-directive activate-directive complete-directive revise-directive \
            block-directive list-directives link-directive; do
-  if grep -qE "Step 0.*preflight|step 0 preflight" "$SHELL_ROOT/.claude/commands/${cmd}.md"; then
+  if grep -qE "Step 0.*preflight|step 0 preflight|Substrate preflight" "$SHELL_ROOT/.claude/commands/${cmd}.md"; then
     s63e_count=$((s63e_count + 1))
   fi
 done
 if [ "$s63e_count" = 7 ]; then
-  ok "63e: all 7 dir-mode commands name 'step 0 preflight' (#118)"
+  ok "63e: all 7 dir-mode commands name substrate preflight (#118; updated #151)"
 else
-  ng "63e: 'step 0 preflight' missing in some dir-mode commands: $s63e_count/7 (#118)"
+  ng "63e: substrate preflight missing in some dir-mode commands: $s63e_count/7 (#118; updated #151)"
 fi
 
 # §63f: ADR-0004 reversibility paths referenced from /onboard-dir-mode.

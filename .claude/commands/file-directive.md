@@ -1,15 +1,15 @@
 ---
-description: File a new Directive as a GitHub Issue with `directive` + `status:proposed` labels (dir-mode v3 — Issues-as-SSOT per ADR-0003 / Directive #92). Reviewer-gated.
+description: File a new Directive as a GitHub Issue with `directive` + `status:proposed` labels. Reviewer-gated.
 argument-hint: ""
 ---
 
 Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/directive.md`. Reviewer-gated before `gh issue create`.
 
-In dir-mode v3 (ADR-0003), **Issues are SSOT**. The Project Item that wraps the new Issue is created and populated by `.github/workflows/issues-to-project-mirror.yml` (cluster D mirror workflow) — `/file-directive` does NOT write to the Project directly.
+**Issues are SSOT**. The Project Item that wraps the new Issue is created and populated by `.github/workflows/issues-to-project-mirror.yml` (cluster D mirror workflow) — `/file-directive` does NOT write to the Project directly.
 
 ## Procedure
 
-0. **Step 0 — substrate preflight** (ADR-0004; #118): verify the target satisfies this command's tier requirement. Tier 2 minimum for all dir-mode commands (10-label v3 set must exist). If `gh label list | grep -qx directive` fails, exit with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"`. Fail-open on `gh` network errors per ADR-0004 reversibility framing.
+0. **Substrate preflight**: abort with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"` if `gh label list | grep -qx directive` fails. Fail-open on `gh` network errors.
 
 1. **Author the body** from `.claude/templates/directive.md`:
    - **Objective** — bounded by concrete artifact-level boundary (issue counts, file paths, AC ticks, merge events). Refuse to proceed if the Objective doesn't name a concrete artifact-level boundary.

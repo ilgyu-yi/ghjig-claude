@@ -79,7 +79,7 @@ awk '/^## \[<X.Y.Z>\]/{f=1; next} /^## \[/{f=0} f' CHANGELOG.md > /tmp/release-n
 gh release create v<X.Y.Z> --title v<X.Y.Z> --target "$MERGE_SHA" --notes-file /tmp/release-notes-v<X.Y.Z>.md --verify-tag
 ```
 
-This is intentionally manual in v0 per Directive #128 non-goal ("No automated distribution") — the one-liner stays visible and auditable rather than buried in a workflow. Adopters who want full automation can wrap this in a `release-tag.yml` workflow downstream without changing the skill.
+This is intentionally manual per Directive #128 non-goal ("No automated distribution") — the one-liner stays visible and auditable rather than buried in a workflow. Adopters who want full automation can wrap this in a `release-tag.yml` workflow downstream without changing the skill.
 
 Re-running `gh release create` on an existing tag fails with a clear `release already exists` message — idempotent at the gh-CLI layer.
 

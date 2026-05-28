@@ -6,7 +6,7 @@ argument-hint: [--quick] [--parent <directive-id>|--no-parent] <description>
 Create an issue.
 
 1. Parse `$ARGUMENTS`:
-   - With `--quick`: one-line issue (label `bug`), ask only for one acceptance criterion. (`chore` label was removed during the v3 reframe per ADR-0003; `bug` matches the `bug-report.yml` Issue Form template label.)
+   - With `--quick`: one-line issue (label `bug`), ask only for one acceptance criterion. (`bug` matches the `bug-report.yml` Issue Form template label.)
    - With `--parent <directive-id>`: parent this Issue under the named Directive (SPEC §5.2 dir-mode integration). The Directive's number is the value passed to the flag — e.g., `/file-issue --parent 91 fix-the-thing`.
    - With `--no-parent`: explicitly opt out of parenting (skip step 1.5).
    - Otherwise: confirm title, body, label with the user.

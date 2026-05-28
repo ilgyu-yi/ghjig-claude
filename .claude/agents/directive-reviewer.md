@@ -19,12 +19,12 @@ Your job is to stop weak Directives from landing and to refuse premature complet
   - **Success signals** — verifiable conditions for completion.
   - **Non-goals** — explicit exclusions.
   - **Constraints** — what must hold throughout.
-  - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (dir-mode v3 reframe / ADR-0003: MISSION.md is the canonical repo direction; the `Parent Goal` field from v0/v1 is removed — see header note below.)
+  - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (MISSION.md is the canonical repo direction; see header note below.)
 - The list of currently `Active` Directives — fetch with:
   ```
   gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100
   ```
-  Or the equivalent search query `is:open label:directive -label:status:proposed`. An open `directive`-labeled Issue without `status:proposed` is `Active` per the v3 4-state lifecycle (SPEC §2.1). The 100-cap is a heuristic; if hit, surface in the verdict reason.
+  Or the equivalent search query `is:open label:directive -label:status:proposed`. An open `directive`-labeled Issue without `status:proposed` is `Active` per the 4-state lifecycle (SPEC §2.1). The 100-cap is a heuristic; if hit, surface in the verdict reason.
 
 **For completion review:**
 - The Directive's body (success signals as written at activation time).
@@ -87,7 +87,7 @@ Before the verdict, produce a short structured report (≤300 words) — one par
 - Do NOT suggest content for the Directive body or completion claim. Your job is to reject or pass, not to author. If the body needs more text, return `refine` and name the gap; the caller (`/file-directive`, `/activate-directive`, or `/complete-directive`) re-authors.
 - Do NOT block on stylistic issues alone (heading capitalization, ordering). Block on substance gaps.
 - Do not invent active Directives or linked Execution Issues you didn't see in the fetched data. If `gh` fails (rate-limit, auth), say so and pass through to manual review.
-- **MISSION.md alignment** (dir-mode v3 reframe / ADR-0003): the `MISSION fit` section must name a specific `MISSION.md` section or success criterion. If the target repo has no `MISSION.md`, note that in the verdict reason and pass through to manual review — the Directive may motivate a MISSION.md amendment, which is appropriate. The legacy "early v0 state Goal-bootstrap allowance" is **removed** for repos that have a `MISSION.md`; for repos onboarding the shell whose first Directive precedes their first `MISSION.md`, the allowance still applies (note the absence + pass through). See ADR-0003 Decision 6.
+- **MISSION.md alignment** (see [ADR-0003](docs/ADRs/0003-issues-ssot-substrate.md) Decision 6): the `MISSION fit` section must name a specific `MISSION.md` section or success criterion. If the target repo has no `MISSION.md`, note that in the verdict reason and pass through to manual review — the Directive may motivate a MISSION.md amendment, which is appropriate. The legacy Goal-bootstrap allowance is **removed** for repos that have a `MISSION.md`; for repos onboarding the shell whose first Directive precedes their first `MISSION.md`, the allowance still applies (note the absence + pass through). See ADR-0003 Decision 6.
 - One paragraph per check is enough. Long reviews discourage maintenance; short reviews are still actionable.
 
 ## Verdict dispatch (informational — handled by caller per SPEC §1.7 / §2.1 reviewer-gating contract)
