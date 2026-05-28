@@ -5276,6 +5276,57 @@ else
   ng "66e: check-changelog.yml missing — cannot assert action provenance (#133)"
 fi
 
+# ---------- 67. auto-needs-triage.yml filer-aware skip (#165) ----------
+# §67 locks the workflow-side filer-aware skip contract: the apply step's
+# `if:` predicate must skip trusted filers (OWNER / MEMBER / MAINTAINER /
+# COLLABORATOR) so `needs-triage` only attaches to label-free Issues from
+# untrusted authors. Mirrors SPEC §1.5 third bullet + §5.18 + §6.1 sibling
+# note. Grep-on-file assertion (no actionlint required); workflow runs
+# server-side and has no local-runner pathway.
+
+S67_WF="$SHELL_ROOT/.github/workflows/auto-needs-triage.yml"
+
+# §67a — workflow file present at .github/workflows/.
+if [ -f "$S67_WF" ]; then
+  ok "67a: auto-needs-triage.yml workflow exists at .github/workflows/ (#165)"
+else
+  ng "67a: auto-needs-triage.yml workflow missing (#165)"
+fi
+
+# §67b — author_association field referenced in the workflow body.
+# Pre-change YAML has no such reference; this assertion locks the
+# workflow-side filer-aware enforcement at the token level.
+if [ -f "$S67_WF" ] && grep -qF 'author_association' "$S67_WF"; then
+  ok "67b: auto-needs-triage.yml references author_association field (#165)"
+else
+  ng "67b: auto-needs-triage.yml missing author_association reference (#165)"
+fi
+
+# §67c — apply step's if: is a compound predicate (contains &&). The
+# pre-change `if: steps.labels.outputs.count == '0'` is single-predicate;
+# the new form is `count == '0' && author_association != 'OWNER' && ...`.
+if [ -f "$S67_WF" ] && grep -qE 'if:.*&&.*author_association' "$S67_WF"; then
+  ok "67c: auto-needs-triage.yml apply-step if: combines count AND author_association via && (#165)"
+else
+  ng "67c: auto-needs-triage.yml apply-step if: missing compound && predicate with author_association (#165)"
+fi
+
+# §67d — the four trusted-tier tokens all present in the workflow body.
+# Token-level lock so a future edit cannot accidentally drop one tier
+# (e.g., narrowing to OWNER only) without surfacing here.
+s67d_ok=1
+for tier in 'OWNER' 'MEMBER' 'MAINTAINER' 'COLLABORATOR'; do
+  if [ ! -f "$S67_WF" ] || ! grep -qF "$tier" "$S67_WF"; then
+    s67d_ok=0
+    break
+  fi
+done
+if [ "$s67d_ok" = 1 ]; then
+  ok "67d: auto-needs-triage.yml enumerates all four trusted tiers (OWNER/MEMBER/MAINTAINER/COLLABORATOR) (#165)"
+else
+  ng "67d: auto-needs-triage.yml missing one of the four trusted-tier tokens (#165)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
