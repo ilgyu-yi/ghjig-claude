@@ -4982,6 +4982,196 @@ else
   ng "64b: bin/claude-eng --version did not return shell's VERSION (rc=$s64b_rc expected='$s64b_expected' got='$s64b_got') (#123)"
 fi
 
+# ---------- 65. /release skill (#131 / Directive #128) ----------
+# §65 exercises scripts/release_consolidate.sh against throwaway git repos.
+# The helper is invoked directly (no Claude session) so the deterministic
+# logic — semver validate, preflight, fragment scan + validate, VERSION
+# write-back, CHANGELOG prepend, fragment cleanup — is covered without
+# needing to mock `gh`. Skill-body assertions (reviewer-gate language,
+# post-merge recipe, no third-party Actions) are grep-locks in §65h.
+#
+# Helper contract under --dry-run (used by these tests):
+#   - skip `git fetch origin` (no network in smoke)
+#   - do check local tags via `git tag -l vX.Y.Z` for idempotency
+#   - stage VERSION + CHANGELOG.md + `git rm --cached` of fragments
+#   - exit 0 on success without commit/push/branch
+# Real-mode is exercised by the skill body (grep-locked in §65h).
+
+RELEASE_CONS="$SHELL_ROOT/scripts/release_consolidate.sh"
+
+# Per-case throwaway-repo seeder. The helper expects the same on-disk
+# shape an adopter repo would have post `/onboard-dir-mode`.
+# usage: setup_release_smoke <dir> <version-content> [<cat> <num> <body>]
+setup_release_smoke() {
+  local dir="$1" ver="$2" cat="${3:-}" num="${4:-}" body="${5:-}"
+  mkdir -p "$dir"
+  ( cd "$dir" && git init -q && \
+    git config user.email "smoke@example.com" && \
+    git config user.name "smoke" && \
+    printf '%s\n' "$ver" > VERSION && \
+    printf '# Changelog\n\n## [0.1.0] — 2026-05-26\n\n### Added\n- prior release. (#1)\n\n[0.1.0]: https://example.test/releases/tag/v0.1.0\n' > CHANGELOG.md && \
+    for c in added changed deprecated removed fixed security; do
+      mkdir -p "changelog_unreleased/$c"
+      touch "changelog_unreleased/$c/.gitkeep"
+    done && \
+    if [ -n "$cat" ] && [ -n "$num" ]; then
+      printf '%s\n' "$body" > "changelog_unreleased/$cat/$num.md"
+    fi && \
+    git add -A && \
+    git commit -q -m init ) >/dev/null 2>&1
+}
+
+# §65a — happy path: dry-run consolidates one Added fragment.
+s65a_root=$(mktemp -d)
+s65a_dir="$s65a_root/repo"
+setup_release_smoke "$s65a_dir" "0.2.0-dev" "added" "131" "- /release skill ships. (#131)"
+s65a_rc=1
+s65a_out=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65a_out=$( cd "$s65a_dir" && "$RELEASE_CONS" 0.2.0 --dry-run 2>&1 )
+  s65a_rc=$?
+fi
+s65a_version=$(tr -d '[:space:]' < "$s65a_dir/VERSION" 2>/dev/null)
+s65a_section=$(grep -c '^## \[0\.2\.0\]' "$s65a_dir/CHANGELOG.md" 2>/dev/null | tr -d ' ')
+s65a_bullet=$(grep -c '/release skill ships' "$s65a_dir/CHANGELOG.md" 2>/dev/null | tr -d ' ')
+s65a_fragment="missing"
+[ -f "$s65a_dir/changelog_unreleased/added/131.md" ] && s65a_fragment="present"
+[ ! -f "$s65a_dir/changelog_unreleased/added/131.md" ] && s65a_fragment="removed"
+if [ "$s65a_rc" = "0" ] && [ "$s65a_version" = "0.2.0" ] && [ "$s65a_section" = "1" ] && [ "$s65a_bullet" = "1" ] && [ "$s65a_fragment" = "removed" ]; then
+  ok "65a: /release 0.2.0 --dry-run strips -dev, prepends [0.2.0] section + bullet, removes fragment (#131)"
+else
+  ng "65a: /release happy path failed (rc=$s65a_rc version=$s65a_version section=$s65a_section bullet=$s65a_bullet fragment=$s65a_fragment) (#131)"
+fi
+rm -rf "$s65a_root"
+
+# §65b — empty-fragments: no fragment files under any category subdir.
+s65b_root=$(mktemp -d)
+s65b_dir="$s65b_root/repo"
+setup_release_smoke "$s65b_dir" "0.2.0-dev"
+s65b_rc=0
+s65b_err=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65b_err=$( cd "$s65b_dir" && "$RELEASE_CONS" 0.2.0 --dry-run 2>&1 >/dev/null )
+  s65b_rc=$?
+fi
+if [ "$s65b_rc" != "0" ] && printf '%s' "$s65b_err" | grep -q 'no fragments' && printf '%s' "$s65b_err" | grep -q 'changelog_unreleased'; then
+  ok "65b: /release with empty fragments exits non-zero with 'no fragments' + 'changelog_unreleased' in stderr (#131)"
+else
+  ng "65b: /release empty-fragments check failed (rc=$s65b_rc err-has-no-fragments=$(printf '%s' "$s65b_err" | grep -qc 'no fragments') err-has-path=$(printf '%s' "$s65b_err" | grep -qc 'changelog_unreleased')) (#131)"
+fi
+rm -rf "$s65b_root"
+
+# §65c — semver invalid (MAJOR=1): /release 1.0.0 rejected with MAJOR=0 invariant message.
+s65c_root=$(mktemp -d)
+s65c_dir="$s65c_root/repo"
+setup_release_smoke "$s65c_dir" "0.2.0-dev" "added" "131" "- something. (#131)"
+s65c_rc=0
+s65c_err=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65c_err=$( cd "$s65c_dir" && "$RELEASE_CONS" 1.0.0 --dry-run 2>&1 >/dev/null )
+  s65c_rc=$?
+fi
+if [ "$s65c_rc" != "0" ] && printf '%s' "$s65c_err" | grep -q 'MAJOR=0'; then
+  ok "65c: /release 1.0.0 rejected with 'MAJOR=0' invariant message (#131)"
+else
+  ng "65c: /release MAJOR=0 invariant check failed (rc=$s65c_rc err-has-major0=$(printf '%s' "$s65c_err" | grep -qc 'MAJOR=0')) (#131)"
+fi
+rm -rf "$s65c_root"
+
+# §65d — semver invalid (format): /release notsemver rejected with semver message.
+s65d_root=$(mktemp -d)
+s65d_dir="$s65d_root/repo"
+setup_release_smoke "$s65d_dir" "0.2.0-dev" "added" "131" "- something. (#131)"
+s65d_rc=0
+s65d_err=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65d_err=$( cd "$s65d_dir" && "$RELEASE_CONS" notsemver --dry-run 2>&1 >/dev/null )
+  s65d_rc=$?
+fi
+if [ "$s65d_rc" != "0" ] && printf '%s' "$s65d_err" | grep -qi 'semver'; then
+  ok "65d: /release notsemver rejected with 'semver' format message (#131)"
+else
+  ng "65d: /release semver format check failed (rc=$s65d_rc err-has-semver=$(printf '%s' "$s65d_err" | grep -qci 'semver')) (#131)"
+fi
+rm -rf "$s65d_root"
+
+# §65e — idempotent on existing tag: v0.1.0 tag exists, /release 0.1.0 no-ops.
+s65e_root=$(mktemp -d)
+s65e_dir="$s65e_root/repo"
+setup_release_smoke "$s65e_dir" "0.1.0" "added" "131" "- something. (#131)"
+( cd "$s65e_dir" && git tag -a v0.1.0 -m "v0.1.0" ) >/dev/null 2>&1
+s65e_rc=99
+s65e_out=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65e_out=$( cd "$s65e_dir" && "$RELEASE_CONS" 0.1.0 --dry-run 2>&1 )
+  s65e_rc=$?
+fi
+# Working tree unchanged after no-op invocation.
+s65e_dirty=$( cd "$s65e_dir" && git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+if [ "$s65e_rc" = "0" ] && printf '%s' "$s65e_out" | grep -qi 'already released' && [ "$s65e_dirty" = "0" ]; then
+  ok "65e: /release 0.1.0 with existing v0.1.0 tag is idempotent (rc=0, 'already released' message, no staged changes) (#131)"
+else
+  ng "65e: /release idempotency check failed (rc=$s65e_rc out-has-already=$(printf '%s' "$s65e_out" | grep -qci 'already released') dirty=$s65e_dirty) (#131)"
+fi
+rm -rf "$s65e_root"
+
+# §65f — filename-stem mismatch: fragment added/42.md has bullet "(#99)" → rejected.
+s65f_root=$(mktemp -d)
+s65f_dir="$s65f_root/repo"
+setup_release_smoke "$s65f_dir" "0.2.0-dev" "added" "42" "- mismatched ref. (#99)"
+s65f_rc=0
+s65f_err=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65f_err=$( cd "$s65f_dir" && "$RELEASE_CONS" 0.2.0 --dry-run 2>&1 >/dev/null )
+  s65f_rc=$?
+fi
+if [ "$s65f_rc" != "0" ] && printf '%s' "$s65f_err" | grep -q '42\.md' && printf '%s' "$s65f_err" | grep -qi 'mismatch'; then
+  ok "65f: /release rejects filename-stem mismatch with file path + 'mismatch' in stderr (#131)"
+else
+  ng "65f: /release stem-mismatch check failed (rc=$s65f_rc err-has-file=$(printf '%s' "$s65f_err" | grep -qc '42\.md') err-has-mismatch=$(printf '%s' "$s65f_err" | grep -qci 'mismatch')) (#131)"
+fi
+rm -rf "$s65f_root"
+
+# §65g — --base plumbing (static lock): skill body parses --base argument.
+# Functional --base needs a maintenance branch + PR which smoke can't fake;
+# AC#7 verified here as a skill-body assertion per the plan-reviewer note.
+s65g_skill="$SHELL_ROOT/.claude/commands/release.md"
+if [ -f "$s65g_skill" ] && grep -q -E '\-\-base <branch>' "$s65g_skill"; then
+  ok "65g: /release skill body documents --base <branch> plumbing (#131)"
+else
+  ng "65g: /release skill body missing --base <branch> reference (#131)"
+fi
+
+# §65h — skill-body grep-locks for AC#7 (reviewer gate), AC#8 (post-merge
+# recipe), AC#9 (no third-party Actions). Lock the contract surface.
+s65h_skill="$SHELL_ROOT/.claude/commands/release.md"
+s65h_ok=1
+s65h_reasons=""
+if ! grep -q -E 'code-reviewer' "$s65h_skill"; then
+  s65h_ok=0
+  s65h_reasons="$s65h_reasons missing-code-reviewer-ref;"
+fi
+if ! grep -q 'unattended' "$s65h_skill"; then
+  s65h_ok=0
+  s65h_reasons="$s65h_reasons missing-unattended-ref;"
+fi
+if ! grep -q -E 'gh release create' "$s65h_skill"; then
+  s65h_ok=0
+  s65h_reasons="$s65h_reasons missing-gh-release-create;"
+fi
+# No `uses:` lines in the skill body or helper script — third-party Actions
+# would be referenced via that YAML key in a workflow file. Grep-lock on the
+# skill + helper enforces AC#9 on the new surface this PR adds.
+if grep -h -E '^\s*uses:\s+[^a]' "$s65h_skill" "$RELEASE_CONS" 2>/dev/null | grep -v -E 'uses:\s+actions/' | grep -q .; then
+  s65h_ok=0
+  s65h_reasons="$s65h_reasons third-party-action-detected;"
+fi
+if [ "$s65h_ok" = 1 ]; then
+  ok "65h: /release skill body locks reviewer-gate + unattended + post-merge gh release recipe + no third-party Actions (#131)"
+else
+  ng "65h: /release skill-body grep-locks failed:$s65h_reasons (#131)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
