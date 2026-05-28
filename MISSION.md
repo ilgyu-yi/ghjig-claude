@@ -7,6 +7,10 @@
 
 claude-eng-shell is the engineering scaffold a single Claude Code agent (or human + Claude pair) lives inside to do work on a GitHub-standard repository. It captures the procedural discipline of senior engineering — issue → branch → draft PR → reviewed commits → ready merge — and renders it as hooks, slash commands, subagents, and audit trails that an AI agent cannot drift past without leaving evidence.
 
+## The mechanism
+
+The mechanism behind this discipline is **context narrowing.** An AI agent's output quality is bounded by the size and relevance of its working context; free-form sessions accumulate noise and drift, and degrade as their windows fill with material irrelevant to the next decision. Every shell mechanism — Doc → Test → Code phasing, subagent isolation, GitHub artifacts as durable memory, hooks-as-environment, reviewers judging from artifacts not conversations — pushes the active context at any moment toward "as small and relevant as possible." Design choices that *grow* context (long-running conversations, shared subagent windows, reviewers primed by discussion, single-shot do-the-whole-task prompts) work against the mechanism even when they look quality-improving in isolation. Directives should be evaluated against this principle, not just against abstract quality — a proposal that improves quality but bloats context is regression, not progress.
+
 ## Success looks like
 
 Twelve months out, the shell's success is best summarized as **a Claude Code session running in `unattended` mode against a real engineering issue produces a merged PR whose quality matches what a careful senior engineer would have produced in the same hours.** That requires:
