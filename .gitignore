@@ -3,3 +3,5 @@ workspace/*
 !workspace/README.md
 .claude/audit/
 .claude/state/
+.DS_Store
+**/.DS_Store
