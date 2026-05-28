@@ -42,6 +42,8 @@ claude-eng --version       # → prints the VERSION-file contents (or `git descr
 - Bumping out of 0.x (to `1.0.0`) is reserved for the first non-self adopter dogfooding. No hook / CI / onboard enforces semver bump semantics at v0.
 - Tags are pushed manually by the maintainer after a meaningful milestone merges to `main` (no per-PR cadence).
 
+For change-authors: per-PR changelog fragments go under `changelog_unreleased/<category>/<N>.md` — see [`changelog_unreleased/TEMPLATE.md`](changelog_unreleased/TEMPLATE.md) and SPEC §18 (Release backbone) for the contract. [`CHANGELOG.md`](CHANGELOG.md) at repo root holds the consolidated history.
+
 ## Quick start
 
 ```bash
