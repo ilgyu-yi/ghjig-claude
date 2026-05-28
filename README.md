@@ -124,8 +124,8 @@ For **dir-mode** (SPEC §1.7), bootstrap the GitHub Project v2 substrate from in
                              # reconciles SINGLE_SELECT options additively
                              # (preserves user-added options). The Iteration
                              # field is user-added via the GH UI (gh CLI lacks
-                             # the ITERATION data-type). Schema locked by
-                             # docs/ADRs/0002-…
+                             # the ITERATION data-type). Schema locked
+                             # inline in scripts/setup_project.sh.
 ```
 
 ## Operating modes
@@ -211,7 +211,7 @@ All optional. Per-target state files live under `.claude/state/` (gitignored); e
 - [docs/SUBAGENTS.md](docs/SUBAGENTS.md) — subagent usage guide.
 - [docs/ESCAPE_HATCH.md](docs/ESCAPE_HATCH.md) — bypassing hooks safely.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common blocks and fixes.
-- [docs/ADRs/](docs/ADRs/) — architecture decision records for irreversible structural choices.
+
 
 ## Verify
 

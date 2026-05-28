@@ -1,7 +1,7 @@
 # MISSION — claude-eng-shell
 
 > Canonical long-term direction for claude-eng-shell.
-> Per dir-mode v3 reframe ([ADR-0003](docs/ADRs/0003-issues-ssot-substrate.md) Decision 6), this document supersedes the v0/v1 Goal-as-Item artifact. Every Directive's `## MISSION fit` field references a section of this file.
+> Every Directive's `## MISSION fit` field references a section of this file.
 
 ## What this exists for
 
@@ -51,4 +51,4 @@ Secondary users include teams adopting AI-assisted engineering more broadly, who
 
 ---
 
-*Last reviewed: 2026-05-28. Originally migrated by Directive #92 cluster I (transcribed from PVTI #84, the v0/v1 Goal-as-Item artifact that this MISSION.md supersedes). The `## The mechanism` section was added in PR #138 and extended to the dual-aspect form in PR #140.*
+*Last reviewed: 2026-05-28.*

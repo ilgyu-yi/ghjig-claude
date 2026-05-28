@@ -1,9 +1,9 @@
 ---
-description: Revise an Active Directive Issue's body — archives prior body as a comment, reviewer-gates the new body, replaces the Issue body (no Status flip per ADR-0003 Decision 7).
+description: Revise an Active Directive Issue's body — archives prior body as a comment, reviewer-gates the new body, replaces the Issue body (no Status flip; the audit log + archive comment ARE the revision evidence).
 argument-hint: <issue-#>
 ---
 
-Replace an `Active` Directive Issue's body with a new one when scope or success signals changed. The prior body is preserved as a comment for history; the new body is reviewer-gated. No transient Status state — per ADR-0003 Decision 7, `Revised` was dropped; the audit-log entry + the archive comment ARE the revision evidence.
+Replace an `Active` Directive Issue's body with a new one when scope or success signals changed. The prior body is preserved as a comment for history; the new body is reviewer-gated. No transient Status state — the audit-log entry + the archive comment ARE the revision evidence.
 
 Issues are SSOT. The Project Item is unchanged by this command (body content isn't mirrored to Project fields).
 
@@ -50,7 +50,7 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
    ```
    Revised Directive #<issue-#>: <Title>
    Prior body archived in comment: <comment-url>
-   Status: unchanged (no transient state per ADR-0003 Decision 7)
+   Status: unchanged (the audit log + archive comment ARE the revision evidence)
    ```
 
 ## Operating mode
@@ -67,4 +67,4 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
 - Revising a Directive whose label state is not Active (`status:proposed` or `status:blocked` Issues route differently).
 - Replacing the body without posting the archive comment.
 - Replacing the body before the reviewer's `ship` verdict.
-- Re-introducing a transient `Revised` state — dropped per ADR-0003 Decision 7; the audit-log + archive comment ARE the evidence.
+- Re-introducing a transient `Revised` state — the audit log + archive comment ARE the evidence.

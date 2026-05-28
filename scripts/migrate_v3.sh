@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/migrate_v3.sh — one-time migration from v0/v1 (Projects-as-SSOT)
-# to v3 (Issues-as-SSOT) per ADR-0003 / Directive #92 cluster I.
+# to the Issues-as-SSOT substrate (Directive #92 cluster I).
 #
 # Procedure (brief §8 step 1-5):
 #   Step 1. Snapshot every Item in the dir-mode Project to a timestamped
@@ -49,7 +49,7 @@ if [ "${1:-}" != "--confirm" ]; then
   echo "  Target: \$CLAUDE_ENG_SHELL_ROOT/.claude/state/v2-snapshot/<ISO>/"
   echo ""
   echo "After this script: setup_project.sh reconciles the field schema to v3"
-  echo "  (drops Goal/Confidence/Success Signals; Status → 4-state set per ADR-0003)."
+  echo "  (drops Goal/Confidence/Success Signals; Status → 4-state set)."
   echo "  Mirror workflow re-creates Items from Issues on the next Issue event."
   exit 2
 fi
@@ -74,7 +74,7 @@ project_num="$DR_PROJECT_NUM"
 # MISSION.md presence check (brief §8 step 2).
 if [ ! -f "$CLAUDE_ENG_SHELL_ROOT/MISSION.md" ]; then
   echo "migrate_v3: MISSION.md missing — populate before running migration." >&2
-  echo "  PVTI #84's body should be transcribed into MISSION.md per ADR-0003 Decision 6." >&2
+  echo "  PVTI #84's body should be transcribed into MISSION.md (MISSION.md replaces the Goal artifact)." >&2
   audit_log block "$DR_AUDIT_CATEGORY" deny "migrate_v3: MISSION.md missing — refused"
   exit 1
 fi
