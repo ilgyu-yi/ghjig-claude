@@ -3914,7 +3914,13 @@ fi
 # flipped the audit token from `item=` to `issue=#<N>`. Post-cutoff lines
 # (#107, #109, and forward) must use the v3 `issue=#<N>` shape per the
 # updated regex below.
-DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-26T03:30:00Z"
+DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-28T02:00:00Z"
+# Cutoff bumped 2026-05-28 by #135: grandfathers the historical malformed
+# directive-file/created entry for #128 at 2026-05-28T01:44:53Z (missing
+# priority=P<N> token — see SPEC §5.10 step 4). The defect is fixed
+# forward by #135's /file-directive Priority capture + step-4 emission;
+# the historical entry is immutable per the audit-log append-only
+# contract. New entries past the cutoff remain gated.
 AUDIT_FILE="$SHELL_ROOT/.claude/audit/audit.jsonl"
 
 # 50a — audit-format guard
@@ -5212,6 +5218,18 @@ if [ "$s66c_ok" = 1 ]; then
   ok "66c: check-changelog.yml triggers cover pull_request opened/synchronize/reopened/labeled/unlabeled on main + *-maintenance + skip-changelog bypass (#133)"
 else
   ng "66c: check-changelog.yml trigger semantics drift — missing one of {pull_request, opened, synchronize, reopened, labeled, unlabeled, main, *-maintenance, skip-changelog} (#133)"
+fi
+
+# §66f — workflow header documents the GitHub self-trigger policy.
+# Discovered during #133 rollout; future contributors must not strip
+# this comment. Locks the doc-as-code surface SPEC §18.6 references.
+# Two independent greps because the policy phrase wraps across comment
+# lines and `grep -E '\n'` is brittle.
+if [ -f "$S66_SHELL_WF" ] && grep -q 'self-trigger on its own landing PR' "$S66_SHELL_WF" \
+   && grep -q 'security policy excludes workflow files' "$S66_SHELL_WF"; then
+  ok "66f: check-changelog.yml header documents GitHub workflow self-trigger policy (#135)"
+else
+  ng "66f: check-changelog.yml header missing self-trigger policy comment (#135)"
 fi
 
 # §66d — ensure_v3_labels.sh enumerates skip-changelog. The label is the
