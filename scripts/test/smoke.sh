@@ -5028,9 +5028,8 @@ s65a_root=$(mktemp -d)
 s65a_dir="$s65a_root/repo"
 setup_release_smoke "$s65a_dir" "0.2.0-dev" "added" "131" "- /release skill ships. (#131)"
 s65a_rc=1
-s65a_out=""
 if [ -x "$RELEASE_CONS" ]; then
-  s65a_out=$( cd "$s65a_dir" && "$RELEASE_CONS" 0.2.0 --dry-run 2>&1 )
+  ( cd "$s65a_dir" && "$RELEASE_CONS" 0.2.0 --dry-run >/dev/null 2>&1 )
   s65a_rc=$?
 fi
 s65a_version=$(tr -d '[:space:]' < "$s65a_dir/VERSION" 2>/dev/null)
