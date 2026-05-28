@@ -5008,6 +5008,8 @@ setup_release_smoke() {
   ( cd "$dir" && git init -q && \
     git config user.email "smoke@example.com" && \
     git config user.name "smoke" && \
+    git config commit.gpgsign false && \
+    git config tag.gpgsign false && \
     printf '%s\n' "$ver" > VERSION && \
     printf '# Changelog\n\n## [0.1.0] — 2026-05-26\n\n### Added\n- prior release. (#1)\n\n[0.1.0]: https://example.test/releases/tag/v0.1.0\n' > CHANGELOG.md && \
     for c in added changed deprecated removed fixed security; do

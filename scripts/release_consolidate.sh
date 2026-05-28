@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# scripts/release_consolidate.sh — deterministic release work for /release (SPEC §5.20 / §18).
+#
+# Usage:
+#   scripts/release_consolidate.sh <X.Y.Z> [--base <branch>] [--dry-run]
+#
+# Performs (in order):
+#   1. Validate semver 0.x; reject MAJOR>0 with explicit invariant message.
+#   2. Preflight: clean working tree; (real mode) checkout base + pull;
+#      check for existing vX.Y.Z tag → exit 0 idempotent.
+#   3. Fragment scan + validate: positive-integer stem; bullet contains
+#      (#<N>) matching stem; no fragments → exit non-zero.
+#   4. VERSION write-back: strip any -dev suffix, write X.Y.Z.
+#   5. CHANGELOG.md: prepend `## [X.Y.Z] — YYYY-MM-DD (UTC)` section
+#      with `### <Category>` subheadings per Keep-a-Changelog.
+#   6. `git rm` consumed fragments.
+#   7. `git add VERSION CHANGELOG.md`.
+#   8. Exit 0.
+#
+# The skill (`.claude/commands/release.md`) then creates the
+# `release/X.Y.Z` branch, commits the staged diff (under the documented
+# SKIP_HOOKS=branch escape), and opens the draft PR. This helper does
+# NOT branch, commit, push, or call `gh`.
+#
+# --dry-run: skip remote-dependent preflight (git fetch); local tag
+# check still runs. Useful for smoke. Produces the same staged tree
+# real mode does.
+
+set -uo pipefail
+
+VERSION_ARG=""
+BASE="main"
+DRY_RUN=0
+
+usage() {
+  echo "usage: $0 <X.Y.Z> [--base <branch>] [--dry-run]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)
+      shift
+      BASE="${1:-}"
+      [ -z "$BASE" ] && { usage; exit 2; }
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "release_consolidate: unknown flag: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [ -z "$VERSION_ARG" ]; then
+        VERSION_ARG="$1"
+      else
+        echo "release_consolidate: unexpected positional: $1" >&2
+        usage
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$VERSION_ARG" ]; then
+  usage
+  exit 2
+fi
+
+# Step 1 — semver validation.
+# MAJOR=0 invariant per SPEC §3.5 / §18.2.
+if ! printf '%s' "$VERSION_ARG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "release_consolidate: '$VERSION_ARG' is not valid semver (X.Y.Z form expected)" >&2
+  exit 2
+fi
+MAJOR="${VERSION_ARG%%.*}"
+if [ "$MAJOR" != "0" ]; then
+  echo "release_consolidate: '$VERSION_ARG' violates MAJOR=0 invariant (SPEC §3.5 / §18.2)" >&2
+  echo "release_consolidate: bumps out of 0.x are deferred until the first non-self adopter (Directive #122)" >&2
+  exit 2
+fi
+X_Y_Z="$VERSION_ARG"
+TAG="v$X_Y_Z"
+
+# Step 2 — preflight.
+# Must be in a git repo.
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "release_consolidate: not in a git repository" >&2
+  exit 2
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT" || { echo "release_consolidate: cannot cd to repo root '$REPO_ROOT'" >&2; exit 2; }
+
+# Working tree must be clean (no unstaged + no staged changes).
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "release_consolidate: working tree has uncommitted changes; run 'git reset --hard HEAD' to retry" >&2
+  exit 2
+fi
+
+# (real mode) fetch + checkout base + pull. --dry-run skips network.
+if [ "$DRY_RUN" = 0 ]; then
+  if ! git fetch origin >/dev/null 2>&1; then
+    echo "release_consolidate: git fetch origin failed" >&2
+    exit 2
+  fi
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$CURRENT_BRANCH" != "$BASE" ]; then
+    if ! git checkout "$BASE" >/dev/null 2>&1; then
+      echo "release_consolidate: cannot checkout base branch '$BASE'" >&2
+      exit 2
+    fi
+  fi
+  if ! git pull --ff-only origin "$BASE" >/dev/null 2>&1; then
+    echo "release_consolidate: git pull --ff-only origin $BASE failed" >&2
+    exit 2
+  fi
+  # Refuse if release/X.Y.Z branch already exists on origin.
+  if git ls-remote --heads origin "release/$X_Y_Z" 2>/dev/null | grep -q .; then
+    echo "release_consolidate: release/$X_Y_Z branch already exists on origin" >&2
+    exit 2
+  fi
+fi
+
+# Idempotency: local tag check (works in dry-run too).
+if git tag -l "$TAG" | grep -qx "$TAG"; then
+  echo "release_consolidate: $TAG already released (no-op)"
+  exit 0
+fi
+
+# Step 3 — fragment scan + validate.
+# Two passes — first validates all fragments + counts; second emits per category.
+# Avoids bash-4 associative arrays for macOS bash 3.2 compatibility.
+CATEGORIES="added changed deprecated removed fixed security"
+FRAGMENT_DIR="changelog_unreleased"
+if [ ! -d "$FRAGMENT_DIR" ]; then
+  echo "release_consolidate: no $FRAGMENT_DIR/ directory in repo root" >&2
+  exit 2
+fi
+
+list_category_fragments() {
+  # Print sorted *.md fragment paths for a category, one per line.
+  local cat_dir="$1"
+  [ -d "$cat_dir" ] || return 0
+  find "$cat_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | LC_ALL=C sort -V
+}
+
+FRAGMENTS_FOUND=0
+ALL_FRAGMENTS_LIST=""  # newline-separated; safe paths (filenames are integers).
+
+# First pass — validate every fragment + collect master list.
+for cat in $CATEGORIES; do
+  cat_dir="$FRAGMENT_DIR/$cat"
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    base=$(basename "$f" .md)
+    if ! printf '%s' "$base" | grep -qE '^[1-9][0-9]*$'; then
+      echo "release_consolidate: $f — filename stem '$base' is not a positive integer" >&2
+      exit 2
+    fi
+    if ! grep -qF "(#$base)" "$f"; then
+      echo "release_consolidate: $f — bullet missing or mismatched (#$base) reference (stem '$base')" >&2
+      exit 2
+    fi
+    FRAGMENTS_FOUND=$((FRAGMENTS_FOUND + 1))
+    ALL_FRAGMENTS_LIST="$ALL_FRAGMENTS_LIST$f
+"
+  done <<EOF
+$(list_category_fragments "$cat_dir")
+EOF
+done
+
+if [ "$FRAGMENTS_FOUND" -eq 0 ]; then
+  echo "release_consolidate: no fragments found under $FRAGMENT_DIR/<category>/*.md" >&2
+  echo "release_consolidate: nothing to release; add a fragment first or this is not the right operation" >&2
+  exit 2
+fi
+
+# Step 4 — VERSION write-back.
+if [ ! -f VERSION ]; then
+  echo "release_consolidate: VERSION file not found at repo root" >&2
+  exit 2
+fi
+printf '%s\n' "$X_Y_Z" > VERSION
+
+# Step 5 — CHANGELOG.md prepend.
+if [ ! -f CHANGELOG.md ]; then
+  echo "release_consolidate: CHANGELOG.md not found at repo root" >&2
+  exit 2
+fi
+
+DATE_UTC=$(date -u +%Y-%m-%d)
+NEW_SECTION_FILE=$(mktemp)
+{
+  printf '## [%s] — %s\n\n' "$X_Y_Z" "$DATE_UTC"
+  for cat in $CATEGORIES; do
+    cat_dir="$FRAGMENT_DIR/$cat"
+    # Re-enumerate per category to preserve sort order without holding maps.
+    cat_files=$(list_category_fragments "$cat_dir")
+    [ -z "$cat_files" ] && continue
+    cat_cap=$(printf '%s' "$cat" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+    printf '### %s\n\n' "$cat_cap"
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      cat "$f"
+      # Ensure trailing newline after the bullet.
+      last_char=$(tail -c1 "$f")
+      [ "$last_char" = "" ] || [ "$last_char" = $'\n' ] || printf '\n'
+    done <<EOF
+$cat_files
+EOF
+    printf '\n'
+  done
+} > "$NEW_SECTION_FILE"
+
+# Prepend NEW_SECTION_FILE content before the first `## [` heading in CHANGELOG.md.
+# If no `## [` heading exists yet, insert before the first occurrence of any `## ` heading;
+# if none of those either, append at end-of-file.
+CHANGELOG_NEW=$(mktemp)
+awk -v new_section_file="$NEW_SECTION_FILE" '
+  BEGIN { inserted = 0 }
+  /^## \[/ && !inserted {
+    while ((getline line < new_section_file) > 0) print line
+    close(new_section_file)
+    inserted = 1
+  }
+  { print }
+  END {
+    if (!inserted) {
+      while ((getline line < new_section_file) > 0) print line
+      close(new_section_file)
+    }
+  }
+' CHANGELOG.md > "$CHANGELOG_NEW"
+mv "$CHANGELOG_NEW" CHANGELOG.md
+rm -f "$NEW_SECTION_FILE"
+
+# Append reference link at footer (best-effort; works if origin is github.com).
+ORIGIN_URL=$(git remote get-url origin 2>/dev/null || echo "")
+OWNER_REPO=""
+if [ -n "$ORIGIN_URL" ]; then
+  # Handles both git@github.com:owner/repo.git and https://github.com/owner/repo.git
+  OWNER_REPO=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+fi
+if [ -n "$OWNER_REPO" ]; then
+  printf '\n[%s]: https://github.com/%s/releases/tag/%s\n' "$X_Y_Z" "$OWNER_REPO" "$TAG" >> CHANGELOG.md
+fi
+
+# Step 6 — git rm consumed fragments.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  git rm -q "$f"
+done <<EOF
+$ALL_FRAGMENTS_LIST
+EOF
+
+# Step 7 — stage VERSION + CHANGELOG.md.
+git add VERSION CHANGELOG.md
+
+# Step 8 — output summary.
+echo "release_consolidate: $X_Y_Z staged ($FRAGMENTS_FOUND fragments consolidated)"
+echo "release_consolidate: VERSION: $X_Y_Z"
+echo "release_consolidate: CHANGELOG.md: new ## [$X_Y_Z] — $DATE_UTC section prepended"
+echo "release_consolidate: fragments removed: $FRAGMENTS_FOUND"
+if [ "$DRY_RUN" = 1 ]; then
+  echo "release_consolidate: --dry-run; no commit, no branch, no push"
+fi
+exit 0
