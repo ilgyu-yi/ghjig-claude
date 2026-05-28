@@ -3,7 +3,7 @@ description: Link an Execution Issue to its parent Directive — sets the `Paren
 argument-hint: <directive-#> <execution-#>
 ---
 
-Link an Execution Issue to its parent Directive by ensuring the `Parent Directive: #<N>` line-1 body marker is set + posting cross-reference comments. the Project Item's `Parent` field is mirrored from this body marker by `.github/workflows/issues-to-project-mirror.yml` — `/link-directive` does NOT write to the Project directly.
+Link an Execution Issue to its parent Directive by ensuring the `Parent Directive: #<N>` line-1 body marker is set + posting cross-reference comments. The Project Item's `Parent` field is mirrored from this body marker by `.github/workflows/issues-to-project-mirror.yml` — `/link-directive` does NOT write to the Project directly.
 
 ## Procedure
 
