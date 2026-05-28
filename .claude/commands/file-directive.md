@@ -17,6 +17,7 @@ In dir-mode v3 (ADR-0003), **Issues are SSOT**. The Project Item that wraps the 
    - **Non-goals** — at least 2 explicit exclusions.
    - **Constraints** — at least 1 invariant to preserve.
    - **MISSION fit** — which `MISSION.md` section or success criterion does this Directive serve? (Replaces the v0/v1 `Parent Goal` field per ADR-0003 Decision 6.)
+   - **Priority** — one of `P0` / `P1` / `P2` / `P3`; ask the user. Defaults to `P2` in unattended mode if not specified. The matching label is applied to the Issue at create time.
    - **Confidence** — 0-100; ask the user.
 
 2. **Reviewer gate** — invoke the `directive-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
@@ -32,11 +33,14 @@ In dir-mode v3 (ADR-0003), **Issues are SSOT**. The Project Item that wraps the 
      --title "directive: <Objective summary, ≤80 chars>" \
      --body "<full body from step 1>" \
      --label "directive" \
-     --label "status:proposed"
+     --label "status:proposed" \
+     --label "P<P>"
    ```
-   Capture the new Issue number `<N>`.
+   Capture the new Issue number `<N>`. The `P<P>` label (one of `P0`/`P1`/`P2`/`P3`) is the priority captured in step 1; the mirror workflow reads this label to populate the Project Item's Priority field.
 
 4. **Audit log** — `audit_log info directive-file created "directive: <Objective summary> issue=#<N> priority=P<P> confidence=<C>"`.
+
+   Both `<P>` and `<C>` are populated from the step-1 collection — emitting them with the placeholder literal (`priority=P<P>`) drops the format-validation contract in `.claude/hooks/hookrt.sh:_audit_validate_format` and produces a `directive-file/format-error` warn entry instead of the requested `created` record. Use the captured values.
 
    The `issue=#<id>` token replaces the v0/v1 `item=<PVTI-id>` token (Issues are SSOT now per ADR-0003).
 
