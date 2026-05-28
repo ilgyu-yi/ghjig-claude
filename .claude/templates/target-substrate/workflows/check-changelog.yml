@@ -1,0 +1,108 @@
+name: check-changelog
+
+# Per-PR fragment-gate for the release backbone (SPEC §18.6).
+# Blocks PRs to protected branches that lack a changelog fragment under
+# `changelog_unreleased/<category>/<N>.md` matching the contract in
+# SPEC §18.1, unless the PR carries the `skip-changelog` label.
+#
+# Pure bash + gh. No third-party Actions (Directive #128 constraint);
+# actions/checkout is the canonical GitHub-shipped equivalent of `git
+# clone` and is carved out by Issue #133 Notes.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - '*-maintenance'
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  fragment-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR HEAD
+        uses: actions/checkout@v4
+
+      - name: skip-changelog label short-circuit
+        id: label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR_NUM" --repo "$REPO" --json labels --jq '[.labels[].name]')
+          if printf '%s' "$labels" | jq -e 'index("skip-changelog") != null' >/dev/null 2>&1; then
+            echo "skip-changelog label applied — bypassing fragment-gate (SPEC §18.6)"
+            echo "bypass=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate fragment presence + filename + stem-match
+        if: steps.label.outputs.bypass != '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Allow-set: PR number ∪ closingIssuesReferences (SPEC §18.1 —
+          # "issue or PR number that introduces the fragment").
+          allowed=$(gh pr view "$PR_NUM" --repo "$REPO" \
+            --json number,closingIssuesReferences \
+            --jq '[.number, (.closingIssuesReferences[]?.number)] | unique | .[]')
+
+          # Find files added under the fragment path shape. `gh pr diff
+          # --patch` shows the unified diff; the `^+++ b/changelog_unreleased
+          # /<cat>/<N>.md$` line captures added paths in the diff with
+          # category and integer-stem already validated by the regex.
+          added=$(gh pr diff "$PR_NUM" --repo "$REPO" --patch \
+            | grep -E '^\+\+\+ b/changelog_unreleased/(added|changed|deprecated|removed|fixed|security)/[0-9]+\.md$' \
+            | sed -E 's|^\+\+\+ b/||' \
+            || true)
+
+          if [ -z "$added" ]; then
+            echo "::error::No changelog fragment added in this PR. Expected a file under changelog_unreleased/<category>/<N>.md per SPEC §18.1 (see changelog_unreleased/TEMPLATE.md). Apply the 'skip-changelog' label if this PR has no end-user observable change." >&2
+            exit 1
+          fi
+
+          # Per-fragment validation: positive integer stem + (#<stem>) match
+          # in the bullet + stem in the allow-set.
+          ok=0
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            stem=$(basename "$path" .md)
+
+            case "$stem" in
+              0|0*)
+                echo "::error file=$path::Filename stem must be a positive integer (got '$stem')." >&2
+                continue
+                ;;
+            esac
+
+            if ! grep -qE "\(#${stem}\)" "$path"; then
+              echo "::error file=$path::Fragment body does not contain (#${stem}) matching filename stem. See changelog_unreleased/TEMPLATE.md." >&2
+              continue
+            fi
+
+            if ! printf '%s\n' $allowed | grep -qx "$stem"; then
+              echo "::error file=$path::Filename stem '$stem' is neither this PR's number (${PR_NUM}) nor in closingIssuesReferences. Rename the file to match, or update the PR's Closes/Refs to include #${stem}." >&2
+              continue
+            fi
+
+            echo "check-changelog: $path validates (stem=$stem in allow-set)"
+            ok=1
+          done <<EOF
+$added
+EOF
+
+          if [ "$ok" = 1 ]; then
+            echo "check-changelog: at least one valid fragment found — passing."
+            exit 0
+          fi
+          echo "::error::No fragment passed all three validation rules (stem positive integer, (#<N>) bullet ref, stem in PR/issue allow-set). See SPEC §18.1." >&2
+          exit 1
