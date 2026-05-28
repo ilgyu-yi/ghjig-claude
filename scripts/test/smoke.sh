@@ -2890,12 +2890,12 @@ rm -rf "$SS40_DIR"
 
 # ---------- 41. scripts/setup_project.sh idempotency + scope guards (#43) ----------
 # PR #43 introduces scripts/setup_project.sh — an idempotent bootstrap for the
-# GitHub Project v2 substrate (SPEC §1.7, ADR-0002). The script:
+# GitHub Project substrate (SPEC §1.7). The script:
 #   1. Refuses on unregistered target paths (registry guard).
 #   2. Refuses without `gh auth` + `project` scope.
 #   3. On first run: creates the Project (if absent) and the six CLI-managed
-#      fields. The Iteration field is user-managed via GH UI per the gh CLI
-#      ITERATION-data-type limitation documented in ADR-0002.
+#      fields. The Iteration field is user-managed via GH UI because the
+#      `gh project field-create` CLI does not accept ITERATION as a data type.
 #   4. On rerun: queries existing fields and skips creates that already exist.
 #
 # §41 mocks `gh` via PATH overlay so the test runs without the `project` token

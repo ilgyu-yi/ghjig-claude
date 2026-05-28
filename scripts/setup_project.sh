@@ -130,12 +130,15 @@ else
   audit_log info project-setup linked "project: #$project_num → $owner/$repo_name" 2>/dev/null || true
 fi
 
-# ---------- iteration field (user-managed, ADR-0002) ----------
+# ---------- iteration field (user-managed) ----------
+# `gh project field-create --data-type` does not accept ITERATION; it must be
+# created via `gh api graphql` (multi-step) or the GitHub UI. The setup script
+# leaves Iteration for manual creation since the UI path is one-time and ~30s.
 iteration_present=$(gh project field-list "$project_num" --owner "$owner" --format json --limit 100 2>/dev/null \
   | jq -r '.fields[]? | select(.name=="Iteration") | .name' | head -1)
 if [ -z "$iteration_present" ]; then
   echo ""
-  echo "Iteration field not present. gh project field-create does not support ITERATION data-type (ADR-0002)."
+  echo "Iteration field not present. gh CLI does not support creating ITERATION-data-type fields."
   echo "  Add manually via the GH UI: open the Project → '+ field' → Iteration → set cadence."
   echo "  Recommended: 2-week cycles, Monday start."
 fi
