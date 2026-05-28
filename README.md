@@ -69,6 +69,53 @@ External paths register too:
 # or: claude-eng ~/code/<repo>   ← unregistered path prompts to register
 ```
 
+### Dir-mode: Directive-scoped work
+
+A **Directive** is a medium-term directional context that scopes one or more Execution Issues (SPEC §1.7, §2.1). Use one when the work crosses 2-3 PRs or needs a coherent "why are we doing this" anchor — a refactor, a migration, a feature with subsystems. For one-off changes, regular `/file-issue` is enough.
+
+**Single-Directive flow (most common):**
+
+```bash
+# Inside the session:
+> /file-directive               # author Directive; status:proposed, reviewer-gated
+> /activate-directive <N>       # Proposed → Active (removes status:proposed)
+> /file-issue --parent <N> <description>   # spawn Execution Issue parented under Directive #N
+> /work-on <execution-#>        # eng-mode from here on
+> /ship
+# ... repeat /file-issue --parent / /work-on / /ship per Execution Issue ...
+> /complete-directive <N>       # reviewer evaluates closed-Execution-Issue evidence
+```
+
+**Multi-PR Directive with topic-branch isolation (SPEC §10.5):**
+
+When the work spans several PRs and you want isolation from `main` until consolidation:
+
+```bash
+# Create the topic branch from main (the shell does NOT auto-create it):
+$ git checkout main && git pull
+$ git checkout -b feature/directive-<N> && git push -u origin feature/directive-<N>
+
+# Inside the session, for each Execution Issue under the Directive:
+> /file-issue --parent <N> <description>
+> /work-on <execution-#> --base feature/directive-<N>   # sub-task PR; uses Refs #<execution-#>
+> /ship
+
+# When all Execution Issues are done, consolidate to main:
+$ gh pr create --base main --head feature/directive-<N> --title "..." --body "$(cat <<'EOF'
+Closes #<exec-1>
+Closes #<exec-2>
+...
+EOF
+)"
+
+# Then close the Directive:
+> /complete-directive <N>
+```
+
+The Directive Issue itself is never branched — the `directive-protect` hook blocks `git checkout -b` against a Directive Issue. The Directive scopes the work; the Execution Issues do the work.
+
+### Dir-mode substrate (Project v2)
+
 For **dir-mode** (SPEC §1.7), bootstrap the GitHub Project v2 substrate from inside a registered target repo:
 
 ```bash
@@ -105,6 +152,18 @@ Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>' <command
 ## Subagents
 
 Ten in total: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `directive-reviewer`, `triage-reviewer`. The six reviewers (`code-`, `security-`, `issue-`, `plan-`, `directive-`, `triage-`) substitute for human-confirm checkpoints in `unattended` mode. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
+
+## More commands
+
+The full command surface is documented in SPEC §5; the most-used ones beyond `/file-issue` / `/work-on` / `/ship` / dir-mode:
+
+- `/discuss <observation>` — friction-free filing for "weird but not a bug" observations (SPEC §5.19). Bypasses the rationale-triad gate; close as promoted (concrete Issue filed) or no-action.
+- `/audit [<filter>]` — query the audit log for recent blocks, escapes, warns. Filter is a substring match against the log (e.g., `/audit force-push`, `/audit escape`). Use when debugging a hook that fired unexpectedly.
+- `/status` — one-shot summary of current branch / issue / PR / phase state.
+- `/release <X.Y.Z>` — cut a versioned release (consolidates per-PR changelog fragments; SPEC §18).
+- `/onboard-dir-mode [--tier 1|2|3] [--dry-run]` — install the v3 dir-mode substrate (labels, Issue templates, workflows, Project v2) into a target repo. Tier-aware, idempotent.
+
+If a hook blocked you, start with [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) and [docs/ESCAPE_HATCH.md](docs/ESCAPE_HATCH.md).
 
 ## Versioning
 
