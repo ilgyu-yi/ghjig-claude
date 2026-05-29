@@ -8,7 +8,9 @@
 #   - status:blocked   — Directive in Blocked state (per SPEC §2.1 v3)
 #   - awaiting-author  — handoff state: reviewer returned revise/trusted-reject (#172)
 #   - task             — standalone task / improvement (task.yml)
-#   - needs-triage     — applied by auto-needs-triage.yml on raw filings
+#   - needs-triage     — applied by auto-needs-triage.yml on raw filings; DORMANT /
+#                        Phase-2-transitional (#173 retired the /triage reclassification
+#                        consumer; kept so the installed workflow's --add-label succeeds)
 #   - discussion       — observation / half-formed idea (SPEC §5.19; Issue #112)
 #   - skip-changelog   — PR-time opt-out for the release-backbone fragment-gate (SPEC §18.6)
 #

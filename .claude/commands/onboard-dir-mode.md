@@ -7,7 +7,7 @@ Install the dir-mode substrate into the current target repo (cwd). Three-tier mo
 
 - **Tier 1**: no install — eng-mode works without the dir-mode substrate.
 - **Tier 2**: install the 10-label dir-mode set via `gh label create --force`. Unlocks `/file-directive` / `/activate-directive` / `/complete-directive` directly against Issues. No Project mirror.
-- **Tier 3**: tier 2 + install ISSUE_TEMPLATE files + workflow files via a PR to the target + create Project v2 via `gh project create` + populate fields via `scripts/setup_project.sh`. Unlocks `/triage` + template chooser + Project-as-derived-view.
+- **Tier 3**: tier 2 + install ISSUE_TEMPLATE files + workflow files via a PR to the target + create Project v2 via `gh project create` + populate fields via `scripts/setup_project.sh`. Unlocks the template chooser + Project-as-derived-view. (`/triage` is a deprecated alias for `/activate` as of #173; `auto-needs-triage.yml` still installs but its `needs-triage` label is dormant/Phase-2-transitional.)
 
 Each tier is a strict superset. Re-running is idempotent at every step.
 
