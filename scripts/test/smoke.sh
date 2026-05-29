@@ -5441,6 +5441,64 @@ else
   ng "66e: check-changelog.yml missing — cannot assert action provenance (#133)"
 fi
 
+# ---------- 67. task-vs-execution distinction enforced in both gates (#197) ----------
+# SPEC §1.7 line 309: execution = parented under a Directive; task = standalone,
+# not parented. Two enforcers must honor that distinction rather than leave the
+# type label to agent discretion: activation-reviewer's parent-fit rulebook and
+# /file-issue's label derivation. Greps anchor on stable tokens (label names near
+# "parent fit", the derivation values), not full sentences — §63e/§63h idiom.
+S67_AR="$SHELL_ROOT/.claude/agents/activation-reviewer.md"
+S67_FI="$SHELL_ROOT/.claude/commands/file-issue.md"
+S67_SPEC="$SHELL_ROOT/SPEC.md"
+
+# §67a — activation-reviewer gates parent-fit by type label: task/bug skip it,
+# only execution requires a parent, and the Parent-mismatch matrix is scoped to
+# execution-labelled Issues.
+if [ -f "$S67_AR" ] \
+   && grep -qF 'Parent-fit is gated by the type label' "$S67_AR" \
+   && grep -qF 'Only `execution` requires a parent.' "$S67_AR" \
+   && grep -qF 'Parent-mismatch matrix (`execution`-labelled Issues only)' "$S67_AR"; then
+  ok "67a: activation-reviewer gates parent-fit by type label; matrix scoped to execution (#197)"
+else
+  ng "67a: activation-reviewer parent-fit not gated by type label / matrix not execution-scoped (#197)"
+fi
+
+# §67b — the inverse smell: a Parent marker on a task/bug is a relabel-or-drop
+# type smell, not a parent problem.
+if [ -f "$S67_AR" ] \
+   && grep -qF 'Relabel-or-drop smell' "$S67_AR" \
+   && grep -qF 'relabel `execution` or drop the parent' "$S67_AR"; then
+  ok "67b: activation-reviewer carries the relabel-or-drop smell for a Parent marker on task/bug (#197)"
+else
+  ng "67b: activation-reviewer missing the relabel-or-drop smell (#197)"
+fi
+
+# §67c — /file-issue derives the type label deterministically (parent->execution,
+# standalone->task, --quick->bug) with no unresolved --label "..." placeholder.
+if [ -f "$S67_FI" ] \
+   && grep -qF 'Derive the type label deterministically' "$S67_FI" \
+   && grep -qF -- '--label "<derived: bug|execution|task>"' "$S67_FI" \
+   && ! grep -qF -- '--label "..."' "$S67_FI"; then
+  ok "67c: /file-issue derives label deterministically; no --label \"...\" placeholder remains (#197)"
+else
+  ng "67c: /file-issue label not derived deterministically / placeholder still present (#197)"
+fi
+
+# §67d — /file-issue step 1.5 defaults to standalone in unattended mode rather
+# than auto-parenting (the regression that mislabels a task as execution).
+if [ -f "$S67_FI" ] && grep -qF 'do **NOT** auto-parent' "$S67_FI"; then
+  ok "67d: /file-issue step 1.5 does not auto-parent in unattended mode (#197)"
+else
+  ng "67d: /file-issue step 1.5 missing the unattended no-auto-parent default (#197)"
+fi
+
+# §67e — SPEC §4.9.1 dispatch prose reconciled: parent-fit is gated by label.
+if [ -f "$S67_SPEC" ] && grep -qF 'parent-fit is gated by label' "$S67_SPEC"; then
+  ok "67e: SPEC §4.9.1 reconciles parent-fit as label-gated (#197)"
+else
+  ng "67e: SPEC §4.9.1 not reconciled for label-gated parent-fit (#197)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

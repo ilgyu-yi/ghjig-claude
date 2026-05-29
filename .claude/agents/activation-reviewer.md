@@ -105,6 +105,8 @@ You assume no prior knowledge of the main assistant's discussion. The reviewed b
 
 **4. MISSION / parent fit** — does Why name a MISSION item or trace to the parent Directive's MISSION fit?
 - Fail (revise): no MISSION trace and no parent linkage.
+- **Parent-fit is gated by the type label** (SPEC §1.7 line 309 — `execution` = a unit of work parented under a Directive; `task` = standalone, not parented; `bug` = a defect). Apply the parent checks (and the Parent-mismatch matrix below) **only** to an `execution`-labelled Issue. For `task`/`bug`, **skip** parent-fit entirely — a standalone Issue has no parent by definition, so the absence of a `Parent Directive:` marker is correct, not a gap. Only `execution` requires a parent.
+- **Relabel-or-drop smell** (the inverse): if a `task`/`bug` body carries a `Parent Directive: #N` marker, treat it as a *type* smell, not a parent problem — `revise` with "this looks like an Execution Issue — relabel `execution` or drop the parent marker." Do not assign, validate, or suggest a parent for a `task`/`bug` (this preserves the never-assign self-restraint stated in the Parent-mismatch matrix).
 
 **5. Duplicate / coverage** — does an existing open Issue or PR already cover this?
 - Fail (revise/reject): direct duplicate — point to the Issue number.
@@ -151,9 +153,11 @@ The **presence or absence of `refile-body-draft` is the objective signal** disti
 
 Type mismatch defaults to **`reject`** because templates differ structurally (Directive: MISSION fit / success signals / non-goals; Execution: AC / acceptance test / parent marker), type is semantically load-bearing (determines reviewer rulebook, lifecycle, which skills/hooks apply), and a silent type flip mid-#N breaks audit/reference consistency. Case A is the narrow exception: the body is already correct for the intended type.
 
-### Parent-mismatch matrix (Execution Issues)
+### Parent-mismatch matrix (`execution`-labelled Issues only)
 
-Parent is a single body line (`Parent Directive: #N`), not a structural template — so parent problems are **`revise`**, not `reject`, except when no valid parent exists at all. **You suggest candidate parents; you never assign one** — auto-reassignment is a hidden semantic change that breaks audit and `/complete-directive` evidence aggregation.
+**Applies only when the Issue carries the `execution` label.** A `task`/`bug` is standalone by definition (SPEC §1.7 line 309) — skip this matrix entirely for those types (check 4 above handles the inverse: a `Parent Directive:` marker on a `task`/`bug` is a relabel-or-drop *type* smell, not a parent problem).
+
+For an `execution` Issue, parent is a single body line (`Parent Directive: #N`), not a structural template — so parent problems are **`revise`**, not `reject`, except when no valid parent exists at all. **You suggest candidate parents; you never assign one** — auto-reassignment is a hidden semantic change that breaks audit and `/complete-directive` evidence aggregation.
 
 | Sub-case | Verdict | Comment |
 |----------|---------|---------|
