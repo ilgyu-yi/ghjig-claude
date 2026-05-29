@@ -34,11 +34,11 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
    Parse the verdict per `/file-directive` step 2 dispatch.
 
-   On `block` (evidence insufficient): stop. Issue stays open. Audit `directive-complete blocked "<reason>"`. Surface the verdict reason to the user.
+   On `reject` (evidence insufficient): stop. Issue stays open. Audit `directive-complete blocked "<reason>"`. Surface the verdict reason to the user.
 
 5. **Post the closing comment** with per-signal evidence:
    ```markdown
-   ## Directive Completion (resolved by activation-reviewer ship verdict)
+   ## Directive Completion (resolved by activation-reviewer pass verdict)
 
    - **Signal 1**: <signal text> — Evidence: PR #M (closed); AC #X ticked. Status: ✓
    - **Signal 2**: <signal text> — Evidence: PR #Y, #Z; smoke §N passes. Status: ✓
@@ -65,7 +65,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 ## Operating mode
 
 - **attended**: step 4's verdict surfaces to the user before closing.
-- **unattended**: step 4's verdict gates directly; `block` leaves Issue open.
+- **unattended**: step 4's verdict gates directly; `reject` leaves Issue open.
 
 ## Escape
 
@@ -73,7 +73,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 ## Forbidden
 
-- Closing without a `activation-reviewer` ship verdict (or audit-logged `SKIP_HOOKS=directive-review` escape).
+- Closing without a `activation-reviewer` pass verdict (or audit-logged `SKIP_HOOKS=directive-review` escape).
 - Closing with `--reason not planned` or `--reason duplicate` (use a separate `gh issue close` invocation with explicit reason + human confirm; the `trusted-filer-mutate` matcher blocks the not-planned case on trusted-filer Issues per SPEC §1.5).
 - Closing without the closing comment (step 5) — the comment is the canonical evidence record.
 - Writing to the Project Item directly — the mirror handles the Status field.

@@ -56,7 +56,7 @@ Same in attended and unattended — no reviewer gate, no operating-mode-dependen
 
 ## Escape
 
-`/block-directive` is not reviewer-gated. There is no `SKIP_HOOKS=directive-review` variant. If the block itself is misguided, unblock via `/activate-directive` (re-runs the reviewer and on `ship` removes the `status:blocked` label).
+`/block-directive` is not reviewer-gated. There is no `SKIP_HOOKS=directive-review` variant. If the block itself is misguided, unblock via `/activate-directive` (re-runs the reviewer and on `pass` removes the `status:blocked` label).
 
 ## Forbidden
 

@@ -38,7 +38,7 @@ Create an issue.
    - **`ship`**: proceed to step 5.
    - **`refine: <feedback>`**: revise the body per the one-line feedback. Re-invoke `issue-reviewer` on the revised body. After two consecutive `refine` verdicts on the latest body, escalate to the user (or, in unattended mode, treat as `block`).
    - **`block: <reason>`**: do NOT call `gh issue create`. In attended mode: report the reason to the user and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-block.log` naming the rejected title and reason, then stop.
-5. Call `gh issue create --title "..." --body "..." --label "..."`.
-6. Output the created issue number and URL.
+5. Call `gh issue create --title "..." --body "..." --label "..." --label "status:proposed"`. **Full-symmetry stamp (#172, SPEC §2.1/§5.2):** every new Issue is filed `status:proposed` and must pass `/activate <N>` before it is actionable. `issue-reviewer` here is author-side; `activation-reviewer` at `/activate` is observer-side — complementary, not redundant. (If the target lacks the `status:proposed` label — tier &lt; 2 — omit the label and note it; the lifecycle gate is a tier-2 capability.)
+6. Output the created issue number and URL, with a `Next: /activate <N>` line. Do NOT `/work-on <N>` before activation — `proposed-protect` (SPEC §6.1) blocks branch creation against a `status:proposed` Issue.
 
 **Forbidden**: creating an issue with empty or ambiguous acceptance criteria, with a weak rationale that didn't pass the §3 check, OR with a non-`ship` verdict from `issue-reviewer`. If unclear, re-ask the user and stop.

@@ -1,0 +1,60 @@
+---
+description: Activate a Proposed Issue (Directive OR Execution) — runs activation-reviewer; on pass removes status:proposed (→ Active). No-arg batch-scans all open status:proposed Issues. Polymorphic; absorbs /activate-directive and /triage.
+argument-hint: "[<issue-#>]"
+---
+
+Transition a `Proposed` Issue to `Active` by removing the `status:proposed` label after a fresh `activation-reviewer` (SPEC §4.9) pass on the current body. `/activate` is **type-neutral** — it handles Directives and Execution Issues (`task`/`bug`) alike; the reviewer dispatches by type label. This is the observer-side gate of the full-symmetry lifecycle (SPEC §2.1, §5.12).
+
+Status is encoded as labels on the Issue (Issues are SSOT). The Project Status field is mirrored by `.github/workflows/issues-to-project-mirror.yml`; `/activate` does NOT write to the Project directly.
+
+## Procedure
+
+0. **Substrate preflight**: abort with `"target lacks dir-mode substrate; run /onboard-dir-mode --tier 2 first"` if `gh label list | cut -f1 | grep -qx directive` fails. Fail-open on `gh` network errors.
+
+1. **Mode select** from `$ARGUMENTS`:
+   - **`<issue-#>` present → single mode** (step 2).
+   - **no arg → batch mode**: `gh issue list --label status:proposed --state open --json number --limit 200`. For each `<N>`, apply the **loop-safety skip** then run steps 2–4. Skip is per SPEC §2.1: read the Issue's comments and its `updatedAt`; if the latest `<!-- activation-verdict: <verdict> -->` marker comment post-dates the last body/label modification, the verdict was already delivered and the author hasn't acted — **skip** this Issue (independent of the `awaiting-author` label). In `attended` mode, surface each `reject` to the operator; in `unattended` mode, auto-apply the filer matrix in step 4.
+
+2. **Resolve + validate** — `gh issue view <N> --json title,body,state,labels,author,authorAssociation`.
+   - `state != OPEN` → error (`"Issue is not open — state <X>"`) and skip/stop.
+   - `status:proposed` label absent → error (`"Issue #<N> is already Active (no status:proposed label)"`) and skip/stop.
+   - Determine **type**: `directive` label present → Directive; else Execution (`task`/`bug`).
+
+3. **Reviewer gate** — invoke the `activation-reviewer` subagent (SPEC §4.9) on the current body, passing the resolved type, and — for Directives — the active-Directive list, or — for Execution Issues — the parent-Directive state + the open-Issues snapshot. Parse the verdict line (`^VERDICT: (pass|revise|reject)`).
+
+   > Reviewer invocation is robust to the SPEC §4.9.3 session-restart caveat: if `subagent_type: activation-reviewer` falls back to `general-purpose` mid-session, the agent file's self-describing prompt makes the fallback functionally complete. Do not depend on a fresh session.
+
+4. **Apply the verdict:**
+
+   - **`pass`** → `gh issue edit <N> --remove-label status:proposed` (and `--remove-label awaiting-author` if present). The Issue is now Active. Post a brief `<!-- activation-verdict: pass -->` confirmation comment. Audit: `audit_log info activation activated "issue=#<N> type=<directive|execution>"`.
+
+   - **`revise`** → post the reviewer findings as a comment whose body includes the marker `<!-- activation-verdict: revise -->`. Retain `status:proposed`; `gh issue edit <N> --add-label awaiting-author`. **Escalation:** before posting, count existing `<!-- activation-verdict: revise -->` markers on the Issue; if this would be the **N=3rd**, treat the verdict as `reject` instead (escalation backstop). Audit: `audit_log info activation revise "issue=#<N> round=<k>"`.
+
+   - **`reject`** → post the reviewer's verdict + structured fields (`verdict`/`reason`/`refile-target-type`/`refile-target-parent`/`refile-body-draft`) as a comment carrying `<!-- activation-verdict: reject -->`. Then apply **filer-aware handling** (verdict is content-only; handling keys on trust). Resolve trust via `is_trusted_filer <N>` (`.claude/hooks/helpers/issue_filer.sh`; `authorAssociation` ∈ OWNER/MEMBER/MAINTAINER/COLLABORATOR):
+     - **Trusted filer** → keep the Issue **open**, retain `status:proposed`, `--add-label awaiting-author`. **Never close** (composes with the `trusted-filer-mutate` hook, SPEC §6.1). The filer decides next.
+     - **Untrusted filer, `refile-body-draft` present** → `gh issue close <N> --reason "not planned"`, then auto-create a `discussion`-tier Issue (SPEC §5.19) whose body is the **sanitized** draft + a lineage line `Refiled from #<N> (activation reject).` Sanitize the draft before creation: strip/escape any leading `@`-mentions so the new Issue does not mass-ping, and do not interpolate the untrusted text into the title (use a fixed `discussion: refile of #<N>` title). Audit: `audit_log info activation refiled "from=#<N> discussion=#<M>"`.
+     - **Untrusted filer, no draft** → `gh issue close <N> --reason "not planned"` with a brief reason comment. No discussion. Audit: `audit_log info activation rejected "issue=#<N>"`.
+
+5. **Output** (single mode):
+   ```
+   /activate #<N>: <verdict>
+   <pass: "Active (status:proposed removed)" | revise: "awaiting-author — author edits + re-run /activate" | reject: <filer-handling summary>>
+   ```
+   Batch mode prints one line per processed Issue + a trailing summary (`activated K, revise R, reject J, skipped S`).
+
+## Operating mode
+
+- **attended**: step 3's verdict surfaces to the user before applying; `reject` in batch mode surfaces for the operator's decision.
+- **unattended**: the verdict gates directly; batch mode auto-applies the filer matrix (including the untrusted-reject auto-discussion) and moves on. `reject` is terminal — no auto-regeneration (SPEC §2.1; that is an explicit Directive #167 non-goal).
+
+## Escape
+
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate <N>` bypasses the reviewer gate. Audit-logged.
+
+## Forbidden
+
+- Activating an Issue without the `status:proposed` label (not in Proposed state).
+- Closing a **trusted** filer's Issue on `reject` — trusted rejects keep the Issue open with `awaiting-author`.
+- Assigning a parent Directive on the reviewer's behalf — the reviewer suggests; the author assigns (SPEC §4.9).
+- Interpolating untrusted `refile-body-draft` text into a new Issue title, or creating the discussion without the `#<N>` lineage line.
+- Writing to the Project Item directly — that's the mirror workflow's job.

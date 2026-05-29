@@ -81,7 +81,7 @@ fi
 # artifact type). Plus extra labels not in ensure_v3_labels.sh: directive,
 # P0/P1/P2/P3 — installed inline since those labels are not the v3-bootstrap
 # scope of ensure_v3_labels.sh.
-echo "onboard_target: tier 2 — installing 11-label v3 set..."
+echo "onboard_target: tier 2 — installing 12-label v3 set..."
 
 ensure_label() {
   local name="$1" color="$2" desc="$3"
@@ -99,6 +99,7 @@ if [ -n "$DRY_RUN" ]; then
   # Mirror the spec inline for dry-run visibility.
   ensure_label "status:proposed" "FBCA04" "Directive proposed; awaiting maintainer triage (SPEC §2.1 v3)"
   ensure_label "status:blocked"  "B60205" "Directive cannot proceed without external input (SPEC §5.17)"
+  ensure_label "awaiting-author"  "D93F0B" "Reviewer delivered a verdict (revise / trusted-filer reject); author action pending (SPEC §2.1, #172)"
   ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
   ensure_label "needs-triage"    "D4C5F9" "Issue filed without a template — awaiting maintainer triage classification"
   ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
@@ -114,7 +115,7 @@ ensure_label "P1" "D93F0B" "Priority 1 — next"
 ensure_label "P2" "FBCA04" "Priority 2 — soon"
 ensure_label "P3" "0E8A16" "Priority 3 — eventually"
 
-echo "onboard_target: tier 2 labels done (11 total: 6 from ensure_v3_labels.sh + 5 inline)."
+echo "onboard_target: tier 2 labels done (12 total: 7 from ensure_v3_labels.sh + 5 inline)."
 
 if [ "$TIER" = 2 ]; then
   audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=2 labels=11"

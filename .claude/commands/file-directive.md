@@ -23,9 +23,9 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
 2. **Reviewer gate** — invoke the `activation-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
 
    Verdict dispatch (SPEC §2.1, §5.7.1 operating-mode coupling):
-   - **`ship`** → proceed to step 3.
-   - **`refine: <feedback>`** → revise the body per the one-line feedback. Re-invoke `activation-reviewer` on the revised body. After two consecutive `refine` verdicts, escalate to the user (attended) or treat as `block` (unattended).
-   - **`block: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/directive-block.log` and stop.
+   - **`pass`** → proceed to step 3.
+   - **`revise: <feedback>`** → revise the body per the one-line feedback. Re-invoke `activation-reviewer` on the revised body. After two consecutive `revise` verdicts, escalate to the user (attended) or treat as `reject` (unattended).
+   - **`reject: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/directive-block.log` and stop.
 
 3. **Create the Issue**:
    ```bash

@@ -5015,7 +5015,9 @@ fi
 # one-liner introduced by Directive #149 / Issue #151 (the 4-line boilerplate
 # was de-duplicated to a single shared statement per AC #4).
 s63e_count=0
-for cmd in file-directive activate-directive complete-directive revise-directive \
+# activate-directive is now a thin alias (#172) delegating its preflight to
+# /activate; the loop tracks the real command /activate.
+for cmd in file-directive activate complete-directive revise-directive \
            block-directive list-directives link-directive; do
   if grep -qE "Step 0.*preflight|step 0 preflight|Substrate preflight" "$SHELL_ROOT/.claude/commands/${cmd}.md"; then
     s63e_count=$((s63e_count + 1))
