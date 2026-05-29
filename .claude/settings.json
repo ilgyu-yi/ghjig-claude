@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(gh pr merge:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
