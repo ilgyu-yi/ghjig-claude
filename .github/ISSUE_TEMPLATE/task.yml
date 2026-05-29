@@ -1,7 +1,7 @@
 name: Task
 description: A standalone task or small improvement that doesn't fit a Directive. One-off work — refactor, doc fix, dependency bump.
 title: "chore: <subject>"
-labels: [task]
+labels: [task, status:proposed]
 body:
   - type: textarea
     id: what

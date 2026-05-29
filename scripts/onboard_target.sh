@@ -7,7 +7,7 @@
 #
 # Tier semantics (SPEC §1.7 Substrate-in-target contract):
 #   1 — no-op (eng-mode only; no substrate installed).
-#   2 — labels: the 11-label v3 set via `gh label create --force`.
+#   2 — labels: the 12-label v3 set via `gh label create --force`.
 #   3 — tier 2 + ISSUE_TEMPLATE + workflows (via PR) + Project v2.
 
 set -euo pipefail
@@ -81,7 +81,7 @@ fi
 # artifact type). Plus extra labels not in ensure_v3_labels.sh: directive,
 # P0/P1/P2/P3 — installed inline since those labels are not the v3-bootstrap
 # scope of ensure_v3_labels.sh.
-echo "onboard_target: tier 2 — installing 11-label v3 set..."
+echo "onboard_target: tier 2 — installing 12-label v3 set..."
 
 ensure_label() {
   local name="$1" color="$2" desc="$3"
@@ -101,6 +101,7 @@ if [ -n "$DRY_RUN" ]; then
   ensure_label "status:blocked"  "B60205" "Directive cannot proceed without external input (SPEC §5.17)"
   ensure_label "awaiting-author"  "F9D0C4" "Reviewer returned a verdict (revise/trusted-reject); author action pending (#172)"
   ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
+  ensure_label "execution"       "5319E7" "Execution Issue: a unit of work parented under a Directive (#186)"
   ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
   ensure_label "skip-changelog"  "CCCCCC" "PR exempt from fragment-gate; no end-user observable change (SPEC §18.6)"
   ensure_label "P0"              "B60205" "Priority 0 — drop everything"
@@ -115,10 +116,10 @@ fi
 # set by #185; only `directive` remains inline here).
 ensure_label "directive" "0E8A16" "Directive Issue (dir-mode, SPEC §1.7)"
 
-echo "onboard_target: tier 2 labels done (11 total: 10 from ensure_v3_labels.sh + 1 inline: directive)."
+echo "onboard_target: tier 2 labels done (12 total: 11 from ensure_v3_labels.sh + 1 inline: directive)."
 
 if [ "$TIER" = 2 ]; then
-  audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=2 labels=11"
+  audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=2 labels=12"
   exit 0
 fi
 
@@ -141,7 +142,7 @@ if [ -n "$DRY_RUN" ]; then
 else
   cp "$SUBSTRATE_ROOT/ISSUE_TEMPLATE/"*.yml "$TARGET_GITHUB/ISSUE_TEMPLATE/"
   cp "$SUBSTRATE_ROOT/workflows/"*.yml "$TARGET_GITHUB/workflows/"
-  echo "  copied 6 ISSUE_TEMPLATE files + 4 workflow files into $TARGET_GITHUB/"
+  echo "  copied 6 ISSUE_TEMPLATE files + 5 workflow files into $TARGET_GITHUB/"
 fi
 
 # Open a PR if there are changes. Idempotent: skip if no diff.

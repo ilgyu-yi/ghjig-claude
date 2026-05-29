@@ -8,6 +8,7 @@
 #   - status:blocked   — Directive in Blocked state (per SPEC §2.1 v3)
 #   - awaiting-author  — handoff state: reviewer returned revise/trusted-reject (#172)
 #   - task             — standalone task / improvement (task.yml)
+#   - execution        — Execution Issue parented under a Directive (#186; first-class type)
 #   - discussion       — observation / half-formed idea (SPEC §5.19; Issue #112)
 #   - skip-changelog   — PR-time opt-out for the release-backbone fragment-gate (SPEC §18.6)
 #   - P0 / P1 / P2 / P3 — Directive priority (#185; SPEC §0.4 tier-2 set; the P<N> label
@@ -34,6 +35,7 @@ ensure_label "status:proposed" "FBCA04" "Directive proposed; awaiting maintainer
 ensure_label "status:blocked"  "B60205" "Directive cannot proceed without external input (SPEC §5.17)"
 ensure_label "awaiting-author"  "F9D0C4" "Reviewer returned a verdict (revise/trusted-reject); author action pending (#172)"
 ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
+ensure_label "execution"       "5319E7" "Execution Issue: a unit of work parented under a Directive (#186)"
 ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
 ensure_label "skip-changelog"  "CCCCCC" "PR exempt from fragment-gate; no end-user observable change (SPEC §18.6)"
 ensure_label "P0"              "B60205" "Priority 0 — drop everything"
