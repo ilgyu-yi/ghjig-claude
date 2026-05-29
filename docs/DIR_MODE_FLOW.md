@@ -8,7 +8,7 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
        ▼
   /file-directive             ← reviewer-gated authoring against MISSION.md
        │   AI drafts body from .claude/templates/directive.md
-       │   directive-reviewer (§4.9.1) checks schema + scope + MISSION fit + active-Directive conflict
+       │   activation-reviewer (§4.9.1) checks schema + scope + MISSION fit + active-Directive conflict
        │   verdict: ship → Issue filed with labels [directive, status:proposed]
        │            refine → revise body, re-route reviewer
        │            block → park to .claude/state/directive-block.log
@@ -20,7 +20,7 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
        │       ACCEPT → continue
        │
        ▼
-  /activate-directive <N>     ← directive-reviewer re-runs on current body (catches GH-UI edits)
+  /activate-directive <N>     ← activation-reviewer re-runs on current body (catches GH-UI edits)
        │   verdict: ship → status:proposed label removed → Directive becomes `Active`
        │            refine/block → label stays
        ▼
@@ -49,12 +49,12 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
        │   [Directive in `Blocked` state]
        │
        ├── /revise-directive <N>            ← scope/success-signal change
-       │       │   directive-reviewer on the NEW body (same five checks as /file-directive)
+       │       │   activation-reviewer on the NEW body (same five checks as /file-directive)
        │       │   on ship → prior body archived as comment + body replaced
        │       │   NO status change — audit-log entry + archive comment ARE the evidence
        │
        ▼   (after all Execution Issues for this Directive have merged)
-  /complete-directive <N>     ← directive-reviewer evaluates evidence-sufficiency
+  /complete-directive <N>     ← activation-reviewer evaluates evidence-sufficiency
        │   reviewer reads Directive's success signals + linked Execution Issues' close states + AC ticks
        │   verdict: ship  → closing comment posted (per-signal evidence) + Issue closes --reason completed
        │            refine → "need engineering evidence" — file more work first
@@ -67,15 +67,15 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
 
 | Skill | What it does | Reviewer | Status transition |
 |-------|--------------|----------|-------------------|
-| `/file-directive` | File a new Directive Issue | `directive-reviewer` (filing body) | none → Proposed |
+| `/file-directive` | File a new Directive Issue | `activation-reviewer` (filing body) | none → Proposed |
 | `/list-directives [--status <S>]` | List Directives filtered by Status label | — | read-only |
 | `/triage` | Per-Issue ACCEPT/REJECT classifier (covers `needs-triage` and `status:proposed`) | `triage-reviewer` | (no body change) |
-| `/activate-directive <N>` | Promote Proposed → Active | `directive-reviewer` (current body re-check) | Proposed → Active |
+| `/activate-directive <N>` | Promote Proposed → Active | `activation-reviewer` (current body re-check) | Proposed → Active |
 | `/file-issue --parent <N> <description>` | File an Execution Issue under Directive #N | `issue-reviewer` (rationale triad) | — |
 | `/link-directive <directive-#> <execution-#>` | Set/repair the `Parent Directive: #N` body marker | — (idempotent) | — |
 | `/block-directive <N> --reason '<why>'` | Annotation-only block | — (no body change) | Active → Blocked |
-| `/revise-directive <N>` | Replace Directive body in place | `directive-reviewer` (new body) | (no Status flip) |
-| `/complete-directive <N>` | Close Directive as Completed | `directive-reviewer` (evidence sufficiency) | Active → Completed |
+| `/revise-directive <N>` | Replace Directive body in place | `activation-reviewer` (new body) | (no Status flip) |
+| `/complete-directive <N>` | Close Directive as Completed | `activation-reviewer` (evidence sufficiency) | Active → Completed |
 | `/reflect [<pr-#>]` | Post per-signal reflection on parent Directive | — (idempotent on URL match) | — |
 
 ## Operating mode coupling
@@ -116,7 +116,7 @@ A target repo adopts the shell at one of three tiers (SPEC §1.7 substrate-in-ta
 ## See also
 
 - [`ENGINEERING_FLOW.md`](./ENGINEERING_FLOW.md) — the engineering tier (Execution Issue → PR → merge).
-- [`SUBAGENTS.md`](./SUBAGENTS.md) — full reviewer catalog including `directive-reviewer` and `triage-reviewer`.
+- [`SUBAGENTS.md`](./SUBAGENTS.md) — full reviewer catalog including `activation-reviewer` and `triage-reviewer`.
 - [`ESCAPE_HATCH.md`](./ESCAPE_HATCH.md) — bypass categories including `directive-review`, `directive-protect`, `trusted-filer-mutate`.
 - [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) — symptom-to-fix rows for dir-mode blocks.
 - [SPEC §1.7, §2.1, §4.9, §5.10–§5.18](../SPEC.md) — full normative spec.

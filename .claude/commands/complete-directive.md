@@ -1,9 +1,9 @@
 ---
-description: Close a Directive Issue as Completed — directive-reviewer evaluates evidence; closes Issue with --reason completed.
+description: Close a Directive Issue as Completed — activation-reviewer evaluates evidence; closes Issue with --reason completed.
 argument-hint: <issue-#>
 ---
 
-Close a Directive Issue with `--reason completed`. Requires `directive-reviewer` evaluation of success-signal satisfaction by linked Execution Issues.
+Close a Directive Issue with `--reason completed`. Requires `activation-reviewer` evaluation of success-signal satisfaction by linked Execution Issues.
 
 Issue close-as-completed IS the Status=Completed signal. The Project Item's Status field follows via `.github/workflows/issues-to-project-mirror.yml`.
 
@@ -28,7 +28,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 3. **Read the Directive's success signals** from its body (the `## Success signals` section authored at `/file-directive` time).
 
-4. **Reviewer gate** — invoke `directive-reviewer` (SPEC §4.9) on the completion claim. Pass:
+4. **Reviewer gate** — invoke `activation-reviewer` (SPEC §4.9) on the completion claim. Pass:
    - The Directive body (with success signals as written).
    - The list of linked Execution Issues + their states + AC ticks.
 
@@ -38,7 +38,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 5. **Post the closing comment** with per-signal evidence:
    ```markdown
-   ## Directive Completion (resolved by directive-reviewer ship verdict)
+   ## Directive Completion (resolved by activation-reviewer ship verdict)
 
    - **Signal 1**: <signal text> — Evidence: PR #M (closed); AC #X ticked. Status: ✓
    - **Signal 2**: <signal text> — Evidence: PR #Y, #Z; smoke §N passes. Status: ✓
@@ -73,7 +73,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 ## Forbidden
 
-- Closing without a `directive-reviewer` ship verdict (or audit-logged `SKIP_HOOKS=directive-review` escape).
+- Closing without a `activation-reviewer` ship verdict (or audit-logged `SKIP_HOOKS=directive-review` escape).
 - Closing with `--reason not planned` or `--reason duplicate` (use a separate `gh issue close` invocation with explicit reason + human confirm; the `trusted-filer-mutate` matcher blocks the not-planned case on trusted-filer Issues per SPEC §1.5).
 - Closing without the closing comment (step 5) — the comment is the canonical evidence record.
 - Writing to the Project Item directly — the mirror handles the Status field.

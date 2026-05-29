@@ -20,11 +20,11 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
    - **Priority** — one of `P0` / `P1` / `P2` / `P3`; ask the user. Defaults to `P2` in unattended mode if not specified. The matching label is applied to the Issue at create time.
    - **Confidence** — 0-100; ask the user.
 
-2. **Reviewer gate** — invoke the `directive-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
+2. **Reviewer gate** — invoke the `activation-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
 
    Verdict dispatch (SPEC §2.1, §5.7.1 operating-mode coupling):
    - **`ship`** → proceed to step 3.
-   - **`refine: <feedback>`** → revise the body per the one-line feedback. Re-invoke `directive-reviewer` on the revised body. After two consecutive `refine` verdicts, escalate to the user (attended) or treat as `block` (unattended).
+   - **`refine: <feedback>`** → revise the body per the one-line feedback. Re-invoke `activation-reviewer` on the revised body. After two consecutive `refine` verdicts, escalate to the user (attended) or treat as `block` (unattended).
    - **`block: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/directive-block.log` and stop.
 
 3. **Create the Issue**:

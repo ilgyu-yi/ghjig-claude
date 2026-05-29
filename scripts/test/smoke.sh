@@ -1595,7 +1595,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 
 rm -rf "$COAUTHOR_TMP"
 
-# ---------- 34. README currency (#65, extended for directive-reviewer #58) ----------
+# ---------- 34. README currency (#65, extended for activation-reviewer #58) ----------
 # README.md is the project's landing page. Lock that it names all
 # nine subagents (eight engineering + one dir-mode), the --base flag,
 # the operating modes, and the bootstrap dependencies. Future agent
@@ -1606,7 +1606,7 @@ README_MD="$SHELL_ROOT/README.md"
 for agent in explorer planner doc-writer test-writer \
              code-reviewer security-reviewer \
              issue-reviewer plan-reviewer \
-             directive-reviewer; do
+             activation-reviewer; do
   if grep -q "$agent" "$README_MD" 2>/dev/null; then
     ok "readme: names subagent '$agent' (#65)"
   else
@@ -3257,7 +3257,7 @@ if [ -f "$SP_REGISTRY" ]; then
 fi
 rm -rf "$SP_DIR"
 
-# ---------- 42. directive-reviewer subagent structural sanity (#44) ----------
+# ---------- 42. activation-reviewer subagent structural sanity (#44) ----------
 # Structural assertions (42a-42d) verify the agent file's contract:
 # frontmatter (name, description, tools), required body sections, and the
 # VERDICT-line format documented in the body. These run by default.
@@ -3267,32 +3267,34 @@ rm -rf "$SP_DIR"
 # its VERDICT output on synthetic inputs (SPEC §4.9.3, issue #69 under
 # Directive #62). Default smoke stays deterministic and offline.
 
-DR_PATH="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
+DR_PATH="$SHELL_ROOT/.claude/agents/activation-reviewer.md"
 if [ ! -f "$DR_PATH" ]; then
-  ng "42: directive-reviewer.md missing (#44)"
+  ng "42: activation-reviewer.md missing (#44)"
 else
   # 42a: frontmatter has name, description, tools.
   dr_name=$(awk '/^---$/{c++; next} c==1 && /^name:/{print; exit}' "$DR_PATH")
   dr_desc=$(awk '/^---$/{c++; next} c==1 && /^description:/{print; exit}' "$DR_PATH")
   dr_tools=$(awk '/^---$/{c++; next} c==1 && /^tools:/{print; exit}' "$DR_PATH")
   if [ -n "$dr_name" ] && [ -n "$dr_desc" ] && [ -n "$dr_tools" ]; then
-    ok "42a: directive-reviewer frontmatter has name + description + tools (#44)"
+    ok "42a: activation-reviewer frontmatter has name + description + tools (#44)"
   else
     ng "42a: frontmatter missing required key; name='$dr_name' desc='$dr_desc' tools='$dr_tools' (#44)"
   fi
 
-  # 42b: required body sections present (matches the reviewer-subagent
-  # convention from issue-reviewer.md / plan-reviewer.md).
+  # 42b: required body sections present. Type-neutral structure (#170):
+  # the reviewer dispatches by type label, so Input/Checks live under
+  # per-type rulebooks (Directive rulebook / Execution rulebook) rather
+  # than top-level headings.
   dr_missing=""
-  for section in "## Input" "## Premise" "## Checks" "## Output" "## Rules"; do
+  for section in "## Type-label dispatch" "## Premise" "## Directive rulebook" "## Execution rulebook" "## Output" "## Rules"; do
     if ! grep -qF "$section" "$DR_PATH"; then
       dr_missing="$dr_missing $section"
     fi
   done
   if [ -z "$dr_missing" ]; then
-    ok "42b: directive-reviewer body has all required sections (#44)"
+    ok "42b: activation-reviewer body has all required sections (#44)"
   else
-    ng "42b: directive-reviewer body missing sections:$dr_missing (#44)"
+    ng "42b: activation-reviewer body missing sections:$dr_missing (#44)"
   fi
 
   # 42c: VERDICT-line format documents the three terminal verdicts (matches
@@ -3308,19 +3310,21 @@ else
   # 42d: tools restricted to the standard reviewer read-only set
   # (matches issue-reviewer.md and plan-reviewer.md).
   if printf '%s' "$dr_tools" | grep -qE 'Read.*Grep.*Glob.*Bash'; then
-    ok "42d: directive-reviewer tools restricted to [Read, Grep, Glob, Bash] (#44)"
+    ok "42d: activation-reviewer tools restricted to [Read, Grep, Glob, Bash] (#44)"
   else
-    ng "42d: directive-reviewer tools expected [Read, Grep, Glob, Bash]; got '$dr_tools' (#44)"
+    ng "42d: activation-reviewer tools expected [Read, Grep, Glob, Bash]; got '$dr_tools' (#44)"
   fi
 fi
 
-# ---------- 42e. directive-reviewer behavioral assertions (#69 / Directive #62) ----------
+# ---------- 42e. activation-reviewer behavioral assertions (#69 / Directive #62) ----------
 # Gated behind CLAUDE_ENG_BEHAVIORAL_SMOKE=1. When set, shells out to the live
-# agent via `claude -p --agent directive-reviewer` and asserts the documented
-# VERDICT-line output on two synthetic Directive bodies:
-#   - case A: minimal-but-valid body  → ^VERDICT: ship
-#   - case B: body missing the entire ## Success signals heading
-#                                     → ^VERDICT: (refine|block)
+# agent via `claude -p --agent activation-reviewer` and asserts the documented
+# VERDICT-line output on three synthetic bodies (both Issue types, per #170):
+#   - case A: minimal-but-valid Directive body  → ^VERDICT: ship
+#   - case B: Directive body missing the entire ## Success signals heading
+#                                               → ^VERDICT: (refine|block)
+#   - case C: minimal-but-valid Execution body  → ^VERDICT: ship
+#             (exercises the type-neutral Execution rulebook dispatch)
 # Default-unset → no-op so smoke stays offline + deterministic (preserves the
 # 278/278 baseline). See SPEC §4.9.3 for the routing-regression contract this
 # block protects.
@@ -3355,11 +3359,11 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 
 ## Success signals
 - `bash scripts/test/smoke.sh` (with `CLAUDE_ENG_BEHAVIORAL_SMOKE` unset) prints `smoke: pass=278 fail=0` on the next merge to main; verified by the PR's CI summary and one local re-run on the merge commit.
-- `CLAUDE_ENG_BEHAVIORAL_SMOKE=1 bash scripts/test/smoke.sh` adds exactly two passing assertions under §42e (`42e-ship` and `42e-refine-or-block`) and the total becomes `pass=280 fail=0`; verified by counting `ok "42e-` lines in the output.
+- `CLAUDE_ENG_BEHAVIORAL_SMOKE=1 bash scripts/test/smoke.sh` adds the passing §42e assertions (`42e-ship`, `42e-refine-or-block`, `42e-exec`) on top of the default total; verified by counting `ok "42e-` lines in the output.
 
 ## Non-goals
 - Does NOT include behavioral smoke for `issue-reviewer`, `plan-reviewer`, `code-reviewer`, or `security-reviewer` — their structural assertions are out of scope for this Directive.
-- Does NOT modify directive-reviewer's five checks or the VERDICT-line format (both locked by PR #50).
+- Does NOT modify activation-reviewer's five checks or the VERDICT-line format (both locked by PR #50).
 
 ## Constraints
 - §42e must be self-contained inside `scripts/test/smoke.sh`; no new helper scripts under `scripts/test/` or new entries in the registry.
@@ -3368,16 +3372,16 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 ## MISSION fit
 Serves MISSION's `Success looks like > The flow holds in unattended runs` criterion — synthetic test environment for the dir-mode workflow.
 PROMPT_EOF
-    dr_ship_out=$(claude -p --agent directive-reviewer "$dr_ship_prompt" 2>&1 || true)
+    dr_ship_out=$(claude -p --agent activation-reviewer "$dr_ship_prompt" 2>&1 || true)
     # Capture the LAST `^VERDICT:` line anchored on the documented delimiters
-    # (`ship —`, `refine:`, `block:` per .claude/agents/directive-reviewer.md:78-82).
+    # (`ship —`, `refine:`, `block:` per .claude/agents/activation-reviewer.md:78-82).
     # Anchoring avoids matching prose quotes of the agent's own `## Verdict
     # dispatch` section if the agent cites itself; `tail -1` picks the terminal
     # verdict if multiple anchored lines somehow appear.
     dr_ship_verdict=$(printf '%s\n' "$dr_ship_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
     case "$dr_ship_verdict" in
       "VERDICT: ship"*)
-        ok "42e-ship: directive-reviewer returns 'ship' on minimal-but-valid synthetic body (#69)" ;;
+        ok "42e-ship: activation-reviewer returns 'ship' on minimal-but-valid synthetic body (#69)" ;;
       *)
         # On miss, surface the first 200 chars of the agent's output so the
         # next operator can tell live-agent failures (auth, rate-limit, model
@@ -3402,7 +3406,7 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 
 ## Non-goals
 - Does NOT include behavioral smoke for `issue-reviewer`, `plan-reviewer`, `code-reviewer`, or `security-reviewer`.
-- Does NOT modify directive-reviewer's five checks or the VERDICT-line format.
+- Does NOT modify activation-reviewer's five checks or the VERDICT-line format.
 
 ## Constraints
 - §42e must be self-contained inside `scripts/test/smoke.sh`.
@@ -3411,14 +3415,52 @@ Keep `scripts/test/smoke.sh`'s default-unset path at exactly 278 passing asserti
 ## MISSION fit
 Synthetic test environment for the dir-mode workflow.
 PROMPT_EOF
-    dr_refine_out=$(claude -p --agent directive-reviewer "$dr_refine_prompt" 2>&1 || true)
+    dr_refine_out=$(claude -p --agent activation-reviewer "$dr_refine_prompt" 2>&1 || true)
     dr_refine_verdict=$(printf '%s\n' "$dr_refine_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
     case "$dr_refine_verdict" in
       "VERDICT: refine"*|"VERDICT: block"*)
-        ok "42e-refine-or-block: directive-reviewer rejects body missing '## Success signals' (got '$dr_refine_verdict') (#69)" ;;
+        ok "42e-refine-or-block: activation-reviewer rejects body missing '## Success signals' (got '$dr_refine_verdict') (#69)" ;;
       *)
         dr_refine_head=$(printf '%s' "$dr_refine_out" | head -c 200 | tr '\n' ' ')
         ng "42e-refine-or-block: expected '^VERDICT: refine' or '^VERDICT: block', got '$dr_refine_verdict' [out: $dr_refine_head] (#69)" ;;
+    esac
+
+    # Case C — synthetic minimal-but-valid EXECUTION Issue body (#170). The
+    # type-neutral reviewer must dispatch to the Execution rulebook (no
+    # `directive` label) and pass a well-formed Execution body. This is the
+    # both-body-shapes coverage AC item 5 of #170 requires; the verdict vocab
+    # is still ship/refine/block (the pass/revise/reject contract is #172).
+    IFS= read -r -d '' dr_exec_prompt <<'PROMPT_EOF' || true
+Review the following proposed Execution Issue body (an Execution Issue — `task` label, NO `directive` label). Apply the Execution rulebook per SPEC §4.9.1 type-label dispatch. Treat the other-open-Issues list as empty (do not fetch it).
+
+Proposed body:
+
+Parent Directive: #167
+
+## What
+Add a single smoke assertion under §42e that exercises the activation-reviewer on an Execution-shaped body, proving the type-neutral dispatch handles both Issue types.
+
+## Why
+Serves Directive #167's context-narrowing mechanism via its `## MISSION fit`: the activation gate must validate Execution Issues, so the reviewer's Execution rulebook needs behavioral coverage.
+
+## Acceptance criteria
+- [ ] `CLAUDE_ENG_BEHAVIORAL_SMOKE=1 bash scripts/test/smoke.sh` adds a passing `42e-exec` assertion.
+- [ ] The assertion calls `claude -p --agent activation-reviewer` with an Execution-shaped body and asserts `^VERDICT: ship`.
+
+## Out of scope
+- The 3-state pass/revise/reject verdict contract (Issue #172).
+
+## Notes
+- Refs #170.
+PROMPT_EOF
+    dr_exec_out=$(claude -p --agent activation-reviewer "$dr_exec_prompt" 2>&1 || true)
+    dr_exec_verdict=$(printf '%s\n' "$dr_exec_out" | grep -E '^VERDICT: (ship —|ship -|refine:|block:)' | tail -1)
+    case "$dr_exec_verdict" in
+      "VERDICT: ship"*)
+        ok "42e-exec: activation-reviewer returns 'ship' on minimal-but-valid Execution body (#170)" ;;
+      *)
+        dr_exec_head=$(printf '%s' "$dr_exec_out" | head -c 200 | tr '\n' ' ')
+        ng "42e-exec: expected '^VERDICT: ship' on Execution body, got '$dr_exec_verdict' [out: $dr_exec_head] (#170)" ;;
     esac
   fi
 fi
@@ -3428,7 +3470,7 @@ fi
 # Command files are Markdown prompts for Claude (no executable code);
 # what we can verify here is that each file exists, has the standard
 # frontmatter (description + argument-hint), references the gated
-# directive-reviewer where SPEC §5.10–§5.14 require it, and names the
+# activation-reviewer where SPEC §5.10–§5.14 require it, and names the
 # correct audit category.
 
 DR_TEMPLATE="$SHELL_ROOT/.claude/templates/directive.md"
@@ -3465,22 +3507,22 @@ for cmd in file-directive list-directives activate-directive complete-directive 
 done
 
 # 43-reviewer-ref: file-directive, activate-directive, complete-directive,
-# revise-directive must each reference directive-reviewer (the gated step per
+# revise-directive must each reference activation-reviewer (the gated step per
 # SPEC §5.10/§5.12/§5.13/§5.16). block-directive is intentionally NOT
 # reviewer-gated (annotation-only — SPEC §5.17) and is asserted separately
 # below (43-no-reviewer-block).
 for cmd in file-directive activate-directive complete-directive revise-directive; do
-  if grep -qF "directive-reviewer" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
-    ok "43-reviewer-$cmd: command references directive-reviewer at the gated step (#45/#80)"
+  if grep -qF "activation-reviewer" "$SHELL_ROOT/.claude/commands/$cmd.md" 2>/dev/null; then
+    ok "43-reviewer-$cmd: command references activation-reviewer at the gated step (#45/#80)"
   else
-    ng "43-reviewer-$cmd: command does not reference directive-reviewer (#45/#80)"
+    ng "43-reviewer-$cmd: command does not reference activation-reviewer (#45/#80)"
   fi
 done
 
 # 43-annotation-only-block (#80): /block-directive must explicitly declare it
 # is annotation-only / not reviewer-gated (SPEC §5.17 contract). Catches a
 # future drift that adds a reviewer invocation without updating the spec.
-if grep -qE '(not reviewer-gated|annotation[, -]only|does not invoke `?directive-reviewer)' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null; then
+if grep -qE '(not reviewer-gated|annotation[, -]only|does not invoke `?activation-reviewer)' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null; then
   ok "43-annotation-only-block: /block-directive declares annotation-only / not-reviewer-gated contract (#80)"
 else
   ng "43-annotation-only-block: /block-directive must declare its annotation-only contract per SPEC §5.17 (#80)"
@@ -3873,7 +3915,7 @@ fi
 if [ "$all_agents_loadable" = 1 ] && [ "$agent_count" -ge 9 ]; then
   ok "49: all $agent_count agent files have loadable frontmatter — first-class routing eligible after session restart (SPEC §4.9.3) (#64)"
 elif [ "$all_agents_loadable" = 1 ]; then
-  ng "49: only $agent_count agents found; expected ≥9 (the eight engineering + directive-reviewer) (#64)"
+  ng "49: only $agent_count agents found; expected ≥9 (the eight engineering + activation-reviewer) (#64)"
 fi
 
 # ---------- 50. /file-directive Project-substrate guard (#71) ----------
@@ -4552,7 +4594,7 @@ else
 fi
 
 # ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
-# Cluster E (commands) + F (directive-reviewer) + G (setup_project.sh) + H
+# Cluster E (commands) + F (activation-reviewer) + G (setup_project.sh) + H
 # (SPEC §1.7/§2.1/§5.10-§5.18). Structural sanity for the
 # substrate flip from Project-Items-as-SSOT (v0) to Issues-as-SSOT (v3).
 
@@ -4585,14 +4627,14 @@ else
   ng "58b: /file-directive missing issue=#<N> or still uses item=<id> (#96/cluster E)"
 fi
 
-# 58c: directive-reviewer drops Goal-bootstrap allowance, adds MISSION.md alignment check.
-# Pattern updated (#162): directive-reviewer asserts MISSION.md alignment — the
+# 58c: activation-reviewer drops Goal-bootstrap allowance, adds MISSION.md alignment check.
+# Pattern updated (#162): activation-reviewer asserts MISSION.md alignment — the
 # load-bearing structural claim this gate protects.
-DR_AGENT="$SHELL_ROOT/.claude/agents/directive-reviewer.md"
+DR_AGENT="$SHELL_ROOT/.claude/agents/activation-reviewer.md"
 if grep -qE 'MISSION\.md alignment|MISSION fit' "$DR_AGENT" 2>/dev/null; then
-  ok "58c: directive-reviewer names MISSION.md alignment (#96/cluster F; updated #162)"
+  ok "58c: activation-reviewer names MISSION.md alignment (#96/cluster F; updated #162)"
 else
-  ng "58c: directive-reviewer missing MISSION.md alignment check (#96/cluster F; updated #162)"
+  ng "58c: activation-reviewer missing MISSION.md alignment check (#96/cluster F; updated #162)"
 fi
 
 # 58d: setup_project.sh declares the v3 4-state Status options + 2-option Type.

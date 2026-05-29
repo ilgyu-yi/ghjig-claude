@@ -26,7 +26,7 @@ Execute ship steps in order. If any step fails, stop immediately and report.
       ```
       audit_log info directive-exec-count merged "directive=#<D> pr=#<PR> issue=#<N>"
       ```
-    - **Critical**: this step does NOT flip the Directive's `Status` field. Directives complete via `/complete-directive` + `directive-reviewer` (SPEC §4.9 / §5.13) only. The audit line is a forensic trail of progress toward the Directive's success signals; counting it as completion would violate tracking #41 principle #3 ("Generation is open, decision is gated"). The human-readable counterpart is `/reflect` (SPEC §5.15) — `/ship` records the bare audit; `/reflect` posts the reflection comment on the parent Directive.
+    - **Critical**: this step does NOT flip the Directive's `Status` field. Directives complete via `/complete-directive` + `activation-reviewer` (SPEC §4.9 / §5.13) only. The audit line is a forensic trail of progress toward the Directive's success signals; counting it as completion would violate tracking #41 principle #3 ("Generation is open, decision is gated"). The human-readable counterpart is `/reflect` (SPEC §5.15) — `/ship` records the bare audit; `/reflect` posts the reflection comment on the parent Directive.
 11. Emit a single summary line to stdout naming the terminal action taken: `stopped at ready`, `merged`, or `parked: <reason>`.
 
 At the end, print the PR URL and follow-up notes (reviewer mentions, etc.).

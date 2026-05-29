@@ -7,7 +7,7 @@ issue → branch → draft PR → checklist commits → ready PR → merge. Ever
 
 Default autonomy ceiling stops at PR-ready (`attended` mode). See SPEC §5.7.1 for the `unattended` opt-in.
 
-**Dir-mode** (SPEC §1.7) extends the same pattern one level up: `MISSION.md` → Directive Issue → Execution Issue. Same generate → review → gated → audit shape; reviewer is `directive-reviewer` (§4.9). Workflow selection between eng-mode and dir-mode is manual; an automatic selector is a deferred capability (SPEC §0.4). Dir-mode commands live in §5.10–§5.18.
+**Dir-mode** (SPEC §1.7) extends the same pattern one level up: `MISSION.md` → Directive Issue → Execution Issue. Same generate → review → gated → audit shape; reviewer is `activation-reviewer` (§4.9). Workflow selection between eng-mode and dir-mode is manual; an automatic selector is a deferred capability (SPEC §0.4). Dir-mode commands live in §5.10–§5.18.
 
 ## Work order: Doc → Test → Code
 1. **Doc** — Write the behavior/contract to be changed into the SSOT (MISSION, README, CLAUDE.md, ARCHITECTURE, ADR) first.
@@ -39,7 +39,7 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 | Auth/input/deps/crypto changes | `security-reviewer` |
 | Rationale check on a proposed issue body | `issue-reviewer` |
 | Approach / alternatives check on a planner output | `plan-reviewer` |
-| Quality check on a proposed Directive or completion claim | `directive-reviewer` (dir-mode, §4.9) |
+| Quality check on a proposed Directive or completion claim | `activation-reviewer` (dir-mode, §4.9) |
 
 In `unattended` mode, the reviewers above substitute for human review at their respective checkpoints (SPEC §1.5 operating-mode coupling).
 

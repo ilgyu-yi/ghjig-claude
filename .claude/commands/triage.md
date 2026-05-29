@@ -5,7 +5,7 @@ argument-hint: "[--limit <N>]"
 
 Triage open Issues that carry `needs-triage` (raw filings) or `status:proposed` (Directive proposals awaiting maintainer ratification). For each, AI proposes ACCEPT or REJECT; the maintainer confirms; on REJECT the original Issue closes-as-not-planned and the maintainer refiles in the correct template.
 
-Triage is the **maintainer's binary decision** per Issue. The triage-reviewer subagent (§4.10) is the classifier — checks whether the Issue's body matches its claimed template. The substantive review of Directive content remains at `/activate-directive` (via `directive-reviewer`, §4.9).
+Triage is the **maintainer's binary decision** per Issue. The triage-reviewer subagent (§4.10) is the classifier — checks whether the Issue's body matches its claimed template. The substantive review of Directive content remains at `/activate-directive` (via `activation-reviewer`, §4.9).
 
 ## Procedure
 

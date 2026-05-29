@@ -31,7 +31,7 @@ Post a structured reflection comment on a PR's parent Directive summarizing what
    ### Next
    <One sentence on what's still open toward this Directive's signals.>
    ```
-   Read the Directive's `## Success signals` section from its body (the same field `directive-reviewer` uses at completion time). For each signal, search the PR body / AC closeout comment for evidence; if no evidence is found, mark the signal as "not advanced by this PR" rather than fabricating a claim.
+   Read the Directive's `## Success signals` section from its body (the same field `activation-reviewer` uses at completion time). For each signal, search the PR body / AC closeout comment for evidence; if no evidence is found, mark the signal as "not advanced by this PR" rather than fabricating a claim.
 
 5. **Post the comment** — `gh issue comment <D> --body "<composed>"`. Capture the new comment URL.
 

@@ -1,9 +1,9 @@
 ---
-description: Activate a Proposed Directive — re-runs directive-reviewer; on `ship` removes the `status:proposed` label (Issue → Active).
+description: Activate a Proposed Directive — re-runs activation-reviewer; on `ship` removes the `status:proposed` label (Issue → Active).
 argument-hint: <issue-#>
 ---
 
-Transition a Directive from `Status=Proposed` to `Status=Active` by removing the `status:proposed` label after a fresh `directive-reviewer` pass on the current body (which may have been edited in the GH UI since filing).
+Transition a Directive from `Status=Proposed` to `Status=Active` by removing the `status:proposed` label after a fresh `activation-reviewer` pass on the current body (which may have been edited in the GH UI since filing).
 
 Status is encoded as labels on the Issue (Issues are SSOT). Project Status field is mirrored by `.github/workflows/issues-to-project-mirror.yml`. `/activate-directive` does NOT write to the Project directly.
 
@@ -19,7 +19,7 @@ Status is encoded as labels on the Issue (Issues are SSOT). Project Status field
    - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
    - If `status:proposed` label absent: error ("Directive is already Active (no `status:proposed` label). Use `/list-directives` to inspect.") and stop.
 
-2. **Reviewer gate** — re-invoke `directive-reviewer` (SPEC §4.9) on the current body. The body may have changed in the GH UI since filing; the reviewer re-validates schema, scope, and active-Directive conflict against the current state. Parse verdict per `/file-directive` step 2 dispatch.
+2. **Reviewer gate** — re-invoke `activation-reviewer` (SPEC §4.9) on the current body. The body may have changed in the GH UI since filing; the reviewer re-validates schema, scope, and active-Directive conflict against the current state. Parse verdict per `/file-directive` step 2 dispatch.
 
    On `block`: stop. `status:proposed` label stays. Audit `directive-activate blocked "<reason>"`.
 

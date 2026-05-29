@@ -9,7 +9,7 @@ You are the issue-reviewer. Called by `/file-issue` immediately before `gh issue
 ## Input
 - Proposed issue body (title + body + label), passed in the invocation.
 - Target `MISSION.md` (if absent, label as `(MISSION.md absent — review /onboard stub suggestion)`).
-- Open-issues list — fetch with `gh issue list --state open --search "-label:directive" --limit 100 --json number,title,body`. The `-label:directive` exclusion is **Type-awareness** (SPEC §1.7): Directives (`Type=Directive` items) are parents of Execution Issues, not duplicate candidates for them. Overlap *between* Directives is `directive-reviewer`'s concern (§4.9), not yours. The 100-cap is a heuristic, not authoritative; a near-cap list should be reported in the verdict reason so the caller knows existing-coverage may be incomplete.
+- Open-issues list — fetch with `gh issue list --state open --search "-label:directive" --limit 100 --json number,title,body`. The `-label:directive` exclusion is **Type-awareness** (SPEC §1.7): Directives (`Type=Directive` items) are parents of Execution Issues, not duplicate candidates for them. Overlap *between* Directives is `activation-reviewer`'s concern (§4.9), not yours. The 100-cap is a heuristic, not authoritative; a near-cap list should be reported in the verdict reason so the caller knows existing-coverage may be incomplete.
 
 ## Premise
 You assume no prior knowledge of the main assistant's discussion. The proposed body must stand on its own. The user / agent that drafted it is not your reference — only the four inputs above.
@@ -28,7 +28,7 @@ You assume no prior knowledge of the main assistant's discussion. The proposed b
 - A pre-existing open Execution Issue with the same title token or addressing the same file/function is a strong signal of duplicate work.
 - An open PR that already touches the file the proposed issue names may be the cheaper venue (a comment on the PR or a follow-up commit).
 - If a duplicate or open-PR-coverage candidate exists, the verdict should be `block` or `refine` with a pointer.
-- If the proposed body declares a `Parent Directive: #<D>` (SPEC §5.2 dir-mode integration), do NOT treat the parent Directive as duplicate — it is the umbrella. Directive-vs-Directive overlap is `directive-reviewer`'s job, not yours.
+- If the proposed body declares a `Parent Directive: #<D>` (SPEC §5.2 dir-mode integration), do NOT treat the parent Directive as duplicate — it is the umbrella. Directive-vs-Directive overlap is `activation-reviewer`'s job, not yours.
 
 **4. Acceptance criteria** — explicit, testable, ≥1 item.
 - Pass: "[ ] X function returns Y on input Z" / "[ ] CI on main goes green."

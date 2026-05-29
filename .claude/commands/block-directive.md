@@ -7,7 +7,7 @@ Add the `status:blocked` label and a `## Blocked: <reason>` comment to an Active
 
 `status:blocked` is the canonical state encoding. The Project Item's Status field follows via `.github/workflows/issues-to-project-mirror.yml`.
 
-Not reviewer-gated by `directive-reviewer` — blocking is an annotation, not a body change.
+Not reviewer-gated by `activation-reviewer` — blocking is an annotation, not a body change.
 
 ## Procedure
 
@@ -47,7 +47,7 @@ Not reviewer-gated by `directive-reviewer` — blocking is an annotation, not a 
    Reason: <reason>
    Block comment: <comment-url>
    Status: Blocked (label: status:blocked)
-   To unblock: /activate-directive <issue-#> (re-runs directive-reviewer; removes status:blocked label if shipping).
+   To unblock: /activate-directive <issue-#> (re-runs activation-reviewer; removes status:blocked label if shipping).
    ```
 
 ## Operating mode

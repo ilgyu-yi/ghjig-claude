@@ -15,7 +15,7 @@ So the shell does not try to give the agent better instructions for "do the whol
 - **Subagents run in isolated context windows.** `planner`, `doc-writer`, `test-writer`, and the `*-reviewer` family each spawn with a fresh context, do their job, and return a summary. Exploration burn, planning detours, and review reasoning never pollute the main session. The main agent reads a verdict, not a transcript.
 - **GitHub artifacts are the durable memory.** Branch state, draft-PR body, AC checkboxes, merged commit history, audit log — these survive across sessions. A resumed session reads its position from the repo, not from a long conversation transcript that may not exist anymore. SessionStart re-injects only the slice relevant to where the work currently sits.
 - **Hooks enforce the rules so the agent doesn't have to remember them.** Protected-branch commits, secrets in the diff, malformed commit messages, AC-unticked merges — the environment refuses, with an audit-logged escape hatch for the cases that warrant one. The agent's context stays focused on the work, not on policing itself against every rule in the SPEC.
-- **Reviewers judge from the artifact, not the conversation.** `code-reviewer`, `security-reviewer`, `directive-reviewer`, and their peers see the diff + PR body + MISSION — not the discussion that produced them. Arguments that sounded convincing fifty messages ago carry no weight at the gate. This isolation is the point: a fresh reader catches what a primed one cannot.
+- **Reviewers judge from the artifact, not the conversation.** `code-reviewer`, `security-reviewer`, `activation-reviewer`, and their peers see the diff + PR body + MISSION — not the discussion that produced them. Arguments that sounded convincing fifty messages ago carry no weight at the gate. This isolation is the point: a fresh reader catches what a primed one cannot.
 
 Put together: the shell's mechanisms are not independent good-engineering practices stacked on each other. They are all aimed at the same lever — keeping the slice of context the model is reasoning over at any given moment as small and relevant as possible.
 
@@ -151,7 +151,7 @@ Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>' <command
 
 ## Subagents
 
-Ten in total: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `directive-reviewer`, `triage-reviewer`. The six reviewers (`code-`, `security-`, `issue-`, `plan-`, `directive-`, `triage-`) substitute for human-confirm checkpoints in `unattended` mode. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
+Ten in total: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`, `triage-reviewer`. The six reviewers (`code-`, `security-`, `issue-`, `plan-`, `activation-`, `triage-`) substitute for human-confirm checkpoints in `unattended` mode. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
 
 ## More commands
 
@@ -198,7 +198,7 @@ All optional. Per-target state files live under `.claude/state/` (gitignored); e
 | Stop-hook throttle | — | `CLAUDE_ENG_STOP_THROTTLE` | `5` | Suggest `/review` every Nth response from the Stop hook (§6.3) |
 | Unattended park log | — | `SHIP_PARK_LOG_PATH` | `.claude/state/unattended-park.log` | Where `/ship` appends park entries in `unattended` mode (§5.7.1) |
 | PR cache repo override | — | `PR_CACHE_REPO` | — | Override the `owner/repo` `pr_cache` queries; falls back to `gh repo view` of the cwd (§5.4) |
-| Behavioral smoke gate | — | `CLAUDE_ENG_BEHAVIORAL_SMOKE` | unset | Set to `1` to exercise live `directive-reviewer` in smoke §42e (SPEC §4.9.3); default-unset keeps smoke offline + deterministic |
+| Behavioral smoke gate | — | `CLAUDE_ENG_BEHAVIORAL_SMOKE` | unset | Set to `1` to exercise live `activation-reviewer` in smoke §42e (SPEC §4.9.3); default-unset keeps smoke offline + deterministic |
 | Dir-mode Project name | — | `CLAUDE_ENG_PROJECT_NAME` | `<repo-name> roadmap` (literal) | Override the dir-mode Project v2 title resolved by `scripts/setup_project.sh` and `scripts/dir_mode_project.sh resolve` (SPEC §1.7 Substrate guard) |
 
 *`STATUS_CACHE_DIR_OVERRIDE` is internal-only (smoke-test plumbing for `helpers/status.sh`) and intentionally not listed.*

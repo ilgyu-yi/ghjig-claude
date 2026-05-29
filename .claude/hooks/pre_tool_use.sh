@@ -214,7 +214,7 @@ case "$tool" in
               0)
                 # Type-awareness (SPEC §1.7, §6.1) — if the linked closing issue
                 # is a Directive, the AC-closeout gate doesn't apply (Directives
-                # close via /complete-directive + directive-reviewer, not by AC
+                # close via /complete-directive + activation-reviewer, not by AC
                 # checkboxes). Skip the block, info-log, and let merge proceed.
                 ac_directive_skip=
                 if command -v is_directive_issue >/dev/null 2>&1; then

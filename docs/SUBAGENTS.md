@@ -85,7 +85,7 @@ Approach + alternatives check on `planner` output. The reviewer enforces that th
 - **Output**: `ship` / `refine` / `block` — `ship` in `unattended` mode substitutes for human plan approval.
 - **Spec**: SPEC §4.8.
 
-### directive-reviewer
+### activation-reviewer
 
 Quality check on a proposed Directive body (`/file-directive`, `/activate-directive`, `/revise-directive`) or a completion claim (`/complete-directive`).
 
@@ -100,7 +100,7 @@ Binary classifier for `/triage` — per-Issue template-content match check.
 
 - **When**: every Issue under `/triage`'s queue (Issues carrying `needs-triage` or `status:proposed`).
 - **Input**: Issue body + labels + `authorAssociation` passed in the invocation. No `gh` calls; no cross-Issue duplicate scan.
-- **Output**: `ACCEPT` (template-content match) or `REJECT — refile as <template>: <reason>` (mis-template usage). Intentionally lighter than `directive-reviewer`; substantive Directive review still happens at `/activate-directive`.
+- **Output**: `ACCEPT` (template-content match) or `REJECT — refile as <template>: <reason>` (mis-template usage). Intentionally lighter than `activation-reviewer`; substantive Directive review still happens at `/activate-directive`.
 - **Spec**: SPEC §4.10.
 
 ## Calling subagents
@@ -110,7 +110,7 @@ From within Claude Code, name the subagent in conversation or rely on the skill'
 ```
 > have planner take this change
 > review the PR with code-reviewer
-> file the directive proposal (will route through directive-reviewer)
+> file the directive proposal (will route through activation-reviewer)
 ```
 
 `/work-on`, `/ship`, `/file-issue`, `/file-directive`, `/activate-directive`, `/complete-directive`, `/revise-directive`, and `/triage` invoke their reviewers automatically.

@@ -22,7 +22,7 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
 
 2. **Author the new body** — the user supplies the replacement body (full content per `.claude/templates/directive.md`: Objective / Success signals / Non-goals / Constraints / MISSION fit). Refuse to proceed if any required section is missing.
 
-3. **Reviewer gate** — invoke `directive-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently Active Directives (filter out this one — it's about to change), MISSION.md content. Parse the verdict per `/file-directive` step 2 dispatch.
+3. **Reviewer gate** — invoke `activation-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently Active Directives (filter out this one — it's about to change), MISSION.md content. Parse the verdict per `/file-directive` step 2 dispatch.
 
    - **`ship`** → proceed to step 4.
    - **`refine: <feedback>`** → revise the proposed new body per the one-line feedback. Re-invoke. After two consecutive `refine` verdicts, escalate (attended) or treat as `block` (unattended).
