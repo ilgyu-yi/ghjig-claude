@@ -373,10 +373,58 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace trusted-filer-mutate "$cmd"
     fi
 
-    # Force push
+    # Force push — scoped to protected targets, with an explicit-target
+    # requirement (#204). Force-push to a non-protected branch is the normal
+    # rebase-pull tail (SPEC §13) and is allowed — but ONLY when the target
+    # branch is named explicitly (`git push --force-with-lease origin <branch>`).
+    #   - a PROTECTED branch named anywhere in the command → block.
+    #   - a BARE / remote-only force-push (no explicit refspec) → block with
+    #     guidance to name the target. The bare form is NOT HEAD-resolved: a
+    #     no-refspec push's real destination is config-dependent (push.default,
+    #     branch upstream, remote.*.push), so the current branch name is not a
+    #     reliable proxy — a feature branch tracking origin/main could otherwise
+    #     clobber main. Fail-safe: when the target can't be confirmed
+    #     non-protected, block. Escape: SKIP_HOOKS=force-push.
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*(\-f\b|\-\-force\b|\-\-force-with-lease\b)"; then
       decided=
-      should_skip force-push && decided=1 || block force-push "force push blocked"
+      # Protected-token presence, computed off the `if printf|grep` form so the
+      # §39b structural sweep counts only the one matcher-entry line above.
+      fp_protected=
+      printf '%s' "$cmd" | grep -qE "\b(${PROTECTED_BRANCH_PATTERN})\b" && fp_protected=1
+      if should_skip force-push; then
+        decided=1
+      elif [ -n "$fp_protected" ]; then
+        block force-push "force push to a protected branch (${PROTECTED_BRANCH_PATTERN//|/, }) blocked"
+      else
+        # Count positional (non-flag) tokens after `push`. An explicit
+        # <remote> <refspec> pair (>=2 positionals) means the target is named
+        # and — with no protected token present above — verified non-protected.
+        # Skip values of the value-taking push flags so they aren't miscounted
+        # as positionals (would over-count and wrongly allow a bare push).
+        fp_positionals=0
+        fp_seen_push=
+        fp_skip_next=
+        read -ra fp_arr <<< "$cmd"
+        for fp_tok in "${fp_arr[@]}"; do
+          if [ -z "$fp_seen_push" ]; then
+            [ "$fp_tok" = push ] && fp_seen_push=1
+            continue
+          fi
+          if [ -n "$fp_skip_next" ]; then fp_skip_next=; continue; fi
+          case "$fp_tok" in
+            -o|--push-option|--repo|--receive-pack|--exec) fp_skip_next=1 ;;
+            -*) ;;  # flag — not a positional
+            *) fp_positionals=$((fp_positionals + 1)) ;;
+          esac
+        done
+        if [ "$fp_positionals" -ge 2 ]; then
+          # Explicit <remote> <refspec>, non-protected → the rebase-pull tail. Allow.
+          mark_allow force-push
+          decided=1
+        else
+          block force-push "force push needs an explicit target branch: use 'git push --force-with-lease origin <branch>'. A bare or remote-only force-push is blocked because its real destination is config-dependent (push.default / upstream tracking) and can't be confirmed non-protected. Or SKIP_HOOKS=force-push SKIP_REASON='<why>'."
+        fi
+      fi
       [ -z "$decided" ] && pass_through_trace force-push "$cmd"
     fi
 
