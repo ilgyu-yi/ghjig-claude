@@ -15,9 +15,9 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
        ▼
 [Directive in `Proposed` state]   visible via /list-directives --status Proposed
        │
-       ├── /triage (maintainer queue)        ← triage-reviewer (§4.10) binary ACCEPT/REJECT
-       │       REJECT → close-as-not-planned + maintainer refiles in correct template
-       │       ACCEPT → continue
+       ├── /activate <N> (or batch)          ← activation-reviewer (§4.9) pass/revise/reject
+       │       reject → filer-aware handling (refile); revise → awaiting-author
+       │       pass → status:proposed removed → Active
        │
        ▼
   /activate-directive <N>     ← activation-reviewer re-runs on current body (catches GH-UI edits)
@@ -69,8 +69,9 @@ Full details in [SPEC.md §1.7](../SPEC.md) and [SPEC.md §2.1](../SPEC.md). Thi
 |-------|--------------|----------|-------------------|
 | `/file-directive` | File a new Directive Issue | `activation-reviewer` (filing body) | none → Proposed |
 | `/list-directives [--status <S>]` | List Directives filtered by Status label | — | read-only |
-| `/triage` | Per-Issue ACCEPT/REJECT classifier (covers `needs-triage` and `status:proposed`) | `triage-reviewer` | (no body change) |
-| `/activate-directive <N>` | Promote Proposed → Active | `activation-reviewer` (current body re-check) | Proposed → Active |
+| `/activate [<N>]` | Promote any Proposed Issue → Active (single or batch); also surfaces stale discussions | `activation-reviewer` (current body) | Proposed → Active |
+| `/triage` | Deprecated one-cycle alias for `/activate` (#173) | — (delegates) | (alias) |
+| `/activate-directive <N>` | Deprecated one-cycle alias for `/activate` (#172) | `activation-reviewer` (via `/activate`) | Proposed → Active |
 | `/file-issue --parent <N> <description>` | File an Execution Issue under Directive #N | `issue-reviewer` (rationale triad) | — |
 | `/link-directive <directive-#> <execution-#>` | Set/repair the `Parent Directive: #N` body marker | — (idempotent) | — |
 | `/block-directive <N> --reason '<why>'` | Annotation-only block | — (no body change) | Active → Blocked |
@@ -116,7 +117,7 @@ A target repo adopts the shell at one of three tiers (SPEC §1.7 substrate-in-ta
 ## See also
 
 - [`ENGINEERING_FLOW.md`](./ENGINEERING_FLOW.md) — the engineering tier (Execution Issue → PR → merge).
-- [`SUBAGENTS.md`](./SUBAGENTS.md) — full reviewer catalog including `activation-reviewer` and `triage-reviewer`.
+- [`SUBAGENTS.md`](./SUBAGENTS.md) — full reviewer catalog including `activation-reviewer` (the triage classifier was retired in #173).
 - [`ESCAPE_HATCH.md`](./ESCAPE_HATCH.md) — bypass categories including `directive-review`, `proposed-protect`, `trusted-filer-mutate`.
 - [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) — symptom-to-fix rows for dir-mode blocks.
 - [SPEC §1.7, §2.1, §4.9, §5.10–§5.18](../SPEC.md) — full normative spec.

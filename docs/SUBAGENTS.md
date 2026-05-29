@@ -47,7 +47,7 @@ Phase B. Translates the Phase A doc into a failing test, confirms the failure is
 
 ## Reviewers
 
-Reviewers never author content. Each emits a `VERDICT:` line whose values vary per reviewer — most use `ship` / `refine: <one-line>` / `block: <reason>`; `code-reviewer` uses `ship` / `ship after fix` / `block (blocker)` (SPEC §4.5); `triage-reviewer` uses `ACCEPT` / `REJECT — refile as <template>` (SPEC §4.10). Per SPEC §1.5 operating-mode coupling: in `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly.
+Reviewers never author content. Each emits a `VERDICT:` line whose values vary per reviewer — `issue-reviewer` / `plan-reviewer` use `ship` / `refine: <one-line>` / `block: <reason>`; `code-reviewer` uses `ship` / `ship after fix` / `block (blocker)` (SPEC §4.5); `activation-reviewer` uses `pass` / `revise` / `reject` with structured refile fields (SPEC §4.9.1, #172). Per SPEC §1.5 operating-mode coupling: in `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly.
 
 ### code-reviewer
 
@@ -94,14 +94,7 @@ Quality check on a proposed Directive body (`/file-directive`, `/activate-direct
 - **Output**: `ship` / `refine` / `block`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check.
 - **Spec**: SPEC §4.9.1.
 
-### triage-reviewer
-
-Binary classifier for `/triage` — per-Issue template-content match check.
-
-- **When**: every Issue under `/triage`'s queue (Issues carrying `needs-triage` or `status:proposed`).
-- **Input**: Issue body + labels + `authorAssociation` passed in the invocation. No `gh` calls; no cross-Issue duplicate scan.
-- **Output**: `ACCEPT` (template-content match) or `REJECT — refile as <template>: <reason>` (mis-template usage). Intentionally lighter than `activation-reviewer`; substantive Directive review still happens at `/activate-directive`.
-- **Spec**: SPEC §4.10.
+> **Triage classifier — retired (#173).** The former binary triage classifier agent was deleted. Its `status:proposed` substantive gate is now `activation-reviewer` (above); its template-shape classification is absorbed by `/activate`'s type-mismatch matrix. `/triage` survives only as a one-cycle alias for `/activate` (SPEC §5.12/§5.18).
 
 ## Calling subagents
 

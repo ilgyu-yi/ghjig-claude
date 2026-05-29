@@ -151,7 +151,7 @@ Every block is escapable via `SKIP_HOOKS=<category> SKIP_REASON='<why>' <command
 
 ## Subagents
 
-Ten in total: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`, `triage-reviewer`. The six reviewers (`code-`, `security-`, `issue-`, `plan-`, `activation-`, `triage-`) substitute for human-confirm checkpoints in `unattended` mode. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
+Nine in total: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`. The five reviewers (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human-confirm checkpoints in `unattended` mode. (The triage classifier was retired in #173 — `/activate` absorbs its gate.) See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
 
 ## More commands
 
