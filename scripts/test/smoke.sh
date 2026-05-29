@@ -5128,6 +5128,19 @@ else
   ng "63h: substrate-preflight grep regression — whole-line form in [$(printf '%s' "${s63h_stale:-none}" | tr '\n' ' ')], cut-form count $s63h_cut/6 (#189)"
 fi
 
+# §63i: SPEC §1.7 tier-3 workflow brace-list names all 5 installed workflows,
+# incl. check-changelog (#190). §63a asserts the canonical source SHIPS 5
+# workflows; §63i asserts the SPEC §1.7 "Substrate-in-target contract" TEXT
+# names check-changelog in the tier-3 brace-list — the doc-vs-shipped drift
+# #190 corrects. Anchored to the brace-list via auto-status-proposed (the
+# first list member) so it matches only the tier-3 line, not check-changelog
+# mentions elsewhere in SPEC (e.g. §66 references).
+if grep -qE 'auto-status-proposed.*check-changelog' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "63i: SPEC §1.7 tier-3 workflow brace-list includes check-changelog (5 workflows) (#190)"
+else
+  ng "63i: SPEC §1.7 tier-3 workflow brace-list omits check-changelog (doc-vs-shipped drift) (#190)"
+fi
+
 # ---------- 64. version surface (#123 / Directive #122) ----------
 # 64a — VERSION file is exactly one non-empty line (semver 0.x format
 # locked by Directive #122 constraint #1; no comments, no trailing
