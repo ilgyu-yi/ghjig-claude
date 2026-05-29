@@ -30,7 +30,7 @@ Each tier is a strict superset. Re-running is idempotent at every step.
    - Invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/onboard_target.sh --tier 3`:
      - Copies canonical files from `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/target-substrate/` into target's `.github/`:
        - `ISSUE_TEMPLATE/{config,directive-proposal,execution-under-directive,task,bug-report,discussion}.yml`
-       - `workflows/{auto-status-proposed,issues-to-project-mirror,dir-mode-post-merge,check-changelog}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied.
+       - `workflows/{auto-status-proposed,auto-clear-awaiting-author,issues-to-project-mirror,dir-mode-post-merge,check-changelog}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied.
      - Creates branch `onboard-dir-mode-substrate`, commits the files, pushes, opens a PR via `gh pr create --title "chore: onboard claude-eng-shell dir-mode substrate"` — **target maintainer reviews + merges**.
      - Direct push to target's `main` is forbidden (protected-branch hook fires; PR-based install is the canonical path — SPEC §1.7 Bootstrap path).
    - Project v2 setup: invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/setup_project.sh` (idempotent — creates the Project if absent, reconciles fields if present).

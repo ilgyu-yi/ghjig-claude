@@ -4352,6 +4352,20 @@ else
   ng "54f: ensure_v3_labels.sh label set wrong (needs-triage must be retired, awaiting-author present) (#93/#172/#179)"
 fi
 
+# 54h: auto-clear-awaiting-author workflow (#180) — fires on issues.edited, removes
+# awaiting-author, gh-CLI-only (no third-party Actions), both copies byte-identical.
+ACA_WF="$SHELL_ROOT/.github/workflows/auto-clear-awaiting-author.yml"
+ACA_SUB="$SHELL_ROOT/.claude/templates/target-substrate/workflows/auto-clear-awaiting-author.yml"
+if [ -f "$ACA_WF" ] \
+   && grep -qE "^[[:space:]]+types:[[:space:]]*\[edited\]" "$ACA_WF" 2>/dev/null \
+   && grep -q -- '--remove-label "awaiting-author"' "$ACA_WF" 2>/dev/null \
+   && ! grep -qE '^[[:space:]]*uses:' "$ACA_WF" 2>/dev/null \
+   && diff -q "$ACA_WF" "$ACA_SUB" >/dev/null 2>&1; then
+  ok "54h: auto-clear-awaiting-author fires on issues.edited, removes awaiting-author, no 3rd-party Actions, copies identical (#180)"
+else
+  ng "54h: auto-clear-awaiting-author workflow missing/wrong (issues.edited + --remove-label awaiting-author + gh-only + byte-identical copies) (#180)"
+fi
+
 # 54g: YAML structural sanity via python+pyyaml when available.
 if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
   s54g_fails=0
@@ -4963,20 +4977,21 @@ fi
 # canonical-source directory, /onboard-dir-mode skill, scripts/onboard_target.sh,
 # and per-command graceful-degradation preflight references.
 
-# §63a: canonical-source directory has the 10 expected files.
+# §63a: canonical-source directory has the 11 expected files.
 S63_SUB="$SHELL_ROOT/.claude/templates/target-substrate"
 s63a_count=0
 for f in ISSUE_TEMPLATE/config.yml ISSUE_TEMPLATE/directive-proposal.yml \
          ISSUE_TEMPLATE/execution-under-directive.yml ISSUE_TEMPLATE/task.yml \
          ISSUE_TEMPLATE/bug-report.yml ISSUE_TEMPLATE/discussion.yml \
-         workflows/auto-status-proposed.yml workflows/issues-to-project-mirror.yml \
+         workflows/auto-status-proposed.yml workflows/auto-clear-awaiting-author.yml \
+         workflows/issues-to-project-mirror.yml \
          workflows/dir-mode-post-merge.yml workflows/check-changelog.yml; do
   [ -f "$S63_SUB/$f" ] && s63a_count=$((s63a_count + 1))
 done
-if [ "$s63a_count" = 10 ]; then
-  ok "63a: target-substrate canonical-source has 10 files (6 ISSUE_TEMPLATE + 4 workflows) (#118 + #133)"
+if [ "$s63a_count" = 11 ]; then
+  ok "63a: target-substrate canonical-source has 11 files (6 ISSUE_TEMPLATE + 5 workflows) (#118 + #133 + #180)"
 else
-  ng "63a: target-substrate canonical-source missing files: expected 10, found $s63a_count (#118 + #133)"
+  ng "63a: target-substrate canonical-source missing files: expected 11, found $s63a_count (#118 + #133 + #180)"
 fi
 
 # §63b: /onboard-dir-mode skill file exists with tiered procedure.
