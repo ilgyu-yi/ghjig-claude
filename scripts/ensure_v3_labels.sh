@@ -30,9 +30,8 @@ echo "ensure_v3_labels: creating v3 reframe labels (idempotent)..."
 
 ensure_label "status:proposed" "FBCA04" "Directive proposed; awaiting maintainer triage (SPEC §2.1 v3)"
 ensure_label "status:blocked"  "B60205" "Directive cannot proceed without external input (SPEC §5.17)"
-ensure_label "awaiting-author"  "F9D0C4" "Reviewer delivered a verdict (revise / trusted-filer reject); author action pending (SPEC §2.1, #172)"
+ensure_label "awaiting-author"  "F9D0C4" "Reviewer returned a verdict (revise/trusted-reject); author action pending (#172)"
 ensure_label "task"            "C5DEF5" "Standalone task or small improvement (not parented under a Directive)"
-ensure_label "needs-triage"    "D4C5F9" "Issue filed without a template — awaiting maintainer triage classification"
 ensure_label "discussion"      "FEF2C0" "Observation or half-formed idea; close as promoted (#M) or no-action (SPEC §5.19)"
 ensure_label "skip-changelog"  "CCCCCC" "PR exempt from fragment-gate; no end-user observable change (SPEC §18.6)"
 

@@ -1,0 +1,46 @@
+name: auto-status-proposed
+
+# Cluster A (Directive #92, Issue #93) — repurposed by #179 (Directive #178):
+# apply `status:proposed` + `task` to any Issue opened without any label.
+# Server-side workflow because template-based filings already get their
+# `labels:` frontmatter applied; only template-free (raw) filings have an empty
+# label set. Stamping `status:proposed` routes raw filings into the same
+# activation gate as /file-issue filings — /activate surfaces them and
+# proposed-protect blocks branching them until activated (closes the raw-channel
+# bypass hole; #178).
+#
+# Idempotent: the workflow's only effect is `gh issue edit --add-label`, a no-op
+# if the labels are already present. The count==0 guard fires only on truly
+# label-free filings; a workflow-applied label change does not re-fire the
+# `opened` trigger, so there is no self-trigger loop.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  apply-status-proposed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect label set
+        id: labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          n="${{ github.event.issue.number }}"
+          labels=$(gh issue view "$n" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | length')
+          echo "count=$labels" >> "$GITHUB_OUTPUT"
+
+      - name: Apply status:proposed + task on label-free Issue
+        if: steps.labels.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          n="${{ github.event.issue.number }}"
+          gh issue edit "$n" --repo "${{ github.repository }}" --add-label "status:proposed" --add-label "task"
