@@ -4340,16 +4340,19 @@ else
   ng "54e: execution-under-directive.yml missing parent-directive input (#93)"
 fi
 
-# 54f: ensure_v3_labels.sh creates the dir-mode labels (incl. awaiting-author, #172).
+# 54f: ensure_v3_labels.sh creates the dir-mode labels (incl. awaiting-author #172, P0-P3 #185).
+s54f_p=1
+for p in P0 P1 P2 P3; do grep -q "ensure_label \"$p\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" || s54f_p=0; done
 if [ -x "$SHELL_ROOT/scripts/ensure_v3_labels.sh" ] \
    && grep -q "status:proposed" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && grep -q "status:blocked" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && ! grep -q "needs-triage" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && grep -q "awaiting-author" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
-   && grep -q "ensure_label.*\"task\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh"; then
-  ok "54f: ensure_v3_labels.sh creates status:proposed + status:blocked + task + awaiting-author; no needs-triage (#93/#172/#179)"
+   && grep -q "ensure_label.*\"task\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && [ "$s54f_p" = 1 ]; then
+  ok "54f: ensure_v3_labels.sh creates status:proposed + status:blocked + task + awaiting-author + P0-P3; no needs-triage (#93/#172/#179/#185)"
 else
-  ng "54f: ensure_v3_labels.sh label set wrong (needs-triage must be retired, awaiting-author present) (#93/#172/#179)"
+  ng "54f: ensure_v3_labels.sh label set wrong (need awaiting-author + P0-P3, no needs-triage) (#93/#172/#179/#185)"
 fi
 
 # 54h: auto-clear-awaiting-author workflow (#180) — fires on issues.edited, removes
@@ -5063,7 +5066,7 @@ fi
 # exercise label parsing; §63g closes the gap.
 s63g_out=$("$SHELL_ROOT/scripts/onboard_target.sh" --tier 2 --dry-run 2>&1 || true)
 s63g_ok=1
-for required in "status:proposed" "status:blocked" "awaiting-author" "discussion" "task" "skip-changelog"; do
+for required in "status:proposed" "status:blocked" "awaiting-author" "discussion" "task" "skip-changelog" "P0" "P1" "P2" "P3"; do
   if ! printf '%s' "$s63g_out" | grep -qE "gh label create '$required'"; then
     s63g_ok=0
     break
