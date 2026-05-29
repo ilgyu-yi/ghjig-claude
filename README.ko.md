@@ -137,10 +137,10 @@ Directive Issue 자체는 절대 branch되지 않습니다 — `proposed-protect
 
 ## Operating modes
 
-| Mode | `/ship` terminal behavior | Use |
+| Mode | `/ship` 종료 동작 | 용도 |
 |---|---|---|
-| `attended` (default) | stops at PR-ready | human reviews + merges |
-| `unattended` | continues to merge (clean) or park (hard blocker) | overnight runs, batched fixes |
+| `attended` (default) | PR-ready에서 멈춤 | 사람이 리뷰 + merge |
+| `unattended` | merge로 진행(clean) 또는 park(hard blocker) | 야간 실행, 일괄 수정 |
 
 target별로 `echo unattended > .claude/state/mode`로 설정합니다. 호출별로 `/ship --mode=unattended`로 재정의합니다. 전체 해석 우선순위와 blocker 분류는 SPEC §5.7.1을 참고하세요.
 
@@ -196,17 +196,17 @@ claude-eng --version       # → prints VERSION-file contents (or `git describe`
 
 | Knob | File | Env | Default | Purpose |
 |---|---|---|---|---|
-| Operating mode | `mode` | `CLAUDE_ENG_SHELL_MODE` | `attended` | `/ship` terminal behavior (§5.7.1) |
-| Co-Authored-By trailer | `coauthor` | `CLAUDE_ENG_COAUTHOR` | `on` | Include the trailer in `/work-on` commits (§10.2) |
-| Status cache TTL | — | `STATUS_CACHE_TTL` | `5` | Seconds before re-querying `gh` from `_status_collect` (§5.5) |
-| Session-start fetch TTL | — | `SESSION_START_FETCH_TTL` | `21600` | Seconds before the shell-behind `git fetch` runs again (§6.5) |
-| Session-start fetch timeout | — | `SESSION_START_FETCH_TIMEOUT` | `5` | Per-fetch `timeout(1)` bound when the TTL elapses (§6.5) |
-| Commit-time lint timeout | — | `CLAUDE_ENG_LINT_TIMEOUT` | `30` | Bound on the commit gate's lint (§6.1) |
-| Stop-hook throttle | — | `CLAUDE_ENG_STOP_THROTTLE` | `5` | Suggest `/review` every Nth response from the Stop hook (§6.3) |
-| Unattended park log | — | `SHIP_PARK_LOG_PATH` | `.claude/state/unattended-park.log` | Where `/ship` appends park entries in `unattended` mode (§5.7.1) |
-| PR cache repo override | — | `PR_CACHE_REPO` | — | Override the `owner/repo` `pr_cache` queries; falls back to `gh repo view` of the cwd (§5.4) |
-| Behavioral smoke gate | — | `CLAUDE_ENG_BEHAVIORAL_SMOKE` | unset | Set to `1` to exercise live `activation-reviewer` in smoke §42e (SPEC §4.9.3); default-unset keeps smoke offline + deterministic |
-| Dir-mode Project name | — | `CLAUDE_ENG_PROJECT_NAME` | `<repo-name> roadmap` (literal) | Override the dir-mode Project v2 title resolved by `scripts/setup_project.sh` and `scripts/dir_mode_project.sh resolve` (SPEC §1.7 Substrate guard) |
+| Operating mode | `mode` | `CLAUDE_ENG_SHELL_MODE` | `attended` | `/ship` 종료 동작 (§5.7.1) |
+| Co-Authored-By trailer | `coauthor` | `CLAUDE_ENG_COAUTHOR` | `on` | `/work-on` commit에 trailer 포함 (§10.2) |
+| Status cache TTL | — | `STATUS_CACHE_TTL` | `5` | `_status_collect`가 `gh`를 다시 조회하기까지의 초 (§5.5) |
+| Session-start fetch TTL | — | `SESSION_START_FETCH_TTL` | `21600` | shell-behind `git fetch`를 다시 실행하기까지의 초 (§6.5) |
+| Session-start fetch timeout | — | `SESSION_START_FETCH_TIMEOUT` | `5` | TTL 경과 시 fetch마다 적용되는 `timeout(1)` 한도 (§6.5) |
+| Commit-time lint timeout | — | `CLAUDE_ENG_LINT_TIMEOUT` | `30` | commit 게이트 lint의 한도 (§6.1) |
+| Stop-hook throttle | — | `CLAUDE_ENG_STOP_THROTTLE` | `5` | Stop hook이 N번째 응답마다 `/review`를 제안 (§6.3) |
+| Unattended park log | — | `SHIP_PARK_LOG_PATH` | `.claude/state/unattended-park.log` | `unattended` 모드에서 `/ship`이 park 항목을 추가하는 위치 (§5.7.1) |
+| PR cache repo override | — | `PR_CACHE_REPO` | — | `pr_cache` 조회의 `owner/repo`를 재정의; cwd의 `gh repo view`로 폴백 (§5.4) |
+| Behavioral smoke gate | — | `CLAUDE_ENG_BEHAVIORAL_SMOKE` | unset | `1`로 설정하면 smoke §42e에서 live `activation-reviewer`를 실행(SPEC §4.9.3); 기본 미설정은 smoke를 오프라인 + 결정적으로 유지 |
+| Dir-mode Project name | — | `CLAUDE_ENG_PROJECT_NAME` | `<repo-name> roadmap` (literal) | `scripts/setup_project.sh`와 `scripts/dir_mode_project.sh resolve`가 해석하는 dir-mode Project v2 제목을 재정의 (SPEC §1.7 Substrate guard) |
 
 *`STATUS_CACHE_DIR_OVERRIDE`는 내부 전용(`helpers/status.sh`를 위한 smoke-test 배관)이며 의도적으로 목록에 포함하지 않았습니다.*
 
