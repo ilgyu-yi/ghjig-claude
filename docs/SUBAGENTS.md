@@ -106,7 +106,7 @@ From within Claude Code, name the subagent in conversation or rely on the skill'
 > file the directive proposal (will route through activation-reviewer)
 ```
 
-`/work-on`, `/ship`, `/file-issue`, `/file-directive`, `/activate-directive`, `/complete-directive`, `/revise-directive`, and `/triage` invoke their reviewers automatically.
+`/work-on`, `/ship`, `/file-issue`, `/file-directive`, `/activate`, `/complete-directive`, and `/revise-directive` invoke their reviewers automatically. (`/activate-directive` and `/triage` are one-cycle aliases that delegate to `/activate`.)
 
 ## Session-restart caveat
 

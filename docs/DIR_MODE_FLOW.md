@@ -110,7 +110,7 @@ A target repo adopts the shell at one of three tiers (SPEC §1.7 substrate-in-ta
 
 - **Tier 1** — eng-mode works without any dir-mode substrate. No `/file-directive`.
 - **Tier 2** — Tier 1 + the 10-label dir-mode set installed. Unlocks `/file-directive`, `/activate-directive`, `/complete-directive`, etc., writing to Issues directly.
-- **Tier 3** — Tier 2 + Issue templates + workflows + Project. Unlocks `/triage`, the Project-as-derived-view, and the dir-mode-post-merge auto-reflection.
+- **Tier 3** — Tier 2 + Issue templates + workflows + Project. Unlocks the Project-as-derived-view and the dir-mode-post-merge auto-reflection. (`/triage` is a deprecated alias for `/activate` as of #173.)
 
 `/onboard-dir-mode` installs each tier via a PR to the target. Substrate failures fail-open per command (graceful-degradation principle, SPEC §1.7).
 

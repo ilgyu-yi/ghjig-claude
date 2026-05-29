@@ -1090,7 +1090,7 @@ No third path. Stale discussions surface via `/activate` batch mode (§5.12; rel
 | task | `task` | Yes | No | `Closes #N` via PR merge or close-as-not-planned |
 | bug | `bug` | Yes | No | `Closes #N` via PR merge or close-as-not-planned |
 | **discussion** | `discussion` | **No** | **No** | **`promoted` or `no-action` only** |
-| needs-triage | `needs-triage` | n/a (not yet classified) | n/a | Reclassified by `/triage` |
+| needs-triage | `needs-triage` | n/a (not yet classified) | n/a | Dormant — Phase-2 external-inbound reclassification (#173 retired the `/triage` consumer) |
 
 **Lifecycle implementation** (Issue #116; Directive #109 final slice):
 
