@@ -7,7 +7,7 @@ Install the dir-mode substrate into the current target repo (cwd). Three-tier mo
 
 - **Tier 1**: no install — eng-mode works without the dir-mode substrate.
 - **Tier 2**: install the 10-label dir-mode set via `gh label create --force`. Unlocks `/file-directive` / `/activate-directive` / `/complete-directive` directly against Issues. No Project mirror.
-- **Tier 3**: tier 2 + install ISSUE_TEMPLATE files + workflow files via a PR to the target + create Project v2 via `gh project create` + populate fields via `scripts/setup_project.sh`. Unlocks the template chooser + Project-as-derived-view. (`/triage` is a deprecated alias for `/activate` as of #173; `auto-needs-triage.yml` still installs but its `needs-triage` label is dormant/Phase-2-transitional.)
+- **Tier 3**: tier 2 + install ISSUE_TEMPLATE files + workflow files via a PR to the target + create Project v2 via `gh project create` + populate fields via `scripts/setup_project.sh`. Unlocks the template chooser + Project-as-derived-view. (`/triage` is a deprecated alias for `/activate` as of #173; raw label-free filings are auto-stamped `status:proposed`+`task` by `auto-status-proposed.yml`, #179.)
 
 Each tier is a strict superset. Re-running is idempotent at every step.
 
@@ -23,14 +23,14 @@ Each tier is a strict superset. Re-running is idempotent at every step.
 
 5. **Tier 2** (label install):
    - Invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/onboard_target.sh --tier 2` (idempotent — uses `gh label create --force`).
-   - Verify via `gh label list` that all 12 labels exist: `directive`, `status:proposed`, `status:blocked`, `awaiting-author`, `task`, `needs-triage`, `discussion`, `P0`, `P1`, `P2`, `P3`, `skip-changelog` (`awaiting-author` — #172 — marks the reviewer→author handoff after a `revise`/trusted-reject; `skip-changelog` is the documented PR-time opt-out for the release-backbone fragment-gate per SPEC §18.6).
+   - Verify via `gh label list` that all 11 labels exist: `directive`, `status:proposed`, `status:blocked`, `awaiting-author`, `task`, `discussion`, `P0`, `P1`, `P2`, `P3`, `skip-changelog` (`awaiting-author` — #172 — marks the reviewer→author handoff after a `revise`/trusted-reject; `skip-changelog` is the documented PR-time opt-out for the release-backbone fragment-gate per SPEC §18.6).
 
 6. **Tier 3** (full substrate):
    - Run step 5 (tier 2 prerequisite).
    - Invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/onboard_target.sh --tier 3`:
      - Copies canonical files from `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/target-substrate/` into target's `.github/`:
        - `ISSUE_TEMPLATE/{config,directive-proposal,execution-under-directive,task,bug-report,discussion}.yml`
-       - `workflows/{auto-needs-triage,issues-to-project-mirror,dir-mode-post-merge,check-changelog}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied.
+       - `workflows/{auto-status-proposed,issues-to-project-mirror,dir-mode-post-merge,check-changelog}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied.
      - Creates branch `onboard-dir-mode-substrate`, commits the files, pushes, opens a PR via `gh pr create --title "chore: onboard claude-eng-shell dir-mode substrate"` — **target maintainer reviews + merges**.
      - Direct push to target's `main` is forbidden (protected-branch hook fires; PR-based install is the canonical path — SPEC §1.7 Bootstrap path).
    - Project v2 setup: invoke `bash $CLAUDE_ENG_SHELL_ROOT/scripts/setup_project.sh` (idempotent — creates the Project if absent, reconciles fields if present).
