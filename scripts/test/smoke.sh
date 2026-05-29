@@ -5499,6 +5499,24 @@ else
   ng "67e: SPEC §4.9.1 not reconciled for label-gated parent-fit (#197)"
 fi
 
+# ---------- 68. CLAUDE.md ceiling line reconciled with SPEC §5.7.1 (#201) ----------
+# The Backbone "autonomy ceiling" sentence must state the ceiling is PR-ready
+# BY DEFAULT (attended) AND that `unattended` deliberately extends it through the
+# /ship merge-or-park terminal step — not an unqualified "stops at PR-ready" that
+# the auto-mode classifier reads as a hard ceiling (the live denial #201 fixes).
+# Doc-as-code lock: greps anchor on stable tokens (§63e/§67 idiom), and assert the
+# old unqualified phrasing is gone so the line cannot silently re-drift.
+S68_CLAUDE="$SHELL_ROOT/.claude/CLAUDE.md"
+if [ -f "$S68_CLAUDE" ] \
+   && grep -qF '**extends** the ceiling past PR-ready' "$S68_CLAUDE" \
+   && grep -qF 'merge-or-park terminal step' "$S68_CLAUDE" \
+   && grep -qF 'SPEC §5.7.1' "$S68_CLAUDE" \
+   && ! grep -qF 'Default autonomy ceiling stops at PR-ready' "$S68_CLAUDE"; then
+  ok "68: CLAUDE.md ceiling qualified — unattended extends past PR-ready, old phrasing gone (#201)"
+else
+  ng "68: CLAUDE.md ceiling not reconciled with SPEC §5.7.1 / unqualified phrasing remains (#201)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
