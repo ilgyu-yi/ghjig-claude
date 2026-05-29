@@ -3564,16 +3564,22 @@ else
   ng "43-blocked-marker: /block-directive must name the '## Blocked: <reason>' marker (#80)"
 fi
 
-# ---------- 44. Type-aware hooks + directive-protect matcher (#46) ----------
-# PR #46 wires Type-awareness into pre_tool_use.sh via helpers/issue_type.sh.
-# Smoke covers:
-#   44a: directive-protect blocks `git checkout -b <user>/<type>/<N>-<slug>`
-#        when issue <N> carries the `directive` label.
-#   44b: same command for a non-Directive issue is allowed (mark_allow).
-#   44c: is_directive_issue caches the result under .claude/state/issue-type-cache/.
-#   44d: SKIP_HOOKS=directive-protect bypasses the block.
+# ---------- 44. Type-aware hooks + proposed-protect matcher (#46, #171) ----------
+# PR #46 wired Type-awareness into pre_tool_use.sh; #171 generalized the matcher
+# directive-protect → proposed-protect. The matcher blocks branch creation when
+# the target Issue is `status:proposed` (any type) OR a Directive (any status) —
+# subsuming, not replacing, the old Directive-only check (a status-only check
+# would let an Active Directive branch, a §10.5 regression). Smoke covers:
+#   44a: proposed Directive (directive + status:proposed)        → block.
+#   44b: non-proposed non-Directive Issue                        → allow.
+#   44c: Active Directive (directive, NO status:proposed)        → block (§10.5 guard).
+#   44d: proposed Execution Issue (task + status:proposed)       → block (symmetry, #171).
+#   44e: is_proposed_issue does NOT cache (flips when label removed; volatile).
+#   44f: fail-open — gh unavailable → allow (no spurious block).
+#   44g: SKIP_HOOKS=proposed-protect bypasses the block.
 #
 # Mock strategy: PATH-overlay mock `gh` returns canned labels per issue.
+# GH_MOCK_FAIL=1 makes the mock exit non-zero (simulates gh down / no auth).
 
 DP_DIR=$(mktemp -d)
 DP_BIN="$DP_DIR/bin"
@@ -3610,6 +3616,8 @@ emit() {
     printf '%s' "$full"
   fi
 }
+# Simulate gh unavailable (network down / no auth) for the fail-open assertion.
+if [ "${GH_MOCK_FAIL:-}" = 1 ]; then exit 1; fi
 case "${1:-}" in
   repo)
     if [ "${2:-}" = view ]; then
@@ -3655,6 +3663,9 @@ dp_run() {
     GH_MOCK_LABELS_91="directive,enhancement" \
     GH_MOCK_LABELS_92="enhancement" \
     GH_MOCK_LABELS_93="directive" \
+    GH_MOCK_LABELS_94="task,status:proposed" \
+    GH_MOCK_LABELS_95="directive,status:proposed" \
+    GH_MOCK_FAIL="${GH_MOCK_FAIL:-}" \
     SKIP_HOOKS="$skip" \
     SKIP_REASON="${skip:+smoke-test}" \
       bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" <<< "$stdin_json"
@@ -3665,48 +3676,74 @@ dp_run() {
 # Clear cache so each assertion starts fresh.
 rm -rf "$DP_CACHE"
 
-# 44a: Directive issue → block.
-rc=0
-dp_run "git checkout -b ilgyu-yi/feat/91-foo" >/dev/null 2>&1 || rc=$?
-if [ "$rc" = 2 ]; then
-  ok "44a: directive-protect blocks git checkout -b on Directive Issue #91 (#46)"
-else
-  ng "44a: expected exit 2 (block) on Directive Issue; got rc=$rc (#46)"
-fi
+rm -rf "$DP_CACHE"
 
-# 44b: Execution issue (non-Directive label) → allowed (rc 0).
+# 44a: proposed Directive (#95: directive,status:proposed) → block.
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/95-foo" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] && ok "44a: proposed-protect blocks branch on proposed Directive #95 (#171)" \
+              || ng "44a: expected block(2) on proposed Directive #95; got rc=$rc (#171)"
+
+# 44b: non-proposed non-Directive (#92: enhancement) → allow.
 rc=0
 dp_run "git checkout -b ilgyu-yi/feat/92-bar" >/dev/null 2>&1 || rc=$?
-if [ "$rc" = 0 ]; then
-  ok "44b: directive-protect allows git checkout -b on non-Directive Issue #92 (#46)"
-else
-  ng "44b: expected rc=0 on non-Directive Issue; got rc=$rc (#46)"
-fi
+[ "$rc" = 0 ] && ok "44b: proposed-protect allows branch on non-proposed non-Directive #92 (#171)" \
+              || ng "44b: expected allow(0) on #92; got rc=$rc (#171)"
 
-# 44c: cache entry created after lookups.
-if [ -f "$DP_CACHE/smoke-owner__smoke-repo__91" ] && [ -f "$DP_CACHE/smoke-owner__smoke-repo__92" ]; then
-  cache_91=$(cat "$DP_CACHE/smoke-owner__smoke-repo__91" 2>/dev/null)
-  cache_92=$(cat "$DP_CACHE/smoke-owner__smoke-repo__92" 2>/dev/null)
-  if [ "$cache_91" = directive ] && [ "$cache_92" = execution ]; then
-    ok "44c: is_directive_issue cache stores type per-issue (#46)"
-  else
-    ng "44c: cache contents wrong; #91=$cache_91 #92=$cache_92 (expected directive/execution) (#46)"
-  fi
-else
-  ng "44c: cache files not created under $DP_CACHE (#46)"
-fi
-
-# 44d: SKIP_HOOKS=directive-protect bypasses the block.
+# 44c: Active Directive (#91: directive, NO status:proposed) → block. §10.5 REGRESSION GUARD:
+#      proves proposed-protect SUBSUMES (not replaces) the Directive check — a status-only
+#      matcher would allow this and let an Active Directive branch.
 rc=0
-dp_run "git checkout -b ilgyu-yi/feat/93-baz" "directive-protect" >/dev/null 2>&1 || rc=$?
-if [ "$rc" = 0 ]; then
-  ok "44d: SKIP_HOOKS=directive-protect bypasses the block (#46)"
+dp_run "git checkout -b ilgyu-yi/feat/91-foo" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] && ok "44c: proposed-protect still blocks branch on Active Directive #91 (§10.5 guard) (#171)" \
+              || ng "44c: expected block(2) on Active Directive #91 — §10.5 REGRESSION; got rc=$rc (#171)"
+
+# 44d: proposed Execution Issue (#94: task,status:proposed) → block. The symmetry case #171 adds.
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/94-baz" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] && ok "44d: proposed-protect blocks branch on proposed Execution Issue #94 (symmetry) (#171)" \
+              || ng "44d: expected block(2) on proposed Execution #94; got rc=$rc (#171)"
+
+# 44e: is_proposed_issue does NOT cache — flips PROPOSED→NOT when the label is removed
+#      (mirrors /activate), proving no stale cache keeps an activated Issue blocked.
+rm -rf "$DP_CACHE"
+dp_pred() {
+  ( cd "$DP_TARGET" || exit 0
+    PATH="$DP_BIN:$PATH" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" GH_MOCK_LABELS_94="$1" \
+      bash -c '. "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; is_proposed_issue 94 && echo PROPOSED || echo NOT' 2>/dev/null )
+}
+pp_first=$(dp_pred "task,status:proposed")
+pp_second=$(dp_pred "task")
+if [ "$pp_first" = PROPOSED ] && [ "$pp_second" = NOT ]; then
+  ok "44e: is_proposed_issue re-queries each call (no stale cache; PROPOSED->NOT on label removal) (#171)"
 else
-  ng "44d: SKIP_HOOKS=directive-protect should allow but got rc=$rc (#46)"
+  ng "44e: is_proposed_issue caching regression; first=$pp_first second=$pp_second (#171)"
+fi
+
+# 44f: fail-open — gh unavailable (GH_MOCK_FAIL=1) → allow even a would-be-blocked Directive.
+rm -rf "$DP_CACHE"
+rc=0
+GH_MOCK_FAIL=1 dp_run "git checkout -b ilgyu-yi/feat/91-foo" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] && ok "44f: proposed-protect fails open (allow) when gh is unavailable (#171)" \
+              || ng "44f: expected fail-open allow(0) on gh failure; got rc=$rc (#171)"
+
+# 44g: SKIP_HOOKS=proposed-protect bypasses the block.
+rc=0
+dp_run "git checkout -b ilgyu-yi/feat/95-foo" "proposed-protect" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] && ok "44g: SKIP_HOOKS=proposed-protect bypasses the block (#171)" \
+              || ng "44g: SKIP_HOOKS=proposed-protect should allow; got rc=$rc (#171)"
+
+# 44h: is_directive_issue STILL caches per-session (preserves #46 coverage; contrast with 44e).
+rm -rf "$DP_CACHE"
+dp_run "git checkout -b ilgyu-yi/feat/91-foo" >/dev/null 2>&1 || true
+if [ -f "$DP_CACHE/smoke-owner__smoke-repo__91" ] && [ "$(cat "$DP_CACHE/smoke-owner__smoke-repo__91" 2>/dev/null)" = directive ]; then
+  ok "44h: is_directive_issue caches type per-issue (#46/#171)"
+else
+  ng "44h: is_directive_issue cache missing/wrong for #91 (#46/#171)"
 fi
 
 # Cleanup: remove cache entries created by §44 so they don't leak.
-rm -f "$DP_CACHE/smoke-owner__smoke-repo__91" "$DP_CACHE/smoke-owner__smoke-repo__92" "$DP_CACHE/smoke-owner__smoke-repo__93"
+rm -f "$DP_CACHE/smoke-owner__smoke-repo__91" "$DP_CACHE/smoke-owner__smoke-repo__92" "$DP_CACHE/smoke-owner__smoke-repo__93" "$DP_CACHE/smoke-owner__smoke-repo__94" "$DP_CACHE/smoke-owner__smoke-repo__95"
 # Remove the test target from the registry so other tests aren't affected.
 if [ -f "$DP_REGISTRY" ]; then
   dp_tmp_reg=$(mktemp)
