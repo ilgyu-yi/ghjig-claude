@@ -5,7 +5,7 @@ This directory holds shell assets injected by claude-eng-shell. This file is a s
 ## Backbone: GitHub standard flow
 issue → branch → draft PR → checklist commits → ready PR → merge. Every change rides this flow. No fork (upstream-only).
 
-Default autonomy ceiling stops at PR-ready (`attended` mode). See SPEC §5.7.1 for the `unattended` opt-in.
+PR-ready is the autonomy ceiling **by default** (`attended` mode). The `unattended` opt-in deliberately **extends** the ceiling past PR-ready, continuing through the `/ship` CI-wait → merge-or-park terminal step (`gh pr merge` on a clean PR, park on a hard blocker). So under `unattended`, merging a clean PR is *inside* the ceiling, not above it — authority and full contract are SPEC §5.7.1.
 
 **Dir-mode** (SPEC §1.7) extends the same pattern one level up: `MISSION.md` → Directive Issue → Execution Issue. Same generate → review → gated → audit shape; reviewer is `activation-reviewer` (§4.9). Workflow selection between eng-mode and dir-mode is manual; an automatic selector is a deferred capability (SPEC §0.4). Dir-mode commands live in §5.10–§5.18.
 
