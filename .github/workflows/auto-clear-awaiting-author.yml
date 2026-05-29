@@ -1,0 +1,39 @@
+name: auto-clear-awaiting-author
+
+# Directive #178 / Issue #180: when an author edits an Issue body after a
+# `revise` or trusted-filer `reject`, the `awaiting-author` handoff label is
+# stale — clear it automatically so the maintainer queue
+# (`is:open label:awaiting-author -author:@me`) stays accurate without manual
+# relabeling.
+#
+# IMPORTANT: `awaiting-author` is human-facing visibility ONLY. This workflow
+# does NOT participate in the `/activate` batch programmatic skip, which stays
+# comment-marker-timestamp based (SPEC §2.1 / §5.12). Clearing the label here is
+# cosmetic queue hygiene, not a control-flow signal.
+#
+# Idempotent: `gh issue edit --remove-label` is a no-op if the label is absent.
+# No self-trigger loop: removing a label emits `issues.unlabeled`, not
+# `issues.edited`, so this workflow does not re-fire itself.
+
+on:
+  issues:
+    types: [edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  clear-awaiting-author:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove awaiting-author if present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          n="${{ github.event.issue.number }}"
+          has=$(gh issue view "$n" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | index("awaiting-author") != null')
+          if [ "$has" = "true" ]; then
+            gh issue edit "$n" --repo "${{ github.repository }}" --remove-label "awaiting-author"
+          fi
