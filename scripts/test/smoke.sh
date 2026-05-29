@@ -4326,11 +4326,38 @@ else
   ng "54c3: auto-status-proposed .github vs target-substrate copies differ (#179)"
 fi
 
-# 54d: directive-proposal template applies `directive` + `status:proposed` labels at filing.
-if grep -qE "^labels:[[:space:]]*\[directive,[[:space:]]*status:proposed\]" "$SHELL_ROOT/.github/ISSUE_TEMPLATE/directive-proposal.yml" 2>/dev/null; then
-  ok "54d: directive-proposal applies [directive, status:proposed] labels at filing (#93)"
+# 54d: every work-type template applies its type label + status:proposed at filing (#93/#186).
+# Full symmetry: directive/execution/task/bug all gate via status:proposed; execution is
+# task-free (distinguished by the Parent Directive marker), task/bug keep their type label.
+s54d_it="$SHELL_ROOT/.github/ISSUE_TEMPLATE"
+s54d_ok=1
+grep -qE "^labels:[[:space:]]*\[directive,[[:space:]]*status:proposed\]" "$s54d_it/directive-proposal.yml" 2>/dev/null || s54d_ok=0
+grep -qE "^labels:[[:space:]]*\[execution,[[:space:]]*status:proposed\]" "$s54d_it/execution-under-directive.yml" 2>/dev/null || s54d_ok=0
+grep -qE "^labels:[[:space:]]*\[task,[[:space:]]*status:proposed\]" "$s54d_it/task.yml" 2>/dev/null || s54d_ok=0
+grep -qE "^labels:[[:space:]]*\[bug,[[:space:]]*status:proposed\]" "$s54d_it/bug-report.yml" 2>/dev/null || s54d_ok=0
+if [ "$s54d_ok" = 1 ]; then
+  ok "54d: all work-type templates apply type+status:proposed (directive/execution/task/bug) (#93/#186)"
 else
-  ng "54d: directive-proposal.yml labels frontmatter missing or wrong shape (#93)"
+  ng "54d: a work-type template's labels frontmatter is missing type or status:proposed (#93/#186)"
+fi
+
+# 54i: blank issues disabled — both config.yml copies set blank_issues_enabled: false (#186).
+if grep -qE "^blank_issues_enabled:[[:space:]]*false" "$s54d_it/config.yml" 2>/dev/null \
+   && grep -qE "^blank_issues_enabled:[[:space:]]*false" "$SHELL_ROOT/.claude/templates/target-substrate/ISSUE_TEMPLATE/config.yml" 2>/dev/null; then
+  ok "54i: blank_issues_enabled is false in both config.yml copies (#186)"
+else
+  ng "54i: blank issues must be disabled (blank_issues_enabled: false) in both config.yml copies (#186)"
+fi
+
+# 54j: changed ISSUE_TEMPLATE + config copies byte-identical across .github/ and target-substrate/ (#186).
+s54j_ok=1
+for f in execution-under-directive.yml task.yml bug-report.yml config.yml; do
+  diff -q "$s54d_it/$f" "$SHELL_ROOT/.claude/templates/target-substrate/ISSUE_TEMPLATE/$f" >/dev/null 2>&1 || s54j_ok=0
+done
+if [ "$s54j_ok" = 1 ]; then
+  ok "54j: execution/task/bug templates + config.yml byte-identical across both copies (#186)"
+else
+  ng "54j: an ISSUE_TEMPLATE/config copy diverged between .github/ and target-substrate/ (#186)"
 fi
 
 # 54e: execution-under-directive requires a Parent Directive number input field.
@@ -4349,10 +4376,11 @@ if [ -x "$SHELL_ROOT/scripts/ensure_v3_labels.sh" ] \
    && ! grep -q "needs-triage" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && grep -q "awaiting-author" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && grep -q "ensure_label.*\"task\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && grep -q "ensure_label \"execution\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
    && [ "$s54f_p" = 1 ]; then
-  ok "54f: ensure_v3_labels.sh creates status:proposed + status:blocked + task + awaiting-author + P0-P3; no needs-triage (#93/#172/#179/#185)"
+  ok "54f: ensure_v3_labels.sh creates status:proposed + status:blocked + task + execution + awaiting-author + P0-P3; no needs-triage (#93/#172/#179/#185/#186)"
 else
-  ng "54f: ensure_v3_labels.sh label set wrong (need awaiting-author + P0-P3, no needs-triage) (#93/#172/#179/#185)"
+  ng "54f: ensure_v3_labels.sh label set wrong (need execution + awaiting-author + P0-P3, no needs-triage) (#93/#172/#179/#185/#186)"
 fi
 
 # 54h: auto-clear-awaiting-author workflow (#180) — fires on issues.edited, removes
@@ -5066,7 +5094,7 @@ fi
 # exercise label parsing; §63g closes the gap.
 s63g_out=$("$SHELL_ROOT/scripts/onboard_target.sh" --tier 2 --dry-run 2>&1 || true)
 s63g_ok=1
-for required in "status:proposed" "status:blocked" "awaiting-author" "discussion" "task" "skip-changelog" "P0" "P1" "P2" "P3"; do
+for required in "status:proposed" "status:blocked" "awaiting-author" "execution" "discussion" "task" "skip-changelog" "P0" "P1" "P2" "P3"; do
   if ! printf '%s' "$s63g_out" | grep -qE "gh label create '$required'"; then
     s63g_ok=0
     break

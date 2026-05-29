@@ -1,7 +1,7 @@
 name: Execution Issue (under a Directive)
 description: "File an Execution Issue parented under an active Directive. The `Parent Directive: #N` body marker is required."
 title: "<type>: <subject>"
-labels: []
+labels: [execution, status:proposed]
 body:
   - type: markdown
     attributes:

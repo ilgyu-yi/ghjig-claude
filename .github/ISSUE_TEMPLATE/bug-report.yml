@@ -1,7 +1,7 @@
 name: Bug report
 description: Report a defect — something doesn't work as documented in SPEC.md / README / CLAUDE.md.
 title: "fix: <subject>"
-labels: [bug]
+labels: [bug, status:proposed]
 body:
   - type: textarea
     id: what
