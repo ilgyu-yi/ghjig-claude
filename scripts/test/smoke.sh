@@ -5106,6 +5106,28 @@ else
   ng "63g: onboard_target --tier 2 --dry-run missing one or more required labels (regression-guard for label-parser drift) (#118 + #133)"
 fi
 
+# §63h: substrate-preflight grep CORRECTNESS (#189). §63e asserts the preflight
+# is PRESENT; this asserts its grep can actually match. `gh label list` is
+# tab-separated (name<TAB>desc<TAB>color), so `grep -qx directive` (whole-line-
+# exact) never matches → the guard silently falls open (a no-op that never
+# guards). The correct form pipes through `cut -f1` first, as /activate and
+# /file-directive step-3 already do. Two-part guard: (a) no command file retains
+# the whole-line form (AC#1 predicate verbatim); (b) the 6 directive-gated
+# commands use the `cut -f1` form.
+s63h_stale=$(grep -rlF 'gh label list | grep -qx' "$SHELL_ROOT/.claude/commands/" 2>/dev/null || true)
+s63h_cut=0
+for cmd in file-directive complete-directive revise-directive \
+           block-directive list-directives link-directive; do
+  if grep -qF 'gh label list | cut -f1 | grep -qx directive' "$SHELL_ROOT/.claude/commands/${cmd}.md"; then
+    s63h_cut=$((s63h_cut + 1))
+  fi
+done
+if [ -z "$s63h_stale" ] && [ "$s63h_cut" = 6 ]; then
+  ok "63h: substrate-preflight grep uses cut -f1 in all 6 directive-gated commands; no whole-line form remains (#189)"
+else
+  ng "63h: substrate-preflight grep regression — whole-line form in [$(printf '%s' "${s63h_stale:-none}" | tr '\n' ' ')], cut-form count $s63h_cut/6 (#189)"
+fi
+
 # ---------- 64. version surface (#123 / Directive #122) ----------
 # 64a — VERSION file is exactly one non-empty line (semver 0.x format
 # locked by Directive #122 constraint #1; no comments, no trailing
