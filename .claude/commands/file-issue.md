@@ -21,6 +21,7 @@ Create an issue.
      Parent this Issue to a Directive? Enter number, or "none": _
      ```
      The user picks a number or types `none`. Empty / invalid input falls back to "none" with a stderr note.
+     - **Unattended mode**: there is no user to prompt — do **NOT** auto-parent. Default to `none` (standalone) unless `--parent <id>` was explicit. Auto-selecting a Directive here is the regression that mislabels a standalone `task` as a parented `execution` (SPEC §5.2 / §1.7 line 309); `--parent` is the *only* parenting signal in unattended mode (`--no-parent` is then redundant but harmless).
    - If a parent Directive is selected (via flag or prompt):
      - Set `parent_directive=<N>`.
      - Prepend `Parent Directive: #<N>` as the first line of the body (above `Closes #` / `Refs #` if present), so `/reflect` and `/ship` (steps 10.5 below) can find it via the canonical regex `^Parent Directive: #(\d+)$`.
@@ -38,7 +39,12 @@ Create an issue.
    - **`ship`**: proceed to step 5.
    - **`refine: <feedback>`**: revise the body per the one-line feedback. Re-invoke `issue-reviewer` on the revised body. After two consecutive `refine` verdicts on the latest body, escalate to the user (or, in unattended mode, treat as `block`).
    - **`block: <reason>`**: do NOT call `gh issue create`. In attended mode: report the reason to the user and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-block.log` naming the rejected title and reason, then stop.
-5. Call `gh issue create --title "..." --body "..." --label "..." --label "status:proposed"`. **Full-symmetry stamp (#172, SPEC §2.1/§5.2):** every new Issue is filed `status:proposed` and must pass `/activate <N>` before it is actionable. `issue-reviewer` here is author-side; `activation-reviewer` at `/activate` is observer-side — complementary, not redundant. (If the target lacks the `status:proposed` label — tier &lt; 2 — omit the label and note it; the lifecycle gate is a tier-2 capability.)
+5. **Derive the type label deterministically** (SPEC §1.7 line 309 — the label *is* the type; never agent discretion):
+   - `--quick` → **`bug`** (from step 1).
+   - a parent Directive was selected in step 1.5 (via `--parent` or the prompt) → **`execution`** (a unit of work parented under a Directive).
+   - otherwise — standalone (`--no-parent`, no active Directives, the prompt answered "none", or unattended with no `--parent`) → **`task`**.
+
+   These three values match the Issue-Form template labels (`bug-report.yml` / `execution-under-directive.yml` / `task.yml`) so skill-path and UI-path filings classify identically. Then call `gh issue create --title "..." --body "..." --label "<derived: bug|execution|task>" --label "status:proposed"`. **Full-symmetry stamp (#172, SPEC §2.1/§5.2):** every new Issue is filed `status:proposed` and must pass `/activate <N>` before it is actionable. `issue-reviewer` here is author-side; `activation-reviewer` at `/activate` is observer-side — complementary, not redundant. (If the target lacks the `status:proposed` label — tier &lt; 2 — omit the label and note it; the lifecycle gate is a tier-2 capability.)
 6. Output the created issue number and URL, with a `Next: /activate <N>` line. Do NOT `/work-on <N>` before activation — `proposed-protect` (SPEC §6.1) blocks branch creation against a `status:proposed` Issue.
 
 **Forbidden**: creating an issue with empty or ambiguous acceptance criteria, with a weak rationale that didn't pass the §3 check, OR with a non-`ship` verdict from `issue-reviewer`. If unclear, re-ask the user and stop.
