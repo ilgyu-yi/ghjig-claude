@@ -523,14 +523,59 @@ case "$tool" in
         # token anywhere in a comma-joined value list (--add-label other,execution)
         # via the leading `([^"' ]*,)?` prefix (#212). NOTE: that prefix is a
         # capture group, so the gated label is BASH_REMATCH[2], not [1].
+        # Gated labels: execution/task/bug (parent-marker consistency, #199) plus
+        # the two tier type-keys initiative/directive (#251). The gated token is
+        # BASH_REMATCH[2] (the leading `([^"' ]*,)?` comma-prefix is group 1).
         lpc_label=
-        lpc_label_re='--add-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?(execution|task|bug)([^a-z]|$)'
+        lpc_label_re='--add-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?(execution|task|bug|initiative|directive)([^a-z]|$)'
         if [[ "$cmd" =~ $lpc_label_re ]]; then
           lpc_label="${BASH_REMATCH[2]}"
         fi
-        if [ -z "$lpc_label" ] || [ -z "$lpc_issue" ] \
-           || ! command -v issue_has_parent_marker >/dev/null 2>&1; then
-          # Not a gated label / no issue number / predicate unavailable → fail open.
+        if [ -z "$lpc_label" ] || [ -z "$lpc_issue" ]; then
+          # Not a gated label / no issue number → fail open.
+          mark_allow label-parent-consistency
+          decided=1
+        elif [ "$lpc_label" = initiative ] || [ "$lpc_label" = directive ]; then
+          # Tier type-keys (#251): (a) initiative/directive mutual-exclusivity and
+          # (b) the Directive parent-XOR. Fail open if the type predicates are
+          # unavailable.
+          if ! command -v is_directive_issue >/dev/null 2>&1 \
+             || ! command -v is_initiative_issue >/dev/null 2>&1; then
+            mark_allow label-parent-consistency
+            decided=1
+          elif [ "$lpc_label" = initiative ] && is_directive_issue "$lpc_issue"; then
+            block label-parent-consistency "Issue #${lpc_issue}: --add-label initiative on a Directive is blocked — the 'initiative' and 'directive' tier type-keys are mutually exclusive (SPEC §1.7). An Issue is a Directive or an Initiative, not both. Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
+          elif [ "$lpc_label" = directive ] && is_initiative_issue "$lpc_issue"; then
+            block label-parent-consistency "Issue #${lpc_issue}: --add-label directive on an Initiative is blocked — the 'directive' and 'initiative' tier type-keys are mutually exclusive (SPEC §1.7). Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
+          elif [ "$lpc_label" = directive ]; then
+            # (b) parent-XOR: a Directive needs exactly one parent kind — a
+            # `## MISSION fit` field XOR a line-1 `Parent Initiative: #N` marker.
+            if ! command -v issue_has_mission_fit_field >/dev/null 2>&1 \
+               || ! command -v issue_has_initiative_parent_marker >/dev/null 2>&1; then
+              mark_allow label-parent-consistency
+              decided=1
+            else
+              issue_has_mission_fit_field "$lpc_issue"; lpc_mf=$?
+              issue_has_initiative_parent_marker "$lpc_issue"; lpc_im=$?
+              if [ "$lpc_mf" = 2 ] || [ "$lpc_im" = 2 ]; then
+                mark_allow label-parent-consistency   # unresolvable → fail open
+                decided=1
+              elif [ "$lpc_mf" = 0 ] && [ "$lpc_im" = 0 ]; then
+                block label-parent-consistency "Issue #${lpc_issue}: --add-label directive — a Directive must have exactly ONE parent kind, but the body has BOTH a '## MISSION fit' field and a line-1 'Parent Initiative: #N' marker (SPEC §1.7 parent-XOR). Keep one: drop the MISSION-fit field for an Initiative-parented Directive, or drop the Parent Initiative marker for a MISSION-parented one. Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
+              elif [ "$lpc_mf" = 1 ] && [ "$lpc_im" = 1 ]; then
+                block label-parent-consistency "Issue #${lpc_issue}: --add-label directive — a Directive must have exactly ONE parent kind, but the body has NEITHER a '## MISSION fit' field NOR a line-1 'Parent Initiative: #N' marker (SPEC §1.7 parent-XOR). Add one. Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
+              else
+                mark_allow label-parent-consistency   # exactly one → allow
+                decided=1
+              fi
+            fi
+          else
+            # --add-label initiative on a non-Directive Issue → allowed (the
+            # mutual-exclusivity only blocks the initiative↔directive collision).
+            mark_allow label-parent-consistency
+            decided=1
+          fi
+        elif ! command -v issue_has_parent_marker >/dev/null 2>&1; then
           mark_allow label-parent-consistency
           decided=1
         else
@@ -552,6 +597,42 @@ case "$tool" in
         fi
       fi
       [ -z "$decided" ] && pass_through_trace label-parent-consistency "$cmd"
+    fi
+
+    # initiative-readonly (#251) — an Initiative Issue is read-only to the shell
+    # except for appended comments (SPEC §1.7). Block mutating gh verbs
+    # (`issue edit`/`close`/`reopen`, which subsume `--add-label`/`--remove-label`/
+    # `--body`/`--title`) targeting an `initiative` Issue; `gh issue comment` is
+    # not a mutating verb and so is never matched → always allowed. The selector
+    # is normalized to a bare issue number (bare / quoted / URL forms) before
+    # is_initiative_issue resolves it against the current repo (Initiatives are
+    # same-repo, §1.7). Fail-open per §6.1 (parity with trusted-filer-mutate /
+    # proposed-protect).
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+issue[[:space:]]+(edit|close|reopen)\b'; then
+      decided=
+      if should_skip initiative-readonly; then
+        decided=1
+      else
+        iro_issue=
+        iro_sel_re='gh[[:space:]]+issue[[:space:]]+(edit|close|reopen)[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
+        if [[ "$cmd" =~ $iro_sel_re ]]; then
+          iro_sel="${BASH_REMATCH[2]}"
+          case "$iro_sel" in
+            */issues/*) iro_issue="${iro_sel##*/issues/}"; iro_issue="${iro_issue%%[!0-9]*}" ;;
+            *)          iro_issue="${iro_sel//[^0-9]/}" ;;
+          esac
+        fi
+        if [ -z "$iro_issue" ] || ! command -v is_initiative_issue >/dev/null 2>&1; then
+          mark_allow initiative-readonly
+          decided=1
+        elif is_initiative_issue "$iro_issue"; then
+          block initiative-readonly "Issue #${iro_issue} is an Initiative — read-only to the shell except for appended comments (SPEC §1.7). The shell consumes Initiatives; it does not edit, close, relabel, or retire them. Use 'gh issue comment ${iro_issue}' to surface findings upward (a challenge/completion comment); revise/retire decisions belong to the upstream owner. Or SKIP_HOOKS=initiative-readonly SKIP_REASON='<why>' for a sanctioned maintainer edit."
+        else
+          mark_allow initiative-readonly
+          decided=1
+        fi
+      fi
+      [ -z "$decided" ] && pass_through_trace initiative-readonly "$cmd"
     fi
 
     # Force push — scoped to protected targets, with an explicit-target

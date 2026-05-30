@@ -203,3 +203,26 @@ issue_has_initiative_parent_marker() {
   fi
   return 1
 }
+
+# issue_has_mission_fit_field <issue#> — TRI-STATE resolver for a Directive's
+# `## MISSION fit` body field, the MISSION-section parent kind (§1.7/§2.1, #251).
+# Unlike the line-1 `Parent {Directive,Initiative}` markers, the MISSION-fit field
+# is a heading ANYWHERE in the body. Used by the label-parent-consistency
+# parent-XOR alongside issue_has_initiative_parent_marker. Same tri-state +
+# UNCACHED contract as the marker resolvers.
+#   rc 0 → a `## MISSION fit` heading is present in the body
+#   rc 1 → resolved, heading ABSENT
+#   rc 2 → unresolvable (not a number / gh failure / no auth / issue not found)
+issue_has_mission_fit_field() {
+  local issue="$1"
+  case "$issue" in
+    ''|*[!0-9]*) return 2 ;;
+  esac
+
+  local body=""
+  body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  if printf '%s\n' "$body" | grep -qE '^##[[:space:]]+MISSION fit[[:space:]]*$'; then
+    return 0
+  fi
+  return 1
+}

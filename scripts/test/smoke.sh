@@ -6498,6 +6498,120 @@ else
   ng "72c: migrate_v3.sh header still claims snapshot idempotency it never had (#218)"
 fi
 
+# ---------- 73. Initiative-tier enforcement matchers (#251, M1.2) ----------
+# (a) initiative/directive label mutual-exclusivity + (b) Directive parent-XOR
+# (both folded into label-parent-consistency on --add-label), and (c) the new
+# initiative-readonly matcher. Mock gh branches on `--json labels` vs `--json
+# body` so the type predicates AND the field/marker resolvers run through the
+# real hook. Fixtures: 801 directive+MISSION-fit-only, 802 initiative, 803
+# Parent-Initiative-marker-only, 804 task, 805 BOTH parent kinds, 806 NEITHER,
+# 807 gh-down, 808 MISSION-fit-only.
+S73_DIR=$(mktemp -d)
+mkdir -p "$S73_DIR/bin" "$S73_DIR/target"
+S73_TARGET=$(cd "$S73_DIR/target" && pwd -P)
+(cd "$S73_TARGET" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; })
+ git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+printf '%s\n' "$S73_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+cat > "$S73_DIR/bin/gh" <<'GHEOF'
+#!/bin/sh
+n=$(printf '%s\n' "$*" | sed -nE 's/.*issue (view|edit|close|reopen|comment) #?([0-9]+).*/\2/p' | head -1)
+case "$*" in
+  *"repo view"*owner*) printf 'smoke-owner\n'; exit 0 ;;
+  *"repo view"*name*)  printf 'smoke-repo\n'; exit 0 ;;
+esac
+[ "$n" = 807 ] && exit 1   # gh down → fail-open
+case "$*" in
+  *"--json labels"*)
+    case "$n" in
+      801) printf 'directive\n' ;; 802) printf 'initiative\n' ;;
+      804) printf 'task\n' ;; 803|805|806|808) printf 'P2\n' ;;
+      *) printf '\n' ;;
+    esac; exit 0 ;;
+  *"--json body"*)
+    case "$n" in
+      801|808) printf '## Objective\nx\n\n## MISSION fit\nConsuming Initiatives\n' ;;
+      802) printf '## Termination condition\nx\n' ;;
+      803) printf 'Parent Initiative: #802\n\n## Objective\nx\n' ;;
+      805) printf 'Parent Initiative: #802\n\n## MISSION fit\nX\n' ;;
+      806) printf '## What\nno parent\n' ;;
+      *) printf '\n' ;;
+    esac; exit 0 ;;
+  *"--json authorAssociation"*) printf 'NONE\n'; exit 0 ;;
+esac
+exit 0
+GHEOF
+chmod +x "$S73_DIR/bin/gh"
+s73_run() {  # $1 = command (may carry a SKIP_HOOKS env-prefix)
+  ( cd "$S73_TARGET" || exit 1
+    printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
+      | PATH="$S73_DIR/bin:$PATH" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+  return $?
+}
+s73_cc() { rm -f "$SHELL_ROOT/.claude/state/issue-type-cache/smoke-owner__smoke-repo__"* 2>/dev/null || true; }
+
+# (a) label mutual-exclusivity
+s73_cc; s73_run "gh issue edit 801 --add-label initiative"
+[ "$?" = 2 ] && ok "73a: --add-label initiative on a directive Issue → block (#251)" || ng "73a: initiative-on-directive not blocked (#251)"
+s73_cc; s73_run "gh issue edit 804 --add-label P1"
+[ "$?" = 0 ] && ok "73a: --add-label P1 on a task Issue → allow (no type-key conflict) (#251)" || ng "73a: non-conflicting add over-blocked (#251)"
+
+# (b) Directive parent-XOR on --add-label directive
+s73_cc; s73_run "gh issue edit 805 --add-label directive"
+[ "$?" = 2 ] && ok "73b: --add-label directive with BOTH parent kinds → block (#251)" || ng "73b: parent-XOR both-present not blocked (#251)"
+s73_cc; s73_run "gh issue edit 806 --add-label directive"
+[ "$?" = 2 ] && ok "73b: --add-label directive with NEITHER parent kind → block (#251)" || ng "73b: parent-XOR neither-present not blocked (#251)"
+s73_cc; s73_run "gh issue edit 808 --add-label directive"
+[ "$?" = 0 ] && ok "73b: --add-label directive with exactly a MISSION-fit field → allow (#251)" || ng "73b: valid MISSION-parented over-blocked (#251)"
+s73_cc; s73_run "gh issue edit 803 --add-label directive"
+[ "$?" = 0 ] && ok "73b: --add-label directive with exactly a Parent Initiative marker → allow (#251)" || ng "73b: valid Initiative-parented over-blocked (#251)"
+s73_cc; s73_run "gh issue edit 807 --add-label directive"
+[ "$?" = 0 ] && ok "73b: parent-XOR fail-open on unresolvable body → allow (#251)" || ng "73b: parent-XOR fail-open regression (#251)"
+
+# (c) initiative-readonly
+s73_cc; s73_run "gh issue edit 802 --add-label P1"
+[ "$?" = 2 ] && ok "73c: gh issue edit on an initiative Issue → block (read-only) (#251)" || ng "73c: initiative edit not blocked (#251)"
+s73_cc; s73_run "gh issue close 802"
+[ "$?" = 2 ] && ok "73c: gh issue close on an initiative Issue → block (#251)" || ng "73c: initiative close not blocked (#251)"
+s73_cc; s73_run "gh issue reopen 802"
+[ "$?" = 2 ] && ok "73c: gh issue reopen on an initiative Issue → block (#251)" || ng "73c: initiative reopen not blocked (#251)"
+s73_cc; s73_run 'gh issue comment 802 --body hi'
+[ "$?" = 0 ] && ok "73c: gh issue comment on an initiative Issue → allow (#251)" || ng "73c: comment on initiative wrongly blocked (#251)"
+s73_cc; s73_run "gh issue edit 801 --body x"
+[ "$?" = 0 ] && ok "73c: gh issue edit on a non-initiative Issue → allow (no over-block) (#251)" || ng "73c: non-initiative edit over-blocked (#251)"
+s73_cc; s73_run "gh issue close 807"
+[ "$?" = 0 ] && ok "73c: initiative-readonly fail-open on unresolvable → allow (#251)" || ng "73c: initiative-readonly fail-open regression (#251)"
+s73_cc
+s73_b=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s73_b" ] && s73_b=0
+s73_run "SKIP_HOOKS=initiative-readonly SKIP_REASON=maintainer-edit gh issue close 802"; s73_rc=$?
+s73_a=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s73_a" ] && s73_a=0
+if [ "$s73_rc" = 0 ] && [ "$((s73_a - s73_b))" -ge 1 ] \
+   && tail -n "$((s73_a - s73_b))" "$REAL_AUDIT" 2>/dev/null | grep -q '"category":"initiative-readonly"'; then
+  ok "73c: SKIP_HOOKS=initiative-readonly escape honored + audited (#251)"
+else
+  ng "73c: initiative-readonly escape not honored/audited (rc=$s73_rc) (#251)"
+fi
+
+# (d) issue_has_mission_fit_field tri-state unit (function-mock, §44m style)
+s73_field() {
+  ( export CLAUDE_ENG_SHELL_ROOT="$TMP/s73fld"; mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"
+    s73_body="$1"
+    gh() { case "$*" in *'issue view'*'--json body'*) printf '%s\n' "$s73_body" ;; *) return 0 ;; esac; }
+    . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
+    issue_has_mission_fit_field 700; echo $? )
+}
+[ "$(s73_field '## Objective
+x
+
+## MISSION fit
+Consuming Initiatives')" = 0 ] && ok "73d: issue_has_mission_fit_field present (heading anywhere) → rc 0 (#251)" || ng "73d: mission-fit present not detected (#251)"
+[ "$(s73_field '## What
+no fit field here')" = 1 ] && ok "73d: issue_has_mission_fit_field absent → rc 1 (#251)" || ng "73d: mission-fit absent rc wrong (#251)"
+s73_field_fail() { ( export CLAUDE_ENG_SHELL_ROOT="$TMP/s73fld2"; mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"; gh() { return 1; }; . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; issue_has_mission_fit_field 700; echo $? ) }
+[ "$(s73_field_fail)" = 2 ] && ok "73d: issue_has_mission_fit_field unresolvable → rc 2 (#251)" || ng "73d: mission-fit fail-open rc wrong (#251)"
+
+rm -rf "$S73_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
