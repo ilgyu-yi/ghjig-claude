@@ -4855,6 +4855,40 @@ case $? in
   *) ng "55f: SKIP_HOOKS escape rc=$? (expected 0) (#95)" ;;
 esac
 
+# §55h (#223): the matcher must recognize a URL issue selector, not just a bare
+# [0-9]+. The URL form (h1/h3) evaded the whole matcher pre-#223 (selector anchor
+# failed → fell to the out-of-scope allow arm). The quoted-number form (h2) is
+# already handled by the hook's shlex normalization (it strips the quotes to a
+# bare number before the matcher); h2 is a guard confirming that. h4 guards
+# against over-block on an untrusted filer (normalization must resolve to 200,
+# not empty).
+# h1: URL-form declassify → block (any filer).
+pt55_run "gh issue edit https://github.com/mock/repo/issues/100 --remove-label directive" >/dev/null 2>&1
+case $? in
+  2) ok "55h1: URL-form --remove-label directive → block (#223)" ;;
+  *) ng "55h1: URL-form declassify not blocked, got rc=$? (#223)" ;;
+esac
+# h2: quoted-number declassify → block.
+pt55_run 'gh issue edit "100" --remove-label directive' >/dev/null 2>&1
+case $? in
+  2) ok "55h2: quoted-number --remove-label directive → block (#223)" ;;
+  *) ng "55h2: quoted-number declassify not blocked, got rc=$? (#223)" ;;
+esac
+# h3: URL-form close on a TRUSTED filer (100=OWNER) → block (selector normalized
+# to the bare number so is_trusted_filer resolves).
+pt55_run "gh issue close https://github.com/mock/repo/issues/100" >/dev/null 2>&1
+case $? in
+  2) ok "55h3: URL-form close on trusted filer → block (selector normalized) (#223)" ;;
+  *) ng "55h3: URL-form trusted-filer close not blocked, got rc=$? (#223)" ;;
+esac
+# h4: URL-form close on an UNTRUSTED filer (200=NONE) → allow (no over-block;
+# normalization must resolve to 200, not empty).
+pt55_run "gh issue close https://github.com/mock/repo/issues/200" >/dev/null 2>&1
+case $? in
+  0) ok "55h4: URL-form close on untrusted filer → allow (normalized, no over-block) (#223)" ;;
+  *) ng "55h4: URL-form untrusted close wrongly blocked, got rc=$? (#223)" ;;
+esac
+
 rm -rf "$PT55_DIR"
 
 # ---------- 56. /triage deprecation alias (#94 → deprecated by #173) ----------
