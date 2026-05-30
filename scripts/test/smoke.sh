@@ -3794,6 +3794,18 @@ else
   ng "43-activate-sanitize: /activate must mandate --body-file (not inline --body) + whole-body @mention sanitization for the auto-discussion (#172)"
 fi
 
+# 43-unblock (#215): /activate must be the Directive unblock path — accept
+# status:blocked as a re-activatable precondition (step 2) and remove it on pass
+# (step 4). Doc-check: the command markdown IS the behavior (no runtime executes
+# it), so AC3 explicitly accepts a content assertion. Fails pre-#215 (activate.md
+# only handled status:proposed).
+if grep -qiE 'status:proposed[^.]*\bor\b[^.]*status:blocked|status:blocked[^.]*\bor\b[^.]*status:proposed' "$ACT_PATH" 2>/dev/null \
+   && grep -qiE 'remove[^.]*status:blocked|status:blocked.*(present|remov)' "$ACT_PATH" 2>/dev/null; then
+  ok "43-unblock: /activate is blocked-aware — status:blocked precondition + pass-arm removal (#215)"
+else
+  ng "43-unblock: /activate must accept status:blocked as re-activatable and remove it on pass (#215)"
+fi
+
 # 43-reason-required (#80): /block-directive must mandate --reason <why>.
 # The argument-hint frontmatter and the Procedure must both name --reason.
 if grep -qE 'argument-hint:.*--reason' "$SHELL_ROOT/.claude/commands/block-directive.md" 2>/dev/null \
