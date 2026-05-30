@@ -410,24 +410,32 @@ case "$tool" in
               ;;
           esac
           # If no URL-derived repo, parse an explicit `--repo owner/name` flag
-          # (#237, completing #231): gh accepts `<number> --repo owner/name` as a
+          # (#237, completing #231) or gh's `-R` short alias for it (#242): gh
+          # accepts `<number> --repo owner/name` / `<number> -R owner/name` as a
           # foreign-repo selector, and without this the flag form leaves tf_repo
           # empty so trust/discussion resolve against the CURRENT repo — the same
           # cross-repo fail-open #231 closed for the URL form. Own `=~` clobbers
           # BASH_REMATCH, but tf_sel/tf_issue and the URL tf_repo are already
-          # saved above. Accept owner/name or gh's documented [HOST/]owner/name
-          # (gh resolves the host); reject a bare token, a trailing slash, or
-          # >3 segments → empty → fall back to the current repo (fail-soft).
+          # saved above. Try the long form first, then `-R` (anchored to a
+          # preceding space so it can't match inside another token; `-R` is
+          # case-sensitive and never a substring of the lowercase `--repo`).
+          # Accept owner/name or gh's documented [HOST/]owner/name (gh resolves
+          # the host); reject a bare token, a trailing slash, or >3 segments →
+          # empty → fall back to the current repo (fail-soft).
           if [ -z "$tf_repo" ]; then
             tfm_repo_flag_re='--repo[=[:space:]]+["'"'"']?([^[:space:]"'"'"']+)'
+            tfm_repo_short_re='[[:space:]]-R[=[:space:]]+["'"'"']?([^[:space:]"'"'"']+)'
+            tf_repo_flag=
             if [[ "$cmd" =~ $tfm_repo_flag_re ]]; then
               tf_repo_flag="${BASH_REMATCH[1]}"
-              case "$tf_repo_flag" in
-                */*/*/*|*/) : ;;                       # >3 segments / trailing slash → bail
-                */*/*|*/*)  tf_repo="$tf_repo_flag" ;; # [host/]owner/name → keep
-                *)          : ;;                       # bare token → bail
-              esac
+            elif [[ "$cmd" =~ $tfm_repo_short_re ]]; then
+              tf_repo_flag="${BASH_REMATCH[1]}"
             fi
+            case "$tf_repo_flag" in
+              ''|*/*/*/*|*/) : ;;                    # empty / >3 segments / trailing slash → bail
+              */*/*|*/*)  tf_repo="$tf_repo_flag" ;; # [host/]owner/name → keep
+              *)          : ;;                       # bare token → bail
+            esac
           fi
           tf_completed=
           tf_not_planned=
