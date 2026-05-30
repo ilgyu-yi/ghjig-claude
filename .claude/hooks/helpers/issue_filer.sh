@@ -35,7 +35,7 @@
 # definition.
 
 is_trusted_filer() {
-  local issue="$1"
+  local issue="$1" repo="${2:-}"
   case "$issue" in
     ''|*[!0-9]*) return 1 ;;
   esac
@@ -45,9 +45,18 @@ is_trusted_filer() {
   local cache_dir cache_file
   cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-filer-cache"
 
+  # Repo resolution (#231): an explicit `owner/name` (e.g. extracted from a URL
+  # issue selector targeting a foreign repo) overrides the current directory's
+  # repo for both the cache key and the gh query. Empty → current repo (existing
+  # behavior; callers passing only <issue#> are unchanged).
   local owner name
-  owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
-  name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  if [ -n "$repo" ]; then
+    owner="${repo%%/*}"
+    name="${repo##*/}"
+  else
+    owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
+    name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  fi
   cache_file="$cache_dir/${owner}__${name}__${issue}"
 
   # Initialize explicitly: `local assoc` (no value) leaves the var
@@ -61,7 +70,11 @@ is_trusted_filer() {
   fi
 
   if [ -z "$assoc" ]; then
-    assoc=$(gh issue view "$issue" --json authorAssociation -q '.authorAssociation' 2>/dev/null) || return 1
+    if [ -n "$repo" ]; then
+      assoc=$(gh issue view "$issue" --repo "$repo" --json authorAssociation -q '.authorAssociation' 2>/dev/null) || return 1
+    else
+      assoc=$(gh issue view "$issue" --json authorAssociation -q '.authorAssociation' 2>/dev/null) || return 1
+    fi
     [ -z "$assoc" ] && return 1
     mkdir -p "$cache_dir" 2>/dev/null || true
     printf '%s\n' "$assoc" > "$cache_file" 2>/dev/null || true

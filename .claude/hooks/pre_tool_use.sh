@@ -385,6 +385,25 @@ case "$tool" in
             */issues/*) tf_issue="${tf_sel##*/issues/}"; tf_issue="${tf_issue%%[!0-9]*}" ;;
             *)          tf_issue="${tf_sel//[^0-9]/}" ;;
           esac
+          # Extract owner/name from a URL selector so the trust + discussion
+          # lookups resolve against the URL's repo, not the current one (#231).
+          # Pure parameter expansion (no `=~` — would clobber BASH_REMATCH).
+          # Validate exactly owner/name (one slash, no whitespace); anything else
+          # → empty → fall back to the current repo (fail-soft, no over-block).
+          tf_repo=""
+          case "$tf_sel" in
+            *://*/*/issues/*)
+              tf_repo="${tf_sel#*://}"          # host/owner/name/.../issues/N
+              tf_repo="${tf_repo#*/}"           # owner/name/.../issues/N
+              tf_repo="${tf_repo%%/issues/*}"   # owner/name (or owner/name/extra)
+              case "$tf_repo" in
+                */*/*) tf_repo="" ;;            # more than owner/name → bail
+                */*) : ;;                       # exactly owner/name → keep
+                *) tf_repo="" ;;                # missing a segment → bail
+              esac
+              case "$tf_repo" in *[[:space:]]*) tf_repo="" ;; esac
+              ;;
+          esac
           tf_completed=
           tf_not_planned=
           if [[ "$cmd" =~ --reason[[:space:]]+completed ]]; then tf_completed=1; fi
@@ -395,7 +414,12 @@ case "$tool" in
           # Stage 1: discussion-tier enforcement.
           tf_is_discussion=
           if [ -z "$tf_completed" ] && [ -z "$tf_not_planned" ] && command -v gh >/dev/null 2>&1; then
-            if gh issue view "$tf_issue" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx discussion; then
+            if [ -n "$tf_repo" ]; then
+              tf_labels=$(gh issue view "$tf_issue" --repo "$tf_repo" --json labels --jq '.labels[].name' 2>/dev/null)
+            else
+              tf_labels=$(gh issue view "$tf_issue" --json labels --jq '.labels[].name' 2>/dev/null)
+            fi
+            if printf '%s\n' "$tf_labels" | grep -qx discussion; then
               tf_is_discussion=1
             fi
           fi
@@ -403,7 +427,7 @@ case "$tool" in
             block trusted-filer-mutate "Issue #${tf_issue} is discussion-tier (SPEC §5.19). Close via '/resolve-discussion ${tf_issue} --promoted-to <M>' (concrete Issue filed) or '/resolve-discussion ${tf_issue} --no-action \"<reason>\"' (nothing to do). Bare 'gh issue close' is blocked — discussion tier has exactly two close paths. Or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
           # Stage 2: trusted-filer enforcement (existing behavior).
           elif [ -z "$tf_completed" ] && command -v is_trusted_filer >/dev/null 2>&1; then
-            if is_trusted_filer "$tf_issue"; then
+            if is_trusted_filer "$tf_issue" "$tf_repo"; then
               block trusted-filer-mutate "Issue #${tf_issue} was authored by a trusted filer (OWNER / MEMBER / MAINTAINER / COLLABORATOR). Closing without --reason completed (i.e., not-planned or duplicate) requires human confirm. Use 'gh issue close ${tf_issue} --reason completed' if evidence of completion exists, or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
             else
               mark_allow trusted-filer-mutate
