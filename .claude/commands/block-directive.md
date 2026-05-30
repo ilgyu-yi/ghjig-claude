@@ -21,7 +21,7 @@ Not reviewer-gated by `activation-reviewer` — blocking is an annotation, not a
    ```
    - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
    - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
-   - If `status:proposed` label present: error ("Directive is Proposed; activate first via /activate-directive") and stop.
+   - If `status:proposed` label present: error ("Directive is Proposed; activate first via /activate") and stop.
    - If `status:blocked` label present: see step 3 idempotency.
 
 3. **Idempotency check** — read the Issue's recent comments. If the latest comment matches the regex `^## Blocked: ` AND the `status:blocked` label is already present, the block is already in place. Emit:
@@ -56,7 +56,7 @@ Same in attended and unattended — no reviewer gate, no operating-mode-dependen
 
 ## Escape
 
-`/block-directive` is not reviewer-gated. There is no `SKIP_HOOKS=directive-review` variant. If the block itself is misguided, unblock via `/activate-directive` (re-runs the reviewer and on `pass` removes the `status:blocked` label).
+`/block-directive` is not reviewer-gated. There is no `SKIP_HOOKS=directive-review` variant. If the block itself is misguided, unblock via `/activate` (re-runs the reviewer and on `pass` removes the `status:blocked` label; `/activate-directive` is a deprecated alias).
 
 ## Forbidden
 

@@ -8,14 +8,14 @@
 #   If found, post a single hook-enforced reflection comment on the parent
 #   Directive Issue. The comment is the canonical audit surface for events
 #   the Action emits — it doubles as the `directive-exec-count` and
-#   `directive-reflect` audit records that /ship step 10.5 and /reflect
+#   `directive-reflect` audit records that /ship post-merge step and /reflect
 #   produce when Claude is in the loop.
 #
 # Idempotency: scans existing comments on the parent Directive for the
 # merged PR's URL. If found, exits 0 with a no-op.
 #
 # Defense in depth: the Markdown procedures in .claude/commands/ship.md
-# step 10.5 and .claude/commands/reflect.md remain valid for Claude-in-loop
+# post-merge step and .claude/commands/reflect.md remain valid for Claude-in-loop
 # execution. Both paths arrive at the same comment shape; the existing-URL
 # idempotency check prevents duplicates.
 
@@ -99,7 +99,7 @@ jobs:
           **Parent Directive**: #${DIRECTIVE}
 
           ### Audit
-          \`directive-exec-count merged directive=#${DIRECTIVE} pr=#${PR} issue=#${EXEC}\` — recorded by \`.github/workflows/dir-mode-post-merge.yml\` (SPEC §5.7 + §5.15, Directive #61). The Markdown procedures in \`/ship\` step 10.5 and \`/reflect\` remain valid for Claude-in-loop runs; the existing-URL idempotency check dedupes across both paths.
+          \`directive-exec-count merged directive=#${DIRECTIVE} pr=#${PR} issue=#${EXEC}\` — recorded by \`.github/workflows/dir-mode-post-merge.yml\` (SPEC §5.7 + §5.15, Directive #61). The Markdown procedures in \`/ship\` post-merge step and \`/reflect\` remain valid for Claude-in-loop runs; the existing-URL idempotency check dedupes across both paths.
 
           ### Contribution
           Auto-generated — see the merged PR body for the substantive narrative. A Claude-in-loop \`/reflect\` invocation can re-run this Action's emission with a richer per-signal evidence block; the existing-URL check will replace this comment's content if the second emission references the same PR URL, OR the second emission will skip per idempotency.

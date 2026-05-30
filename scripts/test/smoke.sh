@@ -5543,6 +5543,16 @@ else
   ng "61b: SPEC §1.7 missing one or more target-substrate clauses (#114; updated #162)"
 fi
 
+# §61c (#265): the §2.1 Directive lifecycle uses `/activate` (not the deprecated
+# `/activate-directive` alias) as the operative Active-state entry transition.
+# Guards the EI-A alias purge against regression. Positive assertion: the state
+# table's Active row names `/activate` as the entry transition.
+if grep -qE '^\| `Active` \|.*\| `/activate` \(removes `status:proposed`' "$SHELL_ROOT/SPEC.md"; then
+  ok "61c: SPEC §2.1 Active-state entry transition is /activate, not the deprecated alias (#265)"
+else
+  ng "61c: SPEC §2.1 Active-state entry transition not /activate — deprecated-alias regression (#265)"
+fi
+
 # ---------- 62. discussion-tier lifecycle: skills + enforcement + /triage (#116) ----------
 # Issue #116 (final slice of Directive #109) ships the deferred items from
 # SPEC §5.19's "Deferred to follow-up" list: /discuss + /resolve-discussion
