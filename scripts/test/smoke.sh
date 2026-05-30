@@ -4750,8 +4750,17 @@ case "$args" in
   *"--json name"*)  printf 'repo\n'; exit 0 ;;
   *"--json authorAssociation"*)
     n=$(printf '%s\n' "$args" | sed -nE 's/.*issue view ([0-9]+).*/\1/p')
-    if [ -n "$n" ] && [ -f "$GH_SHIM_STATE/filer_$n" ]; then
-      cat "$GH_SHIM_STATE/filer_$n"
+    # Repo-scoped fixture (#231): when the query carries --repo owner/name,
+    # key the fixture on it (filer_<owner>_<name>_<n>); else the number-only
+    # current-repo fixture (filer_<n>).
+    r=$(printf '%s\n' "$args" | sed -nE 's/.*--repo ([^ ]+).*/\1/p')
+    if [ -n "$r" ]; then
+      key="$GH_SHIM_STATE/filer_$(printf '%s' "$r" | tr '/' '_')_$n"
+    else
+      key="$GH_SHIM_STATE/filer_$n"
+    fi
+    if [ -n "$n" ] && [ -f "$key" ]; then
+      cat "$key"
     fi
     exit 0 ;;
 esac
@@ -4760,8 +4769,12 @@ SHIM
 chmod +x "$PT55_SHIM/gh"
 
 # Per-issue fixtures: write the authorAssociation literal to $GH_SHIM_STATE/filer_<n>.
-printf 'OWNER\n'  > "$PT55_STATE/filer_100"   # trusted
-printf 'NONE\n'   > "$PT55_STATE/filer_200"   # untrusted
+printf 'OWNER\n'  > "$PT55_STATE/filer_100"   # trusted (bare-number current repo)
+printf 'NONE\n'   > "$PT55_STATE/filer_200"   # untrusted (bare-number current repo)
+# Repo-scoped fixtures (#231): same-repo URL (mock/repo) #100 trusted; foreign
+# repo (other/repo) #300 trusted while the current repo has no #300 (untrusted).
+printf 'OWNER\n'  > "$PT55_STATE/filer_mock_repo_100"
+printf 'OWNER\n'  > "$PT55_STATE/filer_other_repo_300"
 
 # Helper to invoke pre_tool_use.sh with a synthesized Bash command. Returns
 # the hook's exit code (0=allow, 2=block).
@@ -4909,6 +4922,32 @@ pt55_run "gh issue edit HTTPS://github.com/mock/repo/issues/100 --remove-label d
 case $? in
   2) ok "55h5: uppercase-scheme URL declassify → block (case-insensitive) (#223)" ;;
   *) ng "55h5: uppercase-scheme URL evaded the matcher, got rc=$? (#223)" ;;
+esac
+
+# §55i (#231): a foreign-repo URL close must resolve filer-trust against the
+# URL's repo, not the current repo. other/repo#300 is trusted (OWNER) while the
+# current repo has no #300. Pre-#231 the lookup used the current repo (#300
+# absent → untrusted → allow). Clear any stale filer cache for these keys first.
+FILER_CACHE="$SHELL_ROOT/.claude/state/issue-filer-cache"
+rm -f "$FILER_CACHE/other__repo__300" "$FILER_CACHE/other__repo__400" 2>/dev/null || true
+# i1: foreign repo #300 trusted → block (proves the lookup used the URL's repo).
+pt55_run "gh issue close https://github.com/other/repo/issues/300" >/dev/null 2>&1
+case $? in
+  2) ok "55i1: foreign-repo URL close resolves trust against the URL's repo → block (#231)" ;;
+  *) ng "55i1: foreign-repo URL close checked the wrong repo, got rc=$? (#231)" ;;
+esac
+# i2: foreign repo #400 untrusted (no fixture) → allow (no over-block).
+pt55_run "gh issue close https://github.com/other/repo/issues/400" >/dev/null 2>&1
+case $? in
+  0) ok "55i2: foreign-repo URL close, untrusted foreign filer → allow (no over-block) (#231)" ;;
+  *) ng "55i2: foreign-repo URL close over-blocked an untrusted filer, got rc=$? (#231)" ;;
+esac
+# i3: malformed URL repo (no owner/name before /issues/) → fail soft to current
+# repo (no crash, no over-block). current #100 is trusted (filer_100) → block.
+pt55_run "gh issue close https://github.com/issues/100" >/dev/null 2>&1
+case $? in
+  2) ok "55i3: malformed-repo URL falls back to current repo (current #100 trusted → block) (#231)" ;;
+  *) ng "55i3: malformed-repo URL fail-soft path wrong, got rc=$? (#231)" ;;
 esac
 
 rm -rf "$PT55_DIR"
