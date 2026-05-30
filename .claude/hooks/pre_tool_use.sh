@@ -546,8 +546,11 @@ case "$tool" in
     # All four sub-checks passing IS the common happy path (every clean
     # commit) — mark_allow keeps audit.jsonl quiet on that path; the
     # pass-through tail is the safety net for an unforeseen anomaly.
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b" \
-       && ! printf '%s' "$cmd" | grep -qE '\-\-allow-empty\b' ; then
+    # No --allow-empty carve-out (#209): an empty commit is still a
+    # protected-branch write and still carries a subject; the secret/lint
+    # sub-checks are harmless no-ops on an empty staged set. Excluding it
+    # skipped all four gates in one flag.
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b" ; then
       decided=
       if is_protected_branch; then
         should_skip branch && decided=1 || block branch "commit on protected branch ($(branch_label)) blocked"

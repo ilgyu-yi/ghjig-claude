@@ -1016,6 +1016,23 @@ else
   ng "matcher: git -p commit bypasses commit-format (#37)"
 fi
 
+# 37x (#209): `git commit --allow-empty` must NOT skip the commit umbrella.
+# Pre-#209 the matcher ENTRY excluded --allow-empty, so an empty commit bypassed
+# branch + commit-format + secret + lint in one flag. A malformed subject proves
+# the umbrella now ENTERS (the four sub-checks share a single `if` block, so the
+# matcher-entry guard is the whole fix — once it enters, branch/secret/lint run
+# by construction). The second case keeps a valid empty commit from over-blocking.
+if [ "$(hook_run 'git commit --allow-empty -m "not a CC subject"')" = "2" ]; then
+  ok "matcher: git commit --allow-empty enters the commit gate (commit-format fires) (#209)"
+else
+  ng "matcher: git commit --allow-empty bypasses the commit umbrella (#209)"
+fi
+if [ "$(hook_run 'git commit --allow-empty -m "feat(#1): valid empty"')" = "0" ]; then
+  ok "matcher: git commit --allow-empty with a valid CC subject still passes (#209)"
+else
+  ng "matcher: valid --allow-empty commit over-blocked (#209)"
+fi
+
 # ---------- 23. SKIP_HOOKS escape parsing (#38, #206) ----------
 # SPEC §7 escape has TWO forms. §23a-f cover the LEADING env-prefix form,
 # which only works where the prefix arrives INSIDE the command string —
