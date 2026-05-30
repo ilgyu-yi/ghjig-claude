@@ -6086,6 +6086,43 @@ else
   ng "70i: branch named 'all' should be allowed (refset regex needs -- prefix) (#204)"
 fi
 
+# ---------- 71. escape-hatch reference docs route in-harness blocks correctly (#217) ----------
+# SPEC §7 has TWO escape forms; the leading env-prefix is non-functional in the
+# live Claude Code Bash tool (consumed as subprocess env, #206), so the canonical
+# in-harness form is the trailing sentinel. These doc-checks assert the reference
+# docs present the trailing sentinel + carry the label-parent-consistency category
+# + cite the actual .shellsecretignore globs. Fail pre-#217.
+EH="$SHELL_ROOT/docs/ESCAPE_HATCH.md"
+TS="$SHELL_ROOT/docs/TROUBLESHOOTING.md"
+# 71a: ESCAPE_HATCH.md presents the trailing-sentinel in-harness form.
+grep -qF 'claude-eng:skip=' "$EH" 2>/dev/null \
+  && ok "71a: ESCAPE_HATCH.md documents the trailing-sentinel in-harness escape (#217)" \
+  || ng "71a: ESCAPE_HATCH.md missing the trailing-sentinel form (#217)"
+# 71b: ESCAPE_HATCH.md ## Categories includes label-parent-consistency.
+grep -qF 'label-parent-consistency' "$EH" 2>/dev/null \
+  && ok "71b: ESCAPE_HATCH.md categories include label-parent-consistency (#217)" \
+  || ng "71b: ESCAPE_HATCH.md missing the label-parent-consistency category (#217)"
+# 71c: TROUBLESHOOTING.md names the trailing-sentinel in-harness form.
+grep -qF 'claude-eng:skip=' "$TS" 2>/dev/null \
+  && ok "71c: TROUBLESHOOTING.md names the trailing-sentinel in-harness escape (#217)" \
+  || ng "71c: TROUBLESHOOTING.md missing the trailing-sentinel form (#217)"
+# 71d: TROUBLESHOOTING.md carries a label-parent-consistency row.
+grep -qF 'label-parent-consistency' "$TS" 2>/dev/null \
+  && ok "71d: TROUBLESHOOTING.md has a label-parent-consistency row (#217)" \
+  || ng "71d: TROUBLESHOOTING.md missing the label-parent-consistency row (#217)"
+# 71e: README.md (+ .ko) present the trailing-sentinel as the in-harness escape.
+grep -qF 'claude-eng:skip=' "$SHELL_ROOT/README.md" 2>/dev/null \
+  && grep -qF 'claude-eng:skip=' "$SHELL_ROOT/README.ko.md" 2>/dev/null \
+  && ok "71e: README.md + README.ko.md present the trailing-sentinel escape (#217)" \
+  || ng "71e: README escape line missing the trailing-sentinel form (#217)"
+# 71f: CLAUDE.md no longer cites the stale *test*/*example* glob defaults (it now
+# names the actual component-aware globs or references the file as SSOT).
+if grep -qF '*test*' "$SHELL_ROOT/.claude/CLAUDE.md" 2>/dev/null; then
+  ng "71f: CLAUDE.md still cites the stale *test* .shellsecretignore default (#217)"
+else
+  ok "71f: CLAUDE.md no longer cites the stale *test*/*example* globs (#217)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
