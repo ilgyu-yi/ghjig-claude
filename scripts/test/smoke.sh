@@ -1033,6 +1033,37 @@ else
   ng "matcher: valid --allow-empty commit over-blocked (#209)"
 fi
 
+# 37y (#212): the destructive out-of-scope guard recognizes a force/recursive
+# flag in ANY surface form (clustered/separated/long/non-first), anchored to the
+# verb. /etc/ce-probe is out of scope → block. Pre-#212 only a clustered -rf
+# immediately after the verb matched, so the separated/long/non-first forms
+# slipped past (rc=0 allow).
+for d212 in \
+  'rm -r -f /etc/ce-probe' \
+  'rm --force /etc/ce-probe' \
+  'rm -i -rf /etc/ce-probe' \
+  'rm --recursive --force /etc/ce-probe' \
+  'rm -rf /etc/ce-probe' ; do
+  if [ "$(hook_run "$d212")" = "2" ]; then
+    ok "matcher: destructive out-of-scope blocked [$d212] (#212)"
+  else
+    ng "matcher: destructive form slipped past [$d212] (#212)"
+  fi
+done
+# No over-block: an UNFORCED rm (no force/recursive flag) must not enter the arm
+# (only forced/recursive forms are gated — broadening to bare rm is out of scope).
+if [ "$(hook_run 'rm /etc/ce-probe')" = "0" ]; then
+  ok "matcher: unforced rm does not enter the destructive arm (#212)"
+else
+  ng "matcher: unforced rm wrongly blocked (#212)"
+fi
+# No over-entry: a free-floating force flag with NO rm/mv/cp verb must not trigger.
+if [ "$(hook_run 'grep -f pattern /etc/ce-probe')" = "0" ]; then
+  ok "matcher: free-floating -f without rm/mv/cp does not trigger destructive arm (#212)"
+else
+  ng "matcher: grep -f wrongly entered the destructive arm (#212)"
+fi
+
 # ---------- 23. SKIP_HOOKS escape parsing (#38, #206) ----------
 # SPEC §7 escape has TWO forms. §23a-f cover the LEADING env-prefix form,
 # which only works where the prefix arrives INSIDE the command string —
@@ -3913,6 +3944,40 @@ else
   ng "44h: is_directive_issue cache missing/wrong for #91 (#46/#171)"
 fi
 
+# 44i (#212): is_directive_issue anchors on comma-list boundaries, not a grep
+# word-match. A label like `non-directive` (hyphen is a grep word boundary) must
+# NOT be classified as a Directive; a bare `directive` anywhere in the list must.
+s212_isdir() {  # $1=labels → echoes directive|execution
+  (
+    export CLAUDE_ENG_SHELL_ROOT="$TMP/s212root"
+    rm -rf "$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache" 2>/dev/null
+    mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"
+    s212_lbl="$1"
+    gh() {
+      case "$*" in
+        *'repo view'*owner*) printf 'smoke-owner\n' ;;
+        *'repo view'*name*) printf 'smoke-repo\n' ;;
+        *'issue view'*) printf '%s\n' "$s212_lbl" ;;
+        *) return 0 ;;
+      esac
+    }
+    . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
+    is_directive_issue 700 && echo directive || echo execution
+  )
+}
+[ "$(s212_isdir 'non-directive')" = execution ] \
+  && ok "44i: is_directive_issue does not mis-classify 'non-directive' as a Directive (#212)" \
+  || ng "44i: 'non-directive' mis-classified (word-match over-match) (#212)"
+[ "$(s212_isdir 'directive')" = directive ] \
+  && ok "44i: bare 'directive' label classified as Directive (#212)" \
+  || ng "44i: bare 'directive' not classified as Directive (#212)"
+[ "$(s212_isdir 'task,directive')" = directive ] \
+  && ok "44i: 'directive' as a comma-list element classified as Directive (#212)" \
+  || ng "44i: comma-list 'directive' not classified (#212)"
+[ "$(s212_isdir 'bug,task')" = execution ] \
+  && ok "44i: comma list without 'directive' is execution (#212)" \
+  || ng "44i: non-directive comma list mis-classified (#212)"
+
 # Cleanup: remove cache entries created by §44 so they don't leak.
 rm -f "$DP_CACHE/smoke-owner__smoke-repo__91" "$DP_CACHE/smoke-owner__smoke-repo__92" "$DP_CACHE/smoke-owner__smoke-repo__93" "$DP_CACHE/smoke-owner__smoke-repo__94" "$DP_CACHE/smoke-owner__smoke-repo__95"
 # Remove the test target from the registry so other tests aren't affected.
@@ -5816,6 +5881,35 @@ if [ "$s69_rc" = 0 ] && [ "$s69_delta" -ge 1 ] \
 else
   ng "69e: escape not honored / not audited (rc=$s69_rc, delta=$s69_delta) (#199)"
 fi
+
+# §69f (#212): the gated label as a NON-FIRST element of a comma-joined
+# --add-label value must still be caught. 888 is marker-less, so execution
+# anywhere in the list → block. Pre-#212 the regex anchored the label at the
+# head of the value and missed this (fail-open allow).
+s69_edit_run "gh issue edit 888 --add-label other,execution"
+case $? in
+  2) ok "69f: --add-label other,execution (comma list) on marker-less Issue → block (#212)" ;;
+  *) ng "69f: comma-list execution not caught, got rc=$? (#212)" ;;
+esac
+
+# §69g (#212): correctness of the BASH_REMATCH renumber — the captured label
+# must be the gated token after the comma, not the prefix. 777 HAS a marker, so
+# `task` (standalone) contradicts it → block. If the prefix `bar` were captured
+# instead of `task`, it would be non-gated and fail-open allow.
+s69_edit_run "gh issue edit 777 --add-label bar,task"
+case $? in
+  2) ok "69g: comma-list label correctly captured (bar,task → task contradiction blocks) (#212)" ;;
+  *) ng "69g: comma-list label mis-captured (renumber regression?), got rc=$? (#212)" ;;
+esac
+
+# §69h (#212): no over-match — a longer label like `executionish` is not the
+# gated `execution` token and must allow (777 has marker, but executionish is
+# ungated so the arm fails open regardless).
+s69_edit_run "gh issue edit 777 --add-label executionish"
+case $? in
+  0) ok "69h: --add-label executionish does not over-match the gated token → allow (#212)" ;;
+  *) ng "69h: executionish over-matched the gated label, got rc=$? (#212)" ;;
+esac
 
 # Cleanup §69.
 s69_tmp_reg=$(mktemp); grep -vxF "$S69_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$s69_tmp_reg" 2>/dev/null || true
