@@ -104,6 +104,23 @@ path_in_scope "/etc/passwd" && ng "path_in_scope: /etc/passwd should be false" |
 path_in_scope "$HOME/.zshrc" && ng "path_in_scope: ~/.zshrc should be false" || ok "path_in_scope: ~/.zshrc false"
 path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" && ok "path_in_scope: shell self allowed" || ng "shell self should be allowed"
 
+# 5b (#218): a registry entry WITH a trailing slash must still scope paths under
+# it. Pre-#218 the `"$entry"/*` glob became `entry//*` (double slash) and never
+# matched, and the `[ "$p" = "$entry" ]` equality failed too — the path silently
+# dropped from scope (fail-open on the scope guard). Both loops normalize via
+# `${entry%/}` now.
+S5B_DIR=$(cd "$(mktemp -d)" && pwd -P)   # physical-resolved (path_in_scope resolves symlinks)
+printf '%s/\n' "$S5B_DIR" >> "$SHELL_ROOT/.claude/state/registry.txt"   # trailing slash entry
+path_in_scope "$S5B_DIR/sub/file.txt" \
+  && ok "5b: trailing-slash registry entry still scopes paths under it (#218)" \
+  || ng "5b: trailing-slash registry entry dropped its path from scope (#218)"
+(cd "$S5B_DIR" && in_scope) \
+  && ok "5b: in_scope true inside a trailing-slash registry entry (#218)" \
+  || ng "5b: in_scope false inside a trailing-slash registry entry (#218)"
+s5b_tmp=$(mktemp); grep -vxF "$S5B_DIR/" "$SHELL_ROOT/.claude/state/registry.txt" > "$s5b_tmp" 2>/dev/null || true
+mv "$s5b_tmp" "$SHELL_ROOT/.claude/state/registry.txt"
+rmdir "$S5B_DIR" 2>/dev/null || true
+
 # ---------- 6. secret_scan ----------
 . "$SHELL_ROOT/.claude/hooks/helpers/secret_scan.sh"
 SCAN_DIR=$(mktemp -d)
@@ -6160,6 +6177,36 @@ if grep -qF '*test*' "$SHELL_ROOT/.claude/CLAUDE.md" 2>/dev/null; then
   ng "71f: CLAUDE.md still cites the stale *test* .shellsecretignore default (#217)"
 else
   ok "71f: CLAUDE.md no longer cites the stale *test*/*example* globs (#217)"
+fi
+
+# ---------- 72. robustness cluster: release_consolidate + ac_closeout symmetry (#218) ----------
+# Script-content assertions (the affected scripts talk to git/gh and aren't
+# cheaply unit-testable in isolation); they verify the fix is present.
+# 72a (SITE 1): release_consolidate.sh's fragment-consume `git rm` is guarded so
+# a failure exits non-zero (was swallowed under set -uo pipefail).
+RC_SH="$SHELL_ROOT/scripts/release_consolidate.sh"
+if grep -qF 'git rm -q "$f" ||' "$RC_SH" 2>/dev/null \
+   && grep -qF 'git add VERSION CHANGELOG.md ||' "$RC_SH" 2>/dev/null; then
+  ok "72a: release_consolidate.sh git rm + git add guarded (non-zero exit on failure) (#218)"
+else
+  ng "72a: release_consolidate.sh git rm/git add failure is unguarded — swallowed under set -uo pipefail (#218)"
+fi
+# 72b (SITE 2): ac_closeout.sh's detect + convert no longer require a trailing
+# space, so they cover the same degenerate `- [ ]` lines the gate blocks on.
+# grep -F (fixed string) for the OLD trailing-space signatures — absent = fixed.
+AC_SH="$SHELL_ROOT/scripts/ac_closeout.sh"
+if ! grep -F '[ x~]\] ' "$AC_SH" >/dev/null 2>&1 \
+   && ! grep -F '\[ \] /' "$AC_SH" >/dev/null 2>&1; then
+  ok "72b: ac_closeout.sh detect+convert dropped the trailing-space requirement (gate symmetry) (#218)"
+else
+  ng "72b: ac_closeout.sh still requires a trailing space — gate-vs-remedy deadlock on degenerate '- [ ]' (#218)"
+fi
+# 72c (SITE 4): migrate_v3.sh header no longer claims snapshot idempotency it
+# never had (second-resolution timestamp).
+if ! grep -qF 're-running with the same date does nothing' "$SHELL_ROOT/scripts/migrate_v3.sh" 2>/dev/null; then
+  ok "72c: migrate_v3.sh header no longer claims false snapshot idempotency (#218)"
+else
+  ng "72c: migrate_v3.sh header still claims snapshot idempotency it never had (#218)"
 fi
 
 # ---------- restore registry ----------
