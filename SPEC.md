@@ -1078,7 +1078,7 @@ A distinct open-Issue tier alongside Directive / Execution / task / bug. **Purpo
 **Close paths** — exactly two:
 
 - **`promoted`** — a concrete Issue (bug / task / Directive) was filed; the discussion closes referencing it (`gh issue close <N> --reason completed` plus a `^promoted to #<M>$` comment). The new Issue cross-references back.
-- **`no-action`** — the discussion concluded nothing needs doing (`gh issue close <N> --reason not_planned` plus a one-line comment naming the reason).
+- **`no-action`** — the discussion concluded nothing needs doing (`gh issue close <N> --reason "not planned"` plus a one-line comment naming the reason). The `gh` CLI accepts only `{completed|not planned|duplicate}` — the **space** form; `not_planned` (underscore) is rejected by `gh`, so the space form is canonical everywhere the value reaches `gh`.
 
 No third path. Stale discussions surface via `/activate` batch mode (§5.12; relocated from `/triage` by #173); no auto-close timer.
 
@@ -1096,9 +1096,9 @@ No third path. Stale discussions surface via `/activate` batch mode (§5.12; rel
 
 - `/discuss <title>` — friction-free filing; bypasses the rationale triad + `issue-reviewer` gate. Full procedure in `.claude/commands/discuss.md`.
 - `/resolve-discussion <N> [--promoted-to <M>] [--no-action <reason>]` — closes via exactly one of the two paths above. Idempotent. Full procedure in `.claude/commands/resolve-discussion.md`.
-- Close-path enforcement — hook matcher arm under `trusted-filer-mutate` (§6.1) blocks `gh issue close <N>` on a `discussion`-labeled Issue without `--reason completed` OR `--reason not_planned`. Stage 1 of the close-arm two-stage check (stage 2 = trusted-filer enforcement).
+- Close-path enforcement — hook matcher arm under `trusted-filer-mutate` (§6.1) blocks `gh issue close <N>` on a `discussion`-labeled Issue without `--reason completed` OR `--reason "not planned"`. The matcher tolerates both the gh-valid space form and the legacy underscore so it is never itself the blocker; the canonical emitted form is the space form. Stage 1 of the close-arm two-stage check (stage 2 = trusted-filer enforcement).
 - `/activate` batch mode (§5.12; relocated from `/triage` by #173) — surfaces open `discussion`-labeled Issues older than 14 days as a maintainer-decision queue (promote / dismiss / let-incubate). Mode-independent: AI does not autonomously promote/dismiss even in unattended.
-- Smoke §62 — 6 assertions covering skill files, hook close-path enforcement (block + allow paths), and `/triage` extension.
+- Smoke §62 — 8 assertions covering skill files, hook close-path enforcement (block + allow paths, the gh-valid `"not planned"` space form + legacy-underscore tolerance + a `duplicate` negative, #216), and `/triage` extension.
 
 **Lockstep with Directive #107**: the `discussion` label is in `/onboard-dir-mode`'s bootstrap-label set (the 10-label dir-mode set). #112 (label substrate) merged first; #116 (lifecycle) merged second; #107's `/onboard-dir-mode` consumes both.
 
