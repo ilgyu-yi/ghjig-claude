@@ -28,7 +28,7 @@ Turn an upstream **Initiative** (an `initiative`-labelled Issue, SPEC §1.7) int
 
 4. **Faithfulness gate (I2)** — invoke `activation-reviewer` (SPEC §4.9, extraction-faithfulness check I2) over the **whole proposal set at once** (coverage is a property of the set, not of any single Directive).
    - **pass** → proceed to step 5.
-   - **revise: <feedback>** → refine the set per the one-line feedback (add a missing Directive / trim scope inflation / fix a parent marker) and re-invoke. After two consecutive `revise` verdicts, escalate to the user (attended) or stop (unattended).
+   - **revise: <feedback>** → refine the set per the one-line feedback (add a missing Directive / trim scope inflation / fix a parent marker) and re-invoke. The reviewer self-escalates to `reject` after N=3 `revise` markers (`.claude/agents/activation-reviewer.md`); on that `reject`, escalate to the user (attended) or stop (unattended).
 
 5. **File the extracted Directives.** For each proposal, `gh issue create` with the body passed via **`--body-file`** (so upstream-authored Initiative text carried into the body is never interpolated into a `gh` argument position — this covers the shell-injection surface; content-trust is handled by the I1/I2 gates + human activation, not by `--body-file`):
    ```bash

@@ -25,7 +25,7 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
 3. **Reviewer gate** — invoke `activation-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently Active Directives (filter out this one — it's about to change), MISSION.md content. Parse the verdict per `/file-directive` step 2 dispatch.
 
    - **`pass`** → proceed to step 4.
-   - **`revise: <feedback>`** → revise the proposed new body per the one-line feedback. Re-invoke. After two consecutive `revise` verdicts, escalate (attended) or treat as `reject` (unattended).
+   - **`revise: <feedback>`** → revise the proposed new body per the one-line feedback. Re-invoke. The reviewer self-escalates to `reject` after N=3 `revise` markers (`.claude/agents/activation-reviewer.md`); on that `reject`, escalate (attended) or abort the body replacement (unattended).
    - **`reject: <reason>`** → stop. Leave the Issue body unchanged. Audit `directive-revise blocked "<reason>"`. No archive comment, no `reconciled` audit line.
 
 4. **Compute the prior-body sha** — `shasum -a 256 <prior-body-file> | awk '{print $1}'`. Retain across step 5-7.
