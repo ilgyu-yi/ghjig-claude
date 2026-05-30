@@ -103,6 +103,18 @@ case "$tool" in
     # context — currently extract_commit_subject for the heredoc -m form.
     raw_cmd="$cmd"
 
+    # Parse the SPEC §7 TRAILING-sentinel escape (`# claude-eng:skip=<cat>
+    # reason=<why>`) from the RAW command before normalization (#206). This is
+    # the in-harness escape: the live Bash tool consumes a leading VAR= prefix
+    # (handled by parse_env_prefix below) before it reaches tool_input.command,
+    # but a trailing #-comment survives. Must run pre-normalization — the tr/sed
+    # + shlex below would mangle the `#`. On match it exports SKIP_HOOKS/
+    # SKIP_REASON and strips the sentinel from raw_cmd; rebase cmd on the
+    # stripped raw_cmd so the reason text can't bleed into a matcher. A leading
+    # env-prefix (parse_env_prefix, below) runs after and wins if both present.
+    parse_skip_sentinel "$raw_cmd" raw_cmd
+    cmd="$raw_cmd"
+
     # Normalize multiline backslash-continuation and stray newlines so the
     # matchers see a single logical command. Collapse `\\\n` first, then
     # remaining newlines, then runs of whitespace. See SPEC §6.1
