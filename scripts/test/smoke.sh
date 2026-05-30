@@ -6172,7 +6172,7 @@ else
   ng "67a: activation-reviewer parent-fit not gated by type label / matrix not execution-scoped (#197)"
 fi
 
-# §67e (#254, M2) — activation-reviewer handles the Initiative tier: type dispatch
+# §67f (#254, M2) — activation-reviewer handles the Initiative tier: type dispatch
 # recognizes `initiative`, the Directive alignment branches on parent kind, and the
 # Initiative rulebook documents contract-evaluability + extraction-faithfulness.
 if [ -f "$S67_AR" ] \
