@@ -5263,8 +5263,8 @@ if [ -f "$SHELL_ROOT/.claude/commands/resolve-discussion.md" ] \
    && grep -q -- "--promoted-to" "$SHELL_ROOT/.claude/commands/resolve-discussion.md" \
    && grep -q -- "--no-action" "$SHELL_ROOT/.claude/commands/resolve-discussion.md" \
    && grep -q "reason completed" "$SHELL_ROOT/.claude/commands/resolve-discussion.md" \
-   && grep -q "reason not_planned" "$SHELL_ROOT/.claude/commands/resolve-discussion.md"; then
-  ok "62b: /resolve-discussion skill names both close paths + reasons (#116)"
+   && grep -q 'reason "not planned"' "$SHELL_ROOT/.claude/commands/resolve-discussion.md"; then
+  ok "62b: /resolve-discussion skill names both close paths + reasons (gh-valid space form, #216)"
 else
   ng "62b: /resolve-discussion skill missing or lacks both close-path modes (#116)"
 fi
@@ -5305,7 +5305,9 @@ s62_close_run() {
   local cmd="$1"
   (
     cd "$S62_TARGET" || exit 1
-    printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" \
+    # jq-encode so a command carrying inner quotes (e.g. --reason "not planned")
+    # stays valid JSON (#216).
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$cmd" | jq -Rs .)" \
       | PATH="$S62_DIR/bin:$PATH" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
   )
@@ -5326,11 +5328,29 @@ case $? in
   *) ng "62d: expected rc=0 (allow) for --reason completed, got rc=$? (#116)" ;;
 esac
 
-# §62e: `gh issue close <N> --reason not_planned` on discussion-labeled Issue → ALLOWED (rc=0).
+# §62e: `gh issue close <N> --reason "not planned"` (gh-valid SPACE form) on a
+# discussion Issue → ALLOWED (rc=0). Pre-#216 the hook matched only the underscore
+# `not_planned`, so the gh-valid space form was wrongly blocked as a bare close.
+s62_close_run 'gh issue close 999 --reason "not planned"'
+case $? in
+  0) ok "62e: gh issue close --reason \"not planned\" (gh-valid) on discussion Issue → allow (#216)" ;;
+  *) ng "62e: expected rc=0 (allow) for --reason \"not planned\", got rc=$? (#216)" ;;
+esac
+
+# §62e2 (#216): the legacy underscore form is still TOLERATED by the hook (so the
+# hook is never itself the blocker), even though gh rejects it downstream.
 s62_close_run "gh issue close 999 --reason not_planned"
 case $? in
-  0) ok "62e: gh issue close --reason not_planned on discussion Issue → allow (#116)" ;;
-  *) ng "62e: expected rc=0 (allow) for --reason not_planned, got rc=$? (#116)" ;;
+  0) ok "62e2: legacy --reason not_planned still tolerated by the hook (#216)" ;;
+  *) ng "62e2: expected rc=0 (tolerance) for legacy underscore, got rc=$? (#216)" ;;
+esac
+
+# §62e3 (#216): `--reason duplicate` is NOT one of the two discussion close paths
+# (§5.19) and must NOT be mistaken for not-planned by the tolerant regex → BLOCK.
+s62_close_run "gh issue close 999 --reason duplicate"
+case $? in
+  2) ok "62e3: --reason duplicate on discussion Issue → block (not a §5.19 path; no over-match) (#216)" ;;
+  *) ng "62e3: expected rc=2 (block) for --reason duplicate, got rc=$? (#216)" ;;
 esac
 
 # Cleanup §62.

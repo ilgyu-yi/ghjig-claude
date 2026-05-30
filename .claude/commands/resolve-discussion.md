@@ -29,7 +29,7 @@ Close a `discussion`-labeled Issue. Per SPEC §5.19 the tier has exactly two clo
    ### 4b. `--no-action "<reason>"` (no-action path)
    - Reason must be non-empty. Empty → error and stop.
    - Post comment on `<issue-#>`: `no-action: <reason>` (single line).
-   - Close: `gh issue close <issue-#> --reason not_planned`.
+   - Close: `gh issue close <issue-#> --reason "not planned"` (the **space** form — `gh` accepts only `{completed|not planned|duplicate}` and rejects the underscore `not_planned`).
 
 5. **Audit log** — `audit_log info discussion-resolve created "discussion: #<issue-#> path=<promoted|no-action> [target=#<M>]"`.
 
@@ -44,7 +44,7 @@ Same in attended and unattended.
 
 ## Escape
 
-The `trusted-filer-mutate` hook's discussion-close arm blocks bare `gh issue close` on a `discussion` Issue. This skill is the canonical bypass — its close commands carry `--reason completed`/`--reason not_planned` which the hook explicitly allows. No `SKIP_HOOKS` needed.
+The `trusted-filer-mutate` hook's discussion-close arm blocks bare `gh issue close` on a `discussion` Issue. This skill is the canonical bypass — its close commands carry `--reason completed`/`--reason "not planned"` which the hook explicitly allows. No `SKIP_HOOKS` needed.
 
 ## Forbidden
 

@@ -355,9 +355,11 @@ case "$tool" in
         # Sub-arm a: `gh issue close <N>` — two-stage check.
         #   Stage 1 (discussion-tier, SPEC §5.19, Issue #116): if the Issue
         #     carries the `discussion` label, close MUST use `--reason completed`
-        #     OR `--reason not_planned` (the two paths from SPEC §5.19). Bare
+        #     OR `--reason "not planned"` (the two paths from SPEC §5.19). Bare
         #     close (no `--reason`) is blocked — discussion tier has exactly
-        #     two close paths.
+        #     two close paths. The not-planned match tolerates both the gh-valid
+        #     space form and the legacy underscore so the hook is never itself
+        #     the blocker (#216); `gh` rejects the underscore at its own boundary.
         #   Stage 2 (trusted-filer, existing): if not a discussion Issue, fall
         #     through to the trusted-filer check — block close-without-`--reason
         #     completed` on Issues authored by trusted filers (OWNER / MEMBER /
@@ -367,7 +369,10 @@ case "$tool" in
           tf_completed=
           tf_not_planned=
           if [[ "$cmd" =~ --reason[[:space:]]+completed ]]; then tf_completed=1; fi
-          if [[ "$cmd" =~ --reason[[:space:]]+not_planned ]]; then tf_not_planned=1; fi
+          # Tolerate both the gh-valid space form (`--reason "not planned"`,
+          # optionally quoted) and the legacy underscore (#216).
+          tf_notplanned_re='--reason[=[:space:]]+["'"'"']?not[_[:space:]]planned'
+          if [[ "$cmd" =~ $tf_notplanned_re ]]; then tf_not_planned=1; fi
           # Stage 1: discussion-tier enforcement.
           tf_is_discussion=
           if [ -z "$tf_completed" ] && [ -z "$tf_not_planned" ] && command -v gh >/dev/null 2>&1; then
@@ -386,7 +391,7 @@ case "$tool" in
               decided=1
             fi
           else
-            # --reason completed / --reason not_planned OR helper unavailable → fail-open per §6.1.
+            # --reason completed / --reason "not planned" OR helper unavailable → fail-open per §6.1.
             mark_allow trusted-filer-mutate
             decided=1
           fi
