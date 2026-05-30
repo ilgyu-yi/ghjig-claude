@@ -411,9 +411,14 @@ case "$tool" in
           # optionally quoted) and the legacy underscore (#216).
           tf_notplanned_re='--reason[=[:space:]]+["'"'"']?not[_[:space:]]planned'
           if [[ "$cmd" =~ $tf_notplanned_re ]]; then tf_not_planned=1; fi
-          # Stage 1: discussion-tier enforcement.
+          # Stage 1: classify discussion-tier FIRST, independent of the close
+          # reason (#236). A `--reason completed` close is always allowed (the
+          # final else), so the query is skipped only for that; for any other
+          # close it runs, so a sanctioned `--reason "not planned"` close on a
+          # discussion Issue is recognized as the §5.19 no-action path instead of
+          # being short-circuited into the Stage-2 trusted-filer block.
           tf_is_discussion=
-          if [ -z "$tf_completed" ] && [ -z "$tf_not_planned" ] && command -v gh >/dev/null 2>&1; then
+          if [ -z "$tf_completed" ] && command -v gh >/dev/null 2>&1; then
             if [ -n "$tf_repo" ]; then
               tf_labels=$(gh issue view "$tf_issue" --repo "$tf_repo" --json labels --jq '.labels[].name' 2>/dev/null)
             else
@@ -424,8 +429,17 @@ case "$tool" in
             fi
           fi
           if [ -n "$tf_is_discussion" ]; then
-            block trusted-filer-mutate "Issue #${tf_issue} is discussion-tier (SPEC §5.19). Close via '/resolve-discussion ${tf_issue} --promoted-to <M>' (concrete Issue filed) or '/resolve-discussion ${tf_issue} --no-action \"<reason>\"' (nothing to do). Bare 'gh issue close' is blocked — discussion tier has exactly two close paths. Or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
-          # Stage 2: trusted-filer enforcement (existing behavior).
+            # Discussion-tier (SPEC §5.19): exactly two close paths — `completed`
+            # (allowed via the final else) or `"not planned"` (the no-action path,
+            # allowed regardless of filer trust, #236). A bare close or
+            # `--reason duplicate` is blocked.
+            if [ -n "$tf_not_planned" ]; then
+              mark_allow trusted-filer-mutate
+              decided=1
+            else
+              block trusted-filer-mutate "Issue #${tf_issue} is discussion-tier (SPEC §5.19). Close via '/resolve-discussion ${tf_issue} --promoted-to <M>' (concrete Issue filed) or '/resolve-discussion ${tf_issue} --no-action \"<reason>\"' (nothing to do). A bare close or --reason duplicate is blocked — discussion tier has exactly two close paths (--reason completed | \"not planned\"). Or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
+            fi
+          # Stage 2: trusted-filer enforcement — NON-discussion Issues only.
           elif [ -z "$tf_completed" ] && command -v is_trusted_filer >/dev/null 2>&1; then
             if is_trusted_filer "$tf_issue" "$tf_repo"; then
               block trusted-filer-mutate "Issue #${tf_issue} was authored by a trusted filer (OWNER / MEMBER / MAINTAINER / COLLABORATOR). Closing without --reason completed (i.e., not-planned or duplicate) requires human confirm. Use 'gh issue close ${tf_issue} --reason completed' if evidence of completion exists, or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
