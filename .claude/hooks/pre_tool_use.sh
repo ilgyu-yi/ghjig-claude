@@ -688,13 +688,31 @@ case "$tool" in
       should_skip out-of-scope || block out-of-scope "edit outside registry blocked: $target"
     fi
 
-    # Sensitive files — applies regardless of EITHER carve-out (#210).
+    # Sensitive files — applies regardless of EITHER carve-out (#210). Match the
+    # lexical basename AND, when the final component is a symlink, the
+    # python3-realpath-resolved basename (#234) — else a symlink named
+    # innocuously (`ln -s ~/.ssh/id_rsa ./innocent`; the `ln` isn't gated) would
+    # let an Edit write through the link into a sensitive target. `python3`
+    # absent / unresolvable → lexical-only (fail-soft). TOCTOU + hardlinks
+    # out of scope. Path is piped via stdin, never interpolated into the python.
     base=$(basename "$target")
+    sens_resolved=""
+    if [ -L "$target" ] && command -v python3 >/dev/null 2>&1; then
+      sens_rp=$(printf '%s' "$target" | python3 -c 'import os,sys; sys.stdout.write(os.path.realpath(sys.stdin.read()))' 2>/dev/null)
+      [ -n "$sens_rp" ] && sens_resolved=$(basename "$sens_rp")
+    fi
+    sens_hit=
     case "$base" in
-      .env|.env.*|*.pem|credentials|credentials.*|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*)
-        should_skip sensitive || block sensitive "sensitive file edit blocked: $target"
-        ;;
+      .env|.env.*|*.pem|credentials|credentials.*|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*) sens_hit=1 ;;
     esac
+    if [ -z "$sens_hit" ] && [ -n "$sens_resolved" ]; then
+      case "$sens_resolved" in
+        .env|.env.*|*.pem|credentials|credentials.*|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*) sens_hit=1 ;;
+      esac
+    fi
+    if [ -n "$sens_hit" ]; then
+      should_skip sensitive || block sensitive "sensitive file edit blocked: $target${sens_resolved:+ (symlink to a sensitive target)}"
+    fi
     ;;
 esac
 
