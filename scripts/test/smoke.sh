@@ -1016,10 +1016,15 @@ else
   ng "matcher: git -p commit bypasses commit-format (#37)"
 fi
 
-# ---------- 23. SKIP_HOOKS env-prefix parsing (#38) ----------
-# SPEC §7 documents the escape hatch as a leading env-prefix on the
-# command. Claude Code's hook subprocess does not inherit env-prefixes
-# from the command string; the hook must parse them itself.
+# ---------- 23. SKIP_HOOKS escape parsing (#38, #206) ----------
+# SPEC §7 escape has TWO forms. §23a-f cover the LEADING env-prefix form,
+# which only works where the prefix arrives INSIDE the command string —
+# hook_run embeds it in tool_input.command via `jq -Rs`, modeling a real
+# shell / verbatim delivery. CAVEAT (#206): the LIVE Claude Code Bash tool
+# consumes a leading `VAR=val` as the subprocess env, so it never reaches
+# tool_input.command — the leading form is dead in-harness. §23g-j (below)
+# cover the TRAILING sentinel `# claude-eng:skip=<cat> reason=<why>`, which
+# stays in the command and IS the reliable in-harness escape.
 
 # Helper: count audit lines + the last N entries.
 audit_lines() { wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '; }
@@ -1101,6 +1106,56 @@ else
   ng "skip: PATH= prefix exported — allow-list bypassed [$probe_out] (#38)"
 fi
 rm -rf "$PATH_PROBE_DIR"
+
+# 23g (#206): TRAILING SENTINEL — the in-harness escape. A `git reset --hard`
+# (destructive) blocks today; with a trailing `# claude-eng:skip=destructive
+# reason=...` sentinel IN the command (which is how it arrives in-harness AND
+# in hook_run) it is allowed + an escape audit record is written.
+before=$(audit_lines); [ -z "$before" ] && before=0
+rc=$(hook_run 'git reset --hard  # claude-eng:skip=destructive reason=in-harness-escape')
+after=$(audit_lines); [ -z "$after" ] && after=0
+delta=$((after - before))
+if [ "$rc" = "0" ] && [ "$delta" -ge 1 ] \
+   && tail -n "$delta" "$REAL_AUDIT" 2>/dev/null | grep -q '"category":"destructive"' \
+   && tail -n "$delta" "$REAL_AUDIT" 2>/dev/null | grep -q '"event":"escape"'; then
+  ok "skip: trailing sentinel honored + audited in-harness (#206)"
+else
+  ng "skip: trailing sentinel not honored (rc=$rc, delta=$delta) (#206)"
+fi
+
+# 23h (#206): REGRESSION proving the gap — a bare command with NO sentinel
+# (modeling what the harness delivers after eating a leading env-prefix) still
+# BLOCKS. This is exactly the in-harness failure #206 fixes: a user who typed
+# `SKIP_HOOKS=destructive ... git reset --hard` gets the prefix stripped, so the
+# hook sees only the bare command. The sentinel (§23g) is the working path.
+rc=$(hook_run 'git reset --hard')
+if [ "$rc" = "2" ]; then
+  ok "skip: bare command (harness-stripped leading prefix) still blocks (#206)"
+else
+  ng "skip: bare command should block (rc=$rc) (#206)"
+fi
+
+# 23i (#206): the sentinel + its reason text are STRIPPED before the matcher
+# pass, so a reason containing a blockable substring cannot bleed into another
+# matcher. Skip=destructive with a reason that mentions a force-push: only the
+# destructive matcher should be considered (and skipped) — the force-push
+# matcher must not fire on the stripped reason text.
+rc=$(hook_run 'git reset --hard  # claude-eng:skip=destructive reason=mentions git push --force origin main')
+if [ "$rc" = "0" ]; then
+  ok "skip: sentinel reason text does not bleed into other matchers (#206)"
+else
+  ng "skip: sentinel reason bled into a matcher (rc=$rc) (#206)"
+fi
+
+# 23j (#206): a plain (non-namespaced) trailing comment is NOT an escape — the
+# sentinel must carry the `claude-eng:skip=` namespace, else a normal comment
+# could silently disable a guardrail.
+rc=$(hook_run 'git reset --hard  # just a normal comment, not an escape')
+if [ "$rc" = "2" ]; then
+  ok "skip: plain trailing comment is not treated as an escape (#206)"
+else
+  ng "skip: plain comment wrongly skipped a matcher (rc=$rc) (#206)"
+fi
 
 # 23g. Outvar-collision regression: passing `cmd` as outvar (the same
 # name the function uses internally for its parameter) must NOT drop
