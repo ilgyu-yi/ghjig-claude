@@ -296,6 +296,33 @@ out=$(cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$TMP/fake/README.md\
 rc=$?
 [ "$rc" = 0 ] && ok "pre_tool_use allows in-scope edit" || ng "should allow in-scope edit (rc=$rc)"
 
+# #234: Edit via a symlink named innocuously but pointing at a sensitive target
+# must block on the RESOLVED basename, not just the lexical one. Pre-fix the
+# lexical basename ("cfg_link") is not sensitive → wrongly allowed.
+ln -s "$TMP/fake/cfgdir/.env" "$TMP/fake/cfg_link" 2>/dev/null
+out=$(cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$TMP/fake/cfg_link\"}" \
+  | "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1)
+rc=$?
+[ "$rc" = 2 ] && ok "234: symlink-named-innocent → sensitive target edit blocked (#234)" \
+              || ng "234: symlink → sensitive target not blocked (rc=$rc) (#234)"
+rm -f "$TMP/fake/cfg_link"
+
+# #234 regression: a plain (non-symlink) sensitive file still blocks (lexical).
+out=$(cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$TMP/fake/sub/.env\"}" \
+  | "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1)
+rc=$?
+[ "$rc" = 2 ] && ok "234: plain .env edit still blocked (lexical regression) (#234)" \
+              || ng "234: plain .env edit not blocked (rc=$rc) (#234)"
+
+# #234 no over-block: a symlink to a NON-sensitive target is allowed.
+ln -s "$TMP/fake/data/notes.txt" "$TMP/fake/notes_link" 2>/dev/null
+out=$(cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$TMP/fake/notes_link\"}" \
+  | "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "234: symlink to a non-sensitive target allowed (no over-block) (#234)" \
+              || ng "234: symlink to non-sensitive target wrongly blocked (rc=$rc) (#234)"
+rm -f "$TMP/fake/notes_link"
+
 # Bash rm -rf $HOME
 out=$(cd "$TMP/fake" && fake_input "Bash" "{\"command\":\"rm -rf \$HOME/somewhere\"}" \
   | "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1)
