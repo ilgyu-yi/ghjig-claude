@@ -578,7 +578,12 @@ case "$tool" in
           should_skip commit-format && decided=1 || block commit-format "$err"
         }
       fi
-      if ! err=$(scan_staged_secrets 2>&1); then
+      # Guarded like the sibling matchers (#213): if scan_staged_secrets is
+      # undefined (secret_scan.sh failed to source — the session-restart
+      # helper-miss safe_source degrades gracefully), skip the secret arm
+      # (fail-open per the SPEC §6.1 fail-policy table) rather than blocking
+      # every commit with `command not found`.
+      if command -v scan_staged_secrets >/dev/null 2>&1 && ! err=$(scan_staged_secrets 2>&1); then
         should_skip secret && decided=1 || block secret "$err"
       fi
       lint=$(detect_lint_cmd)
