@@ -57,8 +57,10 @@ is_directive_issue() {
   labels=$(gh issue view "$issue" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
 
   mkdir -p "$cache_dir" 2>/dev/null || true
-  # Case-insensitive whole-word match against the comma-separated list.
-  if printf '%s' "$labels" | grep -qiwE 'directive'; then
+  # Case-insensitive match anchored on comma-list boundaries (mirrors
+  # is_proposed_issue). NOT a grep word-match: `-w` treats `-` as a boundary,
+  # so `non-directive`/`directive-foo` would mis-classify (#212).
+  if printf '%s' "$labels" | grep -qiE '(^|,)directive(,|$)'; then
     printf 'directive\n' > "$cache_file" 2>/dev/null || true
     return 0
   else

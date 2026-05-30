@@ -147,8 +147,14 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace bypass-suspect "$cmd"
     fi
 
-    # Destructive command with out-of-scope path arg
-    if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+(-[A-Za-z]*[fF][A-Za-z]*\s+)+'; then
+    # Destructive command with out-of-scope path arg. Entry pre-filter: an
+    # rm/mv/cp verb followed (within its own option run) by a force OR recursive
+    # flag in any surface form — clustered (-rf), separated (-r -f), long
+    # (--force/--recursive), or non-first (-i -rf). Anchored to the verb's
+    # option run so a flag belonging to another pipeline command does not
+    # trigger it (#212). Over-entry is harmless: check_destructive_args allows
+    # in-scope/non-destructive operands.
+    if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+((-[A-Za-z]+|--[a-z-]+)\s+)*(-[A-Za-z]*[fFrR][A-Za-z]*|--force|--recursive)'; then
       decided=
       if ! check_destructive_args "$cmd"; then
         should_skip out-of-scope && decided=1 || block out-of-scope "destructive command points outside registry: $cmd"
@@ -418,11 +424,14 @@ case "$tool" in
           lpc_issue="${BASH_REMATCH[1]}"
         fi
         # Which gated type label is being added? Only execution/task/bug are
-        # gated; accept space- or =-separated, optionally quoted, full-token.
+        # gated; accept space- or =-separated, optionally quoted, and the gated
+        # token anywhere in a comma-joined value list (--add-label other,execution)
+        # via the leading `([^"' ]*,)?` prefix (#212). NOTE: that prefix is a
+        # capture group, so the gated label is BASH_REMATCH[2], not [1].
         lpc_label=
-        lpc_label_re='--add-label[=[:space:]]+["'"'"']?(execution|task|bug)([^a-z]|$)'
+        lpc_label_re='--add-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?(execution|task|bug)([^a-z]|$)'
         if [[ "$cmd" =~ $lpc_label_re ]]; then
-          lpc_label="${BASH_REMATCH[1]}"
+          lpc_label="${BASH_REMATCH[2]}"
         fi
         if [ -z "$lpc_label" ] || [ -z "$lpc_issue" ] \
            || ! command -v issue_has_parent_marker >/dev/null 2>&1; then
