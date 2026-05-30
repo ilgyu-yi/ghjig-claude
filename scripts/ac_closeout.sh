@@ -49,7 +49,10 @@ while IFS= read -r n; do
     continue
   }
 
-  ac_lines=$(printf '%s\n' "$body" | grep -E '^- \[[ x~]\] ' || true)
+  # No trailing space required (#218): a degenerate `- [ ]` (no content) is what
+  # the merge gate (ac_closeout_gate.sh) blocks on, so the remedy must detect it
+  # too — else the gate blocks with no remedy (deadlock).
+  ac_lines=$(printf '%s\n' "$body" | grep -E '^- \[[ x~]\]' || true)
   if [ -z "$ac_lines" ]; then
     echo "ac_closeout: issue #$n has no AC list; skipping." >&2
     continue
@@ -60,7 +63,7 @@ while IFS= read -r n; do
   comment="## AC closeout (resolved by PR #${pr})"$'\n\n'
   while IFS= read -r ac; do
     [ -z "$ac" ] && continue
-    ticked=$(printf '%s' "$ac" | sed -E 's/^- \[ \] /- [x] /')
+    ticked=$(printf '%s' "$ac" | sed -E 's/^- \[ \]/- [x]/')
     comment="${comment}${ticked}"$'\n'
   done <<< "$ac_lines"
   comment="${comment}"$'\n'"Posted by scripts/ac_closeout.sh per SPEC §5.7.1 step 7.6."

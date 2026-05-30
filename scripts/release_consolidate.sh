@@ -256,16 +256,19 @@ if [ -n "$OWNER_REPO" ]; then
   printf '\n[%s]: https://github.com/%s/releases/tag/%s\n' "$X_Y_Z" "$OWNER_REPO" "$TAG" >> CHANGELOG.md
 fi
 
-# Step 6 — git rm consumed fragments.
+# Step 6 — git rm consumed fragments. Guard each rm (#218): the script is
+# `set -uo pipefail` (no -e), so a swallowed `git rm` failure would let the
+# script report success while a consumed fragment lingers on disk (the next
+# release would double-consume it).
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  git rm -q "$f"
+  git rm -q "$f" || { echo "release_consolidate: git rm failed for $f" >&2; exit 2; }
 done <<EOF
 $ALL_FRAGMENTS_LIST
 EOF
 
 # Step 7 — stage VERSION + CHANGELOG.md.
-git add VERSION CHANGELOG.md
+git add VERSION CHANGELOG.md || { echo "release_consolidate: git add failed for VERSION/CHANGELOG.md" >&2; exit 2; }
 
 # Step 8 — output summary.
 echo "release_consolidate: $X_Y_Z staged ($FRAGMENTS_FOUND fragments consolidated)"

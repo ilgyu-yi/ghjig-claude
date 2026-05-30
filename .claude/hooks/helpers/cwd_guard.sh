@@ -10,6 +10,7 @@ in_scope() {
   local entry
   while IFS= read -r entry; do
     [ -z "$entry" ] && continue
+    entry="${entry%/}"   # normalize a trailing slash (#218): else `"$entry"/*` → `//*` never matches
     case "$pwd_real/" in
       "$entry"/*) return 0 ;;
     esac
@@ -53,6 +54,7 @@ path_in_scope() {
   local entry
   while IFS= read -r entry; do
     [ -z "$entry" ] && continue
+    entry="${entry%/}"   # normalize a trailing slash (#218): else `"$entry"/*` → `//*` never matches
     case "$p/" in
       "$entry"/*) return 0 ;;
     esac
