@@ -582,8 +582,16 @@ case "$tool" in
     target=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty')
     [ -z "$target" ] && exit 0
 
-    # Shell self-modification: skip all checks.
-    case "$target/" in "$SHELL_ROOT"/*) exit 0 ;; esac
+    # Shell self-modification carve-out (#210): paths under
+    # $CLAUDE_ENG_SHELL_ROOT/ skip the branch + out-of-scope checks (the
+    # shell legitimately edits its own substrate, which is outside the
+    # target repo's branch/registry model). It must NOT early-exit before
+    # the sensitive-file check below: writing a .env / *.pem / credentials*
+    # under the shell root is just as bad, and CLAUDE.md / SPEC §6.1/§14
+    # document the sensitive check as firing under BOTH carve-outs. So we
+    # set a flag (mirroring the $HOME/.claude/ carve-out) and fall through.
+    shell_self_mod=
+    case "$target/" in "$SHELL_ROOT"/*) shell_self_mod=1 ;; esac
 
     # User-global auto-memory carve-out (issue #91): paths under
     # $HOME/.claude/ are legitimate write targets for the persistent
@@ -601,16 +609,16 @@ case "$tool" in
     esac
 
     # Edit on protected branch
-    if is_protected_branch && [ -z "$user_global_memory" ]; then
+    if is_protected_branch && [ -z "$user_global_memory" ] && [ -z "$shell_self_mod" ]; then
       should_skip branch || block branch "edit on protected branch blocked: $target"
     fi
 
     # Outside registry
-    if [ -z "$user_global_memory" ] && ! path_in_scope "$target"; then
+    if [ -z "$user_global_memory" ] && [ -z "$shell_self_mod" ] && ! path_in_scope "$target"; then
       should_skip out-of-scope || block out-of-scope "edit outside registry blocked: $target"
     fi
 
-    # Sensitive files — applies regardless of user_global_memory.
+    # Sensitive files — applies regardless of EITHER carve-out (#210).
     base=$(basename "$target")
     case "$base" in
       .env|.env.*|*.pem|credentials|credentials.*|id_rsa|id_rsa.*|id_ed25519|id_ed25519.*)
