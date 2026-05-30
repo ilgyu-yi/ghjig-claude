@@ -349,10 +349,12 @@ case "$tool" in
         # the `([[:space:],"']|$)` tail is the word boundary so a longer label
         # like `directive-foo` does not over-match (#211).
         tfm_declassify_re='--remove-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?directive([[:space:],"'"'"']|$)'
-        # Selector accepts a bare number, a quoted number (shlex-normalized away
-        # before we see it), and a gh URL — #223. The declassify arm only needs
-        # to confirm it's `gh issue edit <selector>`; it does not use the number.
-        tfm_edit_sel_re='gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+["'"'"']?([0-9]+|https?://[^[:space:]"'"'"']+)'
+        # Selector accepts a bare number, a quoted number (the `["']?` absorbs a
+        # leading quote — `$cmd` is tr/sed-normalized, NOT shlex, so quotes are
+        # preserved), and a gh URL with a case-insensitive scheme (gh accepts
+        # `HTTPS://`) — #223. The declassify arm only confirms it's
+        # `gh issue edit <selector>`; it does not use the number.
+        tfm_edit_sel_re='gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
         if [[ "$cmd" =~ $tfm_edit_sel_re ]] \
            && [[ "$cmd" =~ $tfm_declassify_re ]]; then
           block trusted-filer-mutate "Removing the 'directive' label declassifies an Issue and bypasses dir-mode review. Human-confirm required always (SPEC §1.5 filer-aware invariants). Or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
@@ -368,20 +370,21 @@ case "$tool" in
         #     through to the trusted-filer check — block close-without-`--reason
         #     completed` on Issues authored by trusted filers (OWNER / MEMBER /
         #     MAINTAINER / COLLABORATOR).
-        elif tfm_close_sel_re='gh[[:space:]]+issue[[:space:]]+close[[:space:]]+["'"'"']?([0-9]+|https?://[^[:space:]"'"'"']+)'
+        elif tfm_close_sel_re='gh[[:space:]]+issue[[:space:]]+close[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
              [[ "$cmd" =~ $tfm_close_sel_re ]]; then
           # Normalize the selector to a pure issue number (#223): gh accepts a
           # URL or quoted number, but is_trusted_filer / the cache key / the
           # block message all need a bare number (is_trusted_filer returns
-          # "not trusted" → fail-open on any non-number). Capture into a plain
-          # var FIRST — the `/issues/` extraction below runs a second `=~` that
-          # clobbers BASH_REMATCH.
+          # "not trusted" → fail-open on any non-number). For a URL, take the
+          # segment after the LAST `/issues/` (so `…/issues/55/issues/100` →
+          # 100, matching gh's target) then its leading digits; otherwise strip
+          # to digits. Pure parameter expansion — no second `=~`, so no
+          # BASH_REMATCH clobber.
           tf_sel="${BASH_REMATCH[1]}"
-          if [[ "$tf_sel" =~ /issues/([0-9]+) ]]; then
-            tf_issue="${BASH_REMATCH[1]}"
-          else
-            tf_issue="${tf_sel//[^0-9]/}"
-          fi
+          case "$tf_sel" in
+            */issues/*) tf_issue="${tf_sel##*/issues/}"; tf_issue="${tf_issue%%[!0-9]*}" ;;
+            *)          tf_issue="${tf_sel//[^0-9]/}" ;;
+          esac
           tf_completed=
           tf_not_planned=
           if [[ "$cmd" =~ --reason[[:space:]]+completed ]]; then tf_completed=1; fi
