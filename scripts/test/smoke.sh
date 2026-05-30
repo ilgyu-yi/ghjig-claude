@@ -141,6 +141,12 @@ rm -rf "$SCAN_6B"
 # 6c (#214): modern OpenAI key formats (sk-proj-/svcacct-/admin-) contain `-`/`_`,
 # so the legacy `sk-[A-Za-z0-9]{40,}` (which stops at the first `-`) missed them.
 # Helper: stage $1 in a file, echo DETECTED or PASSED (PASSED = scan returned 0).
+# NOTE: the test keys are ASSEMBLED at runtime from `$s214_pfx` ("sk-") so no
+# committed source line here contains a contiguous scanner-matching literal —
+# this file (scripts/test/smoke.sh) is itself scanned (NOT allow-listed), so a
+# literal key would self-block future edits. The runtime-assembled full key is
+# what gets written to leak.txt and scanned. (#214 security review.)
+s214_pfx='sk-'
 s214_scan() {
   ( SCAN_214=$(mktemp -d); cd "$SCAN_214" || exit 1; git init -q
     printf 'key = "%s"\n' "$1" > leak.txt; git add leak.txt
@@ -148,15 +154,15 @@ s214_scan() {
     cd / ; rm -rf "$SCAN_214" )
 }
 # Positive: a current-gen sk-proj- key must be DETECTED (fails pre-#214).
-[ "$(s214_scan 'sk-proj-Ab12Cd34_ef56-Gh78Ij90Kl12Mn34Op56Qr78St90Uv')" = DETECTED ] \
+[ "$(s214_scan "${s214_pfx}proj-Ab12Cd34_ef56-Gh78Ij90Kl12Mn34Op56Qr78St90Uv")" = DETECTED ] \
   && ok "6c: secret_scan detects modern sk-proj- OpenAI key (#214)" \
   || ng "6c: modern sk-proj- key NOT detected (false negative) (#214)"
-# Regression: a legacy sk- + 48 alnum key is still detected.
-[ "$(s214_scan 'sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij')" = DETECTED ] \
+# Regression: a legacy sk- + 46 alnum key is still detected.
+[ "$(s214_scan "${s214_pfx}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij")" = DETECTED ] \
   && ok "6c: secret_scan still detects legacy sk- OpenAI key (#214)" \
   || ng "6c: legacy sk- key regression (#214)"
 # Negative (no over-broad FP): a short sk- identifier must NOT be flagged.
-[ "$(s214_scan 'sk-short')" = PASSED ] \
+[ "$(s214_scan "${s214_pfx}short")" = PASSED ] \
   && ok "6c: short sk- identifier not flagged (floor preserved) (#214)" \
   || ng "6c: short sk- identifier wrongly flagged (#214)"
 
