@@ -8,7 +8,12 @@
 # filers (CONTRIBUTOR / FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / NONE / bots).
 #
 # Function:
-#   is_trusted_filer <issue#>
+#   is_trusted_filer <issue#> [<owner/name>]
+#     <owner/name> (optional, #231): resolve trust against this repo instead
+#       of the current directory's repo — used when the matcher's issue
+#       selector was a URL targeting a foreign repo. When omitted/empty,
+#       the current-directory repo (`gh repo view`) is used (existing
+#       behavior; callers that pass only <issue#> are unchanged).
 #     rc 0 → trusted filer (one of OWNER/MEMBER/MAINTAINER/COLLABORATOR).
 #     rc 1 → untrusted filer OR unresolvable. Per SPEC §6.1 fail-open
 #            framing, unresolvable cases (gh down, no auth, network error)
