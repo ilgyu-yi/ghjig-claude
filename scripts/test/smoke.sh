@@ -5027,6 +5027,28 @@ case $? in
   *) ng "60d: expected rc=2 (block), got rc=$? on /tmp/... (#91)" ;;
 esac
 
+# §60e (#210): Edit on a sensitive file under $CLAUDE_ENG_SHELL_ROOT/ → still
+#       blocked. The shell-self-mod carve-out skips branch + out-of-scope, but
+#       the sensitive-file check fires under BOTH carve-outs. Pre-#210 the
+#       SHELL_ROOT arm did an early `exit 0` before the sensitive case, so this
+#       was wrongly allowed.
+s60e_target="$SHELL_ROOT/.claude/state/smoke-probe.pem"
+s60_edit_run "$s60e_target"
+case $? in
+  2) ok "60e: Sensitive-file edit blocked under \$CLAUDE_ENG_SHELL_ROOT/ (sensitive check survives carve-out) (#210)" ;;
+  *) ng "60e: expected rc=2 (sensitive block), got rc=$? under SHELL_ROOT (#210)" ;;
+esac
+
+# §60f (#210): regression — a NON-sensitive edit under $CLAUDE_ENG_SHELL_ROOT/
+#       is still allowed (the self-mod carve-out still skips branch + scope for
+#       ordinary shell files; the fix must not over-block shell self-modification).
+s60f_target="$SHELL_ROOT/.claude/CLAUDE.md"
+s60_edit_run "$s60f_target"
+case $? in
+  0) ok "60f: Non-sensitive shell self-modification still allowed under SHELL_ROOT (#210)" ;;
+  *) ng "60f: expected rc=0 (allow), got rc=$? on shell self-mod file (#210)" ;;
+esac
+
 # Cleanup §60.
 sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$sp_tmp_reg" 2>/dev/null || true
 mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
