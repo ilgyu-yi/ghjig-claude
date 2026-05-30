@@ -6654,6 +6654,30 @@ else
   ng "73e2: /consume-initiative missing the read-only discipline clause (#257)"
 fi
 
+# §73f (#260, M4) — the /initiative-feedback command exists with both modes, both
+# scannable markers, and the comment-only / escalate-not-decide discipline.
+S73F_CMD="$SHELL_ROOT/.claude/commands/initiative-feedback.md"
+if [ -f "$S73F_CMD" ] \
+   && grep -qF -- '--challenge' "$S73F_CMD" \
+   && grep -qF -- '--completion' "$S73F_CMD" \
+   && grep -qF '## Initiative challenge' "$S73F_CMD" \
+   && grep -qF '## Initiative completion' "$S73F_CMD" \
+   && grep -qF 'gh issue comment' "$S73F_CMD" \
+   && grep -qF -- '--body-file' "$S73F_CMD" \
+   && grep -qF 'initiative' "$S73F_CMD"; then
+  ok "73f: /initiative-feedback has both modes + both markers + comment/--body-file shape (#260)"
+else
+  ng "73f: /initiative-feedback command missing or incomplete (#260)"
+fi
+# §73f2: escalate-not-decide / comment-only discipline — never reject/close/assert-done.
+if [ -f "$S73F_CMD" ] \
+   && grep -qiE 'never (reject|close|retire|edit|assert|mutat)' "$S73F_CMD" \
+   && grep -qiE 'escalat|re-evaluation|termination assessment' "$S73F_CMD"; then
+  ok "73f2: /initiative-feedback documents escalate-not-decide (comment-only) discipline (#260)"
+else
+  ng "73f2: /initiative-feedback missing the escalate-not-decide discipline (#260)"
+fi
+
 rm -rf "$S73_DIR"
 
 # ---------- restore registry ----------
