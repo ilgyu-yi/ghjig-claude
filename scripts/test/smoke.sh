@@ -5417,6 +5417,19 @@ case $? in
   *) ng "60f: expected rc=0 (allow), got rc=$? on shell self-mod file (#210)" ;;
 esac
 
+# §60g (#243): the Edit/Write carve-outs do NOT extend to the destructive-command
+# matcher. A forced `rm` targeting a path under $HOME/.claude/ (outside the
+# registry) is still blocked — `check_destructive_args` has no carve-out (SPEC
+# §6.1 scopes the carve-outs to the Edit/Write rows only). Guards the CLAUDE.md
+# correction so the doc and runtime stay aligned (the carve-out is Edit/Write-only,
+# not a blanket $HOME/.claude pass). ${HOME} literal form exercises the matcher's
+# own $HOME expansion (cf. §15b). Escapable via SKIP_HOOKS=out-of-scope.
+if [ "$(hook_run 'rm -rf ${HOME}/.claude/projects/smoke-fake/stale-memory.md')" = "2" ]; then
+  ok "60g: forced rm under \$HOME/.claude/ still blocked (destructive matcher has no carve-out) (#243)"
+else
+  ng "60g: forced rm under \$HOME/.claude/ wrongly allowed (carve-out must be Edit/Write-only) (#243)"
+fi
+
 # Cleanup §60.
 sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$sp_tmp_reg" 2>/dev/null || true
 mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
