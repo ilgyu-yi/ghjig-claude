@@ -4977,6 +4977,17 @@ case $? in
   *) ng "55i3: malformed-repo URL fail-soft path wrong, got rc=$? (#231)" ;;
 esac
 
+# §55j (#236 regression guard): a trusted-filer close-as-not-planned on a
+# NON-discussion (work) Issue must STILL block. The §236 fix classifies
+# discussion-tier first, but a non-discussion Issue (the §55 mock returns no
+# `discussion` label) must fall through to the trusted-filer block as before —
+# the §5.19 not-planned allowance is discussion-only, not a blanket pass.
+pt55_run 'gh issue close 100 --reason "not planned"' >/dev/null 2>&1
+case $? in
+  2) ok "55j: trusted-filer not-planned close on a non-discussion Issue still blocks (§55 preserved) (#236)" ;;
+  *) ng "55j: non-discussion trusted not-planned close wrongly allowed, got rc=$? (#236)" ;;
+esac
+
 rm -rf "$PT55_DIR"
 
 # ---------- 56. /triage deprecation alias (#94 → deprecated by #173) ----------
@@ -5407,9 +5418,30 @@ cat > "$S62_DIR/bin/gh" <<'GHEOF'
 #!/bin/sh
 # Mock gh for §62 — discussion-tier close-path enforcement.
 case "$*" in
+  *"repo view"*"--json owner"*)
+    # is_trusted_filer resolves the current repo via `gh repo view` for its
+    # cache key + authorAssociation query; serve it so the trusted path is
+    # reachable (previously absent → is_trusted_filer bailed unresolvable → the
+    # over-block was doubly masked, #236).
+    printf 'mock\n'
+    exit 0
+    ;;
+  *"repo view"*"--json name"*)
+    printf 'repo\n'
+    exit 0
+    ;;
   *"issue view"*"--json"*"--jq"*)
-    # The hook calls --jq '.labels[].name'; emit the label names raw.
+    # The hook's Stage-1 query calls --json labels --jq '.labels[].name'; emit
+    # the label names raw.
     printf 'discussion\n'
+    exit 0
+    ;;
+  *"issue view"*"authorAssociation"*)
+    # is_trusted_filer queries --json authorAssociation -q '.authorAssociation'
+    # (a `-q` scalar, NOT --jq). Return the scalar so trust actually resolves —
+    # issue 999 is OWNER (trusted). Previously this fell to the JSON-blob arm
+    # below, so is_trusted_filer read untrusted and masked the #236 over-block.
+    printf 'OWNER\n'
     exit 0
     ;;
   *"issue view"*"--json"*)
@@ -5436,6 +5468,11 @@ s62_close_run() {
   return $?
 }
 
+# Clear any stale is_trusted_filer cache for the §62 issue so the trusted path
+# is actually exercised against the mock (the cache writes into the real
+# $SHELL_ROOT; broader isolation is #238) — #236.
+rm -f "$SHELL_ROOT/.claude/state/issue-filer-cache/mock__repo__999" 2>/dev/null || true
+
 # §62c: bare `gh issue close <N>` on discussion-labeled Issue → BLOCKED (rc=2).
 s62_close_run "gh issue close 999"
 case $? in
@@ -5451,16 +5488,20 @@ case $? in
 esac
 
 # §62e: `gh issue close <N> --reason "not planned"` (gh-valid SPACE form) on a
-# discussion Issue → ALLOWED (rc=0). Pre-#216 the hook matched only the underscore
-# `not_planned`, so the gh-valid space form was wrongly blocked as a bare close.
+# discussion Issue → ALLOWED (rc=0). Issue 999 is authored by a trusted filer
+# (OWNER) — now that the mock fully serves is_trusted_filer (repo view + scalar
+# authorAssociation), this exercises the §236 path: discussion-tier is-not-planned
+# is the sanctioned §5.19 no-action close and must be allowed REGARDLESS of filer
+# trust (pre-#236 it was short-circuited into the Stage-2 trusted-filer block).
 s62_close_run 'gh issue close 999 --reason "not planned"'
 case $? in
-  0) ok "62e: gh issue close --reason \"not planned\" (gh-valid) on discussion Issue → allow (#216)" ;;
-  *) ng "62e: expected rc=0 (allow) for --reason \"not planned\", got rc=$? (#216)" ;;
+  0) ok "62e: trusted-filer discussion + --reason \"not planned\" → allow (§5.19, #236)" ;;
+  *) ng "62e: expected rc=0 (allow) for trusted-filer discussion not-planned, got rc=$? (#236)" ;;
 esac
 
-# §62e2 (#216): the legacy underscore form is still TOLERATED by the hook (so the
-# hook is never itself the blocker), even though gh rejects it downstream.
+# §62e2 (#216/#236): the legacy underscore form is still TOLERATED (hook never the
+# blocker), AND on this trusted-filer discussion Issue it must be allowed via the
+# §236 discussion-first path, not blocked by Stage-2 trust.
 s62_close_run "gh issue close 999 --reason not_planned"
 case $? in
   0) ok "62e2: legacy --reason not_planned still tolerated by the hook (#216)" ;;
