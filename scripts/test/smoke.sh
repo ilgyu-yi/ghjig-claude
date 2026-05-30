@@ -6624,6 +6624,36 @@ no fit field here')" = 1 ] && ok "73d: issue_has_mission_fit_field absent → rc
 s73_field_fail() { ( export CLAUDE_ENG_SHELL_ROOT="$TMP/s73fld2"; mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"; gh() { return 1; }; . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; issue_has_mission_fit_field 700; echo $? ) }
 [ "$(s73_field_fail)" = 2 ] && ok "73d: issue_has_mission_fit_field unresolvable → rc 2 (#251)" || ng "73d: mission-fit fail-open rc wrong (#251)"
 
+# §73e (#257, M3) — the /consume-initiative command exists with the five-step /
+# two-gate / read-only shape. Structural anchors (the flow is prompt-driven; the
+# mechanized surfaces it relies on — initiative-readonly comment-allow, the
+# label-parent-consistency create-path exemption, the I1/I2 reviewer checks — are
+# already covered by §73a-d / §44 / §67f).
+S73E_CMD="$SHELL_ROOT/.claude/commands/consume-initiative.md"
+if [ -f "$S73E_CMD" ] \
+   && grep -qF 'argument-hint' "$S73E_CMD" \
+   && grep -qiF 'substrate' "$S73E_CMD" \
+   && grep -qF 'initiative' "$S73E_CMD" \
+   && grep -qF 'activation-reviewer' "$S73E_CMD" \
+   && grep -qiF 'contract-evaluability' "$S73E_CMD" \
+   && grep -qiF 'extraction-faithfulness' "$S73E_CMD" \
+   && grep -qF 'Parent Initiative: #' "$S73E_CMD" \
+   && grep -qF 'gh issue comment' "$S73E_CMD" \
+   && grep -qF 'status:proposed' "$S73E_CMD" \
+   && grep -qF -- '--body-file' "$S73E_CMD"; then
+  ok "73e: /consume-initiative command has the five-step / two-gate / read-only shape (#257)"
+else
+  ng "73e: /consume-initiative command missing or incomplete (#257)"
+fi
+# §73e2: read-only discipline — the only Initiative write the flow performs is a
+# comment; the procedure must not edit/close the Initiative. Assert a 'Forbidden'
+# (or never-edit) clause naming that it never edits/closes the Initiative.
+if [ -f "$S73E_CMD" ] && grep -qiE 'never (edit|close|relabel|activate|mutat)' "$S73E_CMD"; then
+  ok "73e2: /consume-initiative documents the never-mutate-the-Initiative discipline (#257)"
+else
+  ng "73e2: /consume-initiative missing the read-only discipline clause (#257)"
+fi
+
 rm -rf "$S73_DIR"
 
 # ---------- restore registry ----------
