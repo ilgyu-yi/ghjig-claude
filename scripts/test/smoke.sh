@@ -1022,9 +1022,11 @@ fi
 # hook_run embeds it in tool_input.command via `jq -Rs`, modeling a real
 # shell / verbatim delivery. CAVEAT (#206): the LIVE Claude Code Bash tool
 # consumes a leading `VAR=val` as the subprocess env, so it never reaches
-# tool_input.command — the leading form is dead in-harness. §23g-j (below)
+# tool_input.command — the leading form is dead in-harness. §23g-k (below)
 # cover the TRAILING sentinel `# claude-eng:skip=<cat> reason=<why>`, which
-# stays in the command and IS the reliable in-harness escape.
+# stays in the command and IS the reliable in-harness escape (incl. §23k: a
+# line-1 sentinel must not strip/bypass a later-line command). §23l is the
+# pre-existing parse_env_prefix outvar-collision guard.
 
 # Helper: count audit lines + the last N entries.
 audit_lines() { wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '; }
@@ -1157,7 +1159,20 @@ else
   ng "skip: plain comment wrongly skipped a matcher (rc=$rc) (#206)"
 fi
 
-# 23g. Outvar-collision regression: passing `cmd` as outvar (the same
+# 23k (#206): SECURITY — a line-1 sentinel must NOT skip a dangerous command on
+# a LATER line. bash `[[ =~ ]]` matches newlines, so a naive newline-spanning
+# regex would let `echo ok # claude-eng:skip=destructive reason=x\n<danger>`
+# greedily capture+strip the danger line before matchers, executing it under a
+# falsified audit category. The single-trailing-line sentinel must reject this
+# (no escape) → the command falls through to the matcher and BLOCKS.
+rc=$(hook_run "$(printf 'echo ok  # claude-eng:skip=destructive reason=probe\ngit reset --hard')")
+if [ "$rc" = "2" ]; then
+  ok "skip: line-1 sentinel does not strip/bypass a later-line command (#206)"
+else
+  ng "skip: multi-line sentinel bypassed a later-line matcher (rc=$rc) (#206)"
+fi
+
+# 23l. Outvar-collision regression: passing `cmd` as outvar (the same
 # name the function uses internally for its parameter) must NOT drop
 # the stripped value. This exercises the bash dynamic-scope hazard
 # the helper's internals avoid via the _pep_ prefix.

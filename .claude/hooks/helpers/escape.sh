@@ -107,8 +107,18 @@ print(json.dumps({"env": env, "cmd": rest}))
 # only; the reason is captured verbatim and JSON-encoded by audit_log downstream.
 parse_skip_sentinel() {
   local _pss_in="$1" _pss_outvar="$2"
-  local _pss_re='[[:space:]]*#[[:space:]]*claude-eng:skip=([A-Za-z0-9,_-]+)([[:space:]]+reason=(.*))?[[:space:]]*$'
-  if [[ "$_pss_in" =~ $_pss_re ]]; then
+  # SINGLE TRAILING LINE only. `[[:blank:]]` (space/tab, NOT newline) and a
+  # control-char-free reason (`[^[:cntrl:]]`, excludes newline) keep the match
+  # confined to the command's final line — anchored at end-of-string. This is
+  # load-bearing for security: bash `[[ =~ ]]` lets `.`/`[[:space:]]` match a
+  # newline, so a newline-spanning regex would let a line-1 sentinel greedily
+  # capture+strip a dangerous later line (e.g. `echo ok  # claude-eng:skip=x
+  # reason=y\ngit push --force origin main`) before any matcher sees it, while
+  # the shell still runs it — a silent, category-agnostic bypass with a
+  # falsified audit category. The trailing newline guard below is belt-and-
+  # suspenders against that.
+  local _pss_re='[[:blank:]]*#[[:blank:]]*claude-eng:skip=([A-Za-z0-9,_-]+)([[:blank:]]+reason=([^[:cntrl:]]*))?[[:blank:]]*$'
+  if [[ "$_pss_in" =~ $_pss_re ]] && [[ "${BASH_REMATCH[0]}" != *$'\n'* ]]; then
     export SKIP_HOOKS="${BASH_REMATCH[1]}"
     local _pss_reason="${BASH_REMATCH[3]:-}"
     export SKIP_REASON="${_pss_reason:-unspecified}"
