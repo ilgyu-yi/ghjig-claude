@@ -25,6 +25,14 @@ Twelve months out, the shell's success is best summarized as **a Claude Code ses
 - **The escape hatch stays narrow.** Audit-log queries (`/audit`) show that bypasses (`SKIP_HOOKS=...`) cluster in the small set of legitimate cases the SPEC names — not as a normalized routing around inconvenient gates.
 - **The v1+ orchestrator lands.** Automatic mode-switching between eng-mode and dir-mode, kill-switches, and budget controls (SPEC §0.4) ship after v0 operating experience surfaces the right design for them.
 
+## Consuming Initiatives
+
+Direction usually enters the shell as a MISSION section that a Directive references directly. But a team may also commit to a strategic **Initiative** — a bundle of related direction worth reviewing and evolving in its own right — one planning tier above any single Directive. An Initiative arrives from **outside the shell** (written by a person or emitted by a planning tool; the origin is immaterial), and eng-shell **consumes** it: it extracts Directives from the Initiative and executes them, but never authors, edits, rejects, or retires the Initiative itself.
+
+This is the boundary the shell already holds — *it owns the how, not the what and why* — applied one tier higher. eng-shell is the layer that knows the code, and precisely for that reason it is the wrong layer to set top-level strategic direction, where code knowledge would bias the judgment. What keeps the boundary crisp is a single contract: **an Initiative must carry a termination condition evaluable without knowledge of the code.** That condition is what eng-shell works backward from to extract Directives; one that secretly needs code knowledge to assess is not an Initiative yet but execution detail in disguise, and the shell surfaces it back upstream rather than guessing.
+
+Findings flow upward — comments, a *challenge* when execution reality contradicts the Initiative, a completion signal when the extracted work lands — carrying code-derived information (real dependencies, measurability, cost) the planning layer structurally cannot have. But the shell escalates; it does not decide: discarding a strategic commitment is itself a strategic judgment, and that stays upstream. This **generalizes** the directing layer rather than replacing it — a Directive's parent may be a MISSION section *or* an Initiative, and every existing MISSION-parented Directive remains valid (SPEC §1.7).
+
 ## Who this is for
 
 The primary user is **a person running Claude Code on a GitHub-standard repository who wants the AI to operate at engineering discipline they themselves would apply.** That person might be:
@@ -41,6 +49,7 @@ Secondary users include teams adopting AI-assisted engineering more broadly, who
 - **Not a replacement for engineering judgment.** Every hook has an escape; every reviewer subagent surfaces verdicts humans can override; the directing layer never autonomously decides direction (SPEC §1.7). The shell exists to *catch mistakes* and *enforce discipline*, not to be smart on its own.
 - **Not an AI orchestrator for arbitrary tasks.** It's specifically a *Claude Code on GitHub* shell. Multi-agent orchestrators, general AI workflow managers, custom RAG systems are different products.
 - **Not the target repo's MISSION or SPEC.** The shell never owns the *what* and *why* of the user's project — that lives in the target repo's `MISSION.md` / `SPEC.md`. The shell owns the *how*.
+- **Not an author of Initiatives.** A strategic Initiative — the planning tier above a Directive — arrives from upstream; the shell consumes it and extracts Directives from it, but never writes, edits, rejects, or retires one. Challenging an Initiative escalates a code-derived finding upward; it does not decide the Initiative's fate (see *Consuming Initiatives*; SPEC §1.7).
 - **Not a drop-in for non-GitHub workflows.** GitLab, Forgejo, Bitbucket, and bare-git workflows are out of scope. The shell's hooks reference `gh` everywhere; porting belongs to a fork or a future Directive far beyond v0.
 
 ## Stakeholders
