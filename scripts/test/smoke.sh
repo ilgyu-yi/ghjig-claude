@@ -4806,6 +4806,10 @@ printf 'OWNER\n'  > "$PT55_STATE/filer_other_repo_300"
 # (OWNER) while the current repo has no #500. Proves the `--repo` flag — not just
 # the URL selector — feeds the repo-aware trust lookup.
 printf 'OWNER\n'  > "$PT55_STATE/filer_flagco_repo_500"
+# -R short-alias fixture (#242): foreign repo via `-R rco/repo` #700 trusted
+# (OWNER) while the current repo has no #700. is_trusted_filer always queries via
+# `--repo` internally, so the §55 mock's `--repo` parsing serves the -R path too.
+printf 'OWNER\n'  > "$PT55_STATE/filer_rco_repo_700"
 
 # Cache isolation (#238): is_trusted_filer writes its cache into the REAL
 # $CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-filer-cache — there is no override
@@ -5027,6 +5031,31 @@ pt55_run 'gh issue close 100 --repo badvalue --reason "not planned"' >/dev/null 
 case $? in
   2) ok "55k3: malformed --repo value falls back to current repo (current #100 trusted → block) (#237)" ;;
   *) ng "55k3: malformed --repo fail-soft path wrong, got rc=$? (#237)" ;;
+esac
+
+# §55l (#242, completes #237/#231): a foreign-repo close via gh's `-R` SHORT
+# ALIAS for --repo must resolve filer-trust against the flag's repo. rco/repo#700
+# is trusted (OWNER) while the current repo has no #700. Pre-#242 the close arm
+# parsed only the literal `--repo`, so `-R` left tf_repo empty → trust resolved
+# against the current repo (#700 absent → untrusted → allow): the #231-class
+# fail-open via the short alias. (Cache cleared once at section start, #238.)
+# l1: foreign #700 trusted via `-R rco/repo`, close-as-not-planned → block.
+pt55_run 'gh issue close 700 -R rco/repo --reason "not planned"' >/dev/null 2>&1
+case $? in
+  2) ok "55l1: -R short-alias foreign close resolves trust against the flag's repo → block (#242)" ;;
+  *) ng "55l1: -R short-alias foreign close checked the wrong repo, got rc=$? (#242)" ;;
+esac
+# l2: foreign #800 untrusted (no fixture) via `-R rco/repo` → allow (no over-block).
+pt55_run 'gh issue close 800 -R rco/repo --reason "not planned"' >/dev/null 2>&1
+case $? in
+  0) ok "55l2: -R short-alias foreign close, untrusted foreign filer → allow (no over-block) (#242)" ;;
+  *) ng "55l2: -R short-alias foreign close over-blocked an untrusted filer, got rc=$? (#242)" ;;
+esac
+# l3: the `-R=rco/repo` equals form must also resolve (trusted #700 → block).
+pt55_run 'gh issue close 700 -R=rco/repo --reason "not planned"' >/dev/null 2>&1
+case $? in
+  2) ok "55l3: -R=value equals form resolves trust against the flag's repo → block (#242)" ;;
+  *) ng "55l3: -R=value equals form not parsed, got rc=$? (#242)" ;;
 esac
 
 rm -rf "$PT55_DIR"
