@@ -4807,6 +4807,17 @@ printf 'OWNER\n'  > "$PT55_STATE/filer_other_repo_300"
 # the URL selector — feeds the repo-aware trust lookup.
 printf 'OWNER\n'  > "$PT55_STATE/filer_flagco_repo_500"
 
+# Cache isolation (#238): is_trusted_filer writes its cache into the REAL
+# $CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-filer-cache — there is no override
+# env, and a temp root can't be substituted because the hook resolves all its
+# helpers from $CLAUDE_ENG_SHELL_ROOT. Clear the whole leaf cache dir once at
+# section start so every §55 assertion re-exercises the gh-query path rather
+# than passing on a stale fixture from a prior run. This subsumes the former
+# per-key `rm -f` clears. `.gitignore` covers `.claude/state/`, so this leaf is
+# never committed — the only defect was test-integrity, which a clean slate fixes.
+FILER_CACHE="$SHELL_ROOT/.claude/state/issue-filer-cache"
+rm -rf "$FILER_CACHE"
+
 # Helper to invoke pre_tool_use.sh with a synthesized Bash command. Returns
 # the hook's exit code (0=allow, 2=block).
 pt55_run() {
@@ -4958,9 +4969,7 @@ esac
 # §55i (#231): a foreign-repo URL close must resolve filer-trust against the
 # URL's repo, not the current repo. other/repo#300 is trusted (OWNER) while the
 # current repo has no #300. Pre-#231 the lookup used the current repo (#300
-# absent → untrusted → allow). Clear any stale filer cache for these keys first.
-FILER_CACHE="$SHELL_ROOT/.claude/state/issue-filer-cache"
-rm -f "$FILER_CACHE/other__repo__300" "$FILER_CACHE/other__repo__400" 2>/dev/null || true
+# absent → untrusted → allow). (Cache cleared once at section start, #238.)
 # i1: foreign repo #300 trusted → block (proves the lookup used the URL's repo).
 pt55_run "gh issue close https://github.com/other/repo/issues/300" >/dev/null 2>&1
 case $? in
@@ -4998,9 +5007,7 @@ esac
 # has no #500. Pre-#237 the close arm parsed a repo only from a URL selector, so
 # the bare-number + `--repo` form left tf_repo empty → trust resolved against the
 # current repo (#500 absent → untrusted → allow): the #231-class fail-open via
-# the flag form. Clear any stale filer cache for these keys first.
-FILER_CACHE="$SHELL_ROOT/.claude/state/issue-filer-cache"
-rm -f "$FILER_CACHE/flagco__repo__500" "$FILER_CACHE/flagco__repo__600" 2>/dev/null || true
+# the flag form. (Cache cleared once at section start, #238.)
 # k1: foreign repo #500 trusted via --repo flag, close-as-not-planned → block
 # (proves the flag's repo fed the trust lookup).
 pt55_run 'gh issue close 500 --repo flagco/repo --reason "not planned"' >/dev/null 2>&1
@@ -5502,10 +5509,12 @@ s62_close_run() {
   return $?
 }
 
-# Clear any stale is_trusted_filer cache for the §62 issue so the trusted path
-# is actually exercised against the mock (the cache writes into the real
-# $SHELL_ROOT; broader isolation is #238) — #236.
-rm -f "$SHELL_ROOT/.claude/state/issue-filer-cache/mock__repo__999" 2>/dev/null || true
+# Cache isolation (#238): clear the whole leaf is_trusted_filer cache dir once
+# at §62 start so the trusted path is exercised against the §62 mock, not a
+# stale fixture from §55 or a prior run. is_trusted_filer writes into the real
+# $CLAUDE_ENG_SHELL_ROOT cache (no override env; the hook resolves helpers from
+# ROOT). `.gitignore` covers `.claude/state/`, so this leaf is never committed.
+rm -rf "$SHELL_ROOT/.claude/state/issue-filer-cache"
 
 # §62c: bare `gh issue close <N>` on discussion-labeled Issue → BLOCKED (rc=2).
 s62_close_run "gh issue close 999"
@@ -5615,6 +5624,19 @@ if [ "$s63d_rc" = 0 ] || [ "$s63d_rc" = 1 ]; then
   ok "63d: onboard_target.sh --tier 1 --dry-run is non-destructive (rc=$s63d_rc; expected 0 or 1) (#118)"
 else
   ng "63d: onboard_target.sh --tier 1 --dry-run unexpected rc=$s63d_rc (#118)"
+fi
+
+# §63d2 (#238): `--tier` with NO value must print the usage diagnostic and exit
+# non-zero — not crash with `$2: unbound variable` under `set -u`. Pre-#238 the
+# `--tier) TIER="$2"` arm dereferenced an unbound $2. Assert the diagnostic text
+# appears (proves the script's own validation ran, not bash's unbound-var abort).
+s63d2_out=$("$SHELL_ROOT/scripts/onboard_target.sh" --tier 2>&1 || true)
+s63d2_rc=0
+"$SHELL_ROOT/scripts/onboard_target.sh" --tier >/dev/null 2>&1 || s63d2_rc=$?
+if [ "$s63d2_rc" -ne 0 ] && printf '%s' "$s63d2_out" | grep -q -- "--tier"; then
+  ok "63d2: onboard_target --tier with no value diagnoses cleanly (rc=$s63d2_rc, no unbound-var crash) (#238)"
+else
+  ng "63d2: --tier with no value crashed or gave no diagnostic (rc=$s63d2_rc, out=$s63d2_out) (#238)"
 fi
 
 # §63e: each of the 7 dir-mode command procedure files contains a substrate

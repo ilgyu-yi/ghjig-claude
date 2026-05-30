@@ -47,7 +47,7 @@ Not reviewer-gated by `activation-reviewer` — blocking is an annotation, not a
    Reason: <reason>
    Block comment: <comment-url>
    Status: Blocked (label: status:blocked)
-   To unblock: /activate-directive <issue-#> (re-runs activation-reviewer; removes status:blocked label if shipping).
+   To unblock: /activate <issue-#> (re-runs activation-reviewer; removes status:blocked label on a `pass` verdict).
    ```
 
 ## Operating mode

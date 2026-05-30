@@ -350,9 +350,14 @@ case "$tool" in
         # like `directive-foo` does not over-match (#211).
         tfm_declassify_re='--remove-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?directive([[:space:],"'"'"']|$)'
         # Selector accepts a bare number, a quoted number (the `["']?` absorbs a
-        # leading quote — `$cmd` is tr/sed-normalized, NOT shlex, so quotes are
-        # preserved), and a gh URL with a case-insensitive scheme (gh accepts
-        # `HTTPS://`) — #223. The declassify arm only confirms it's
+        # leading quote), and a gh URL with a case-insensitive scheme (gh accepts
+        # `HTTPS://`) — #223. On the `["']?` guard: `parse_env_prefix` (escape.sh,
+        # run unconditionally above) shlex round-trips `$cmd` (`shlex.split` →
+        # `shlex.join`) ONLY when python3+jq are present — there a quoted `"100"`
+        # is normalized to a bare `100` and the `["']?` is a harmless no-op. When
+        # python3/jq are absent, `parse_env_prefix` passes `$cmd` through
+        # unchanged so a quoted selector keeps its quotes — the `["']?` is what
+        # matches it in that fallback path. The declassify arm only confirms it's
         # `gh issue edit <selector>`; it does not use the number.
         tfm_edit_sel_re='gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
         if [[ "$cmd" =~ $tfm_edit_sel_re ]] \

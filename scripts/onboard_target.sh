@@ -27,7 +27,10 @@ TIER=3
 DRY_RUN=
 while [ $# -gt 0 ]; do
   case "$1" in
-    --tier) TIER="$2"; shift 2 ;;
+    --tier)
+      TIER="${2:-}"
+      [ -z "$TIER" ] && { echo "onboard_target: --tier requires a value (1, 2, or 3)" >&2; exit 2; }
+      shift 2 ;;
     --tier=*) TIER="${1#--tier=}"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) echo "onboard_target: unknown arg: $1" >&2; exit 2 ;;
