@@ -43,7 +43,7 @@ SECRET_PATTERNS=(
   'github_pat_[A-Za-z0-9_]{20,}'
   'glpat-[A-Za-z0-9_-]{20}'
   'sk-ant-[A-Za-z0-9_-]+'
-  'sk-[A-Za-z0-9]{40,}'
+  'sk-(proj-|svcacct-|admin-)?[A-Za-z0-9_-]{40,}'
   'xox[bpoa]-[A-Za-z0-9-]+'
   '-----BEGIN [A-Z ]+PRIVATE KEY-----'
   'password[[:space:]]*[:=][[:space:]]*["'\''][^"'\'' ]{8,}["'\'']'
