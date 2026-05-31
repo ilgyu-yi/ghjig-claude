@@ -6690,6 +6690,52 @@ fi
 
 rm -rf "$S73_DIR"
 
+# ---------- 74. doc-consistency: SPEC enumerables grep-checked against source (#267) ----------
+# The recurrence-stopping discipline for the "enumerable-facts-as-prose" drift
+# class (spec-internal sweep S3/S6; cf. #238). Greps SPEC's hand-maintained
+# counts/lists against their actual sources so a future drift fails smoke
+# instead of silently rotting — hooks-as-environment applied to the SPEC itself.
+
+# §74a: agent count — the SPEC directory-tree "(N)" matches .claude/agents/.
+s74_agents=$(ls "$SHELL_ROOT/.claude/agents/"*.md 2>/dev/null | wc -l | tr -d ' ')
+if grep -qF "subagent definitions ($s74_agents)" "$SHELL_ROOT/SPEC.md"; then
+  ok "74a: SPEC directory-tree agent count matches .claude/agents/ ($s74_agents) (#267)"
+else
+  ng "74a: SPEC directory-tree agent count drifted from .claude/agents/ ($s74_agents files) (#267)"
+fi
+# §74a2: no STALE lower-count agent prose remains anywhere in SPEC (the count
+# grew 6→9, so any "six/seven/eight {subagents|-agent|… of them}" agent-count
+# phrasing is stale). Closes §74a's single-phrase blind spot.
+if grep -qiE '\b(six|seven|eight)([ -])(subagent|agent)|agents/\*` \((six|seven|eight) of them\)|\b(six|seven|eight) subagents' "$SHELL_ROOT/SPEC.md"; then
+  ng "74a2: stale lower-count agent prose remains in SPEC (count is $s74_agents) (#267)"
+else
+  ok "74a2: no stale lower-count agent prose in SPEC (#267)"
+fi
+
+# §74b: SKIP_HOOKS coverage — every `should_skip <cat>` in pre_tool_use.sh is
+# documented (in backticks) somewhere in SPEC. A new matcher category that is
+# never documented fails here (the §7 enumeration is the intended home).
+s74_missing=""
+for cat in $(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" | awk '{print $2}' | sort -u); do
+  grep -qF "\`$cat\`" "$SHELL_ROOT/SPEC.md" || s74_missing="$s74_missing $cat"
+done
+if [ -z "$s74_missing" ]; then
+  ok "74b: every should_skip <cat> in pre_tool_use.sh is documented in SPEC (#267)"
+else
+  ng "74b: SKIP_HOOKS categories undocumented in SPEC:$s74_missing (#267)"
+fi
+
+# §74c: dir-mode label count — SPEC §1.7 "N total" matches ensure_v3_labels.sh
+# calls + the inline directive/initiative type-keys in onboard_target.sh.
+s74_ensure=$(grep -cE '^ensure_label ' "$SHELL_ROOT/scripts/ensure_v3_labels.sh")
+s74_inline=$(grep -cE '^ensure_label "(directive|initiative)"' "$SHELL_ROOT/scripts/onboard_target.sh")
+s74_total=$((s74_ensure + s74_inline))
+if grep -qF "$s74_total total" "$SHELL_ROOT/SPEC.md"; then
+  ok "74c: SPEC §1.7 tier-2 label count matches ensure_v3_labels + inline ($s74_total) (#267)"
+else
+  ng "74c: SPEC §1.7 label count drifted ($s74_ensure ensure + $s74_inline inline = $s74_total) (#267)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
