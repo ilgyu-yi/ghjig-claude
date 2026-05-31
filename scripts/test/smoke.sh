@@ -6324,6 +6324,12 @@ case "$*" in
   *"issue view 777"*) printf 'Parent Directive: #92\n\n## What\nparented execution work\n'; exit 0 ;;
   *"issue view 888"*) printf '## What\nstandalone task body, no marker\n'; exit 0 ;;
   *"issue view 555"*) exit 1 ;;   # gh down / no auth → predicate rc 2 → fail open
+  # #276 A3 cross-repo: issue 444 differs by repo. In other/repo it is
+  # marker-LESS (execution w/o marker → should block); in the current repo
+  # it HAS a marker (execution w/ marker → would allow). Proves the matcher
+  # resolves against the command's --repo target, not the cwd repo.
+  *"issue view 444"*"--repo other/repo"*) printf '## What\nforeign marker-less body\n'; exit 0 ;;
+  *"issue view 444"*) printf 'Parent Directive: #92\n\n## What\ncurrent-repo parented\n'; exit 0 ;;
   *) exit 0 ;;
 esac
 GHEOF
@@ -6394,14 +6400,51 @@ case $? in
   *) ng "69f: comma-list execution not caught, got rc=$? (#212)" ;;
 esac
 
+# §69g (#276 A1): URL-form issue selector must not bypass. 888 is marker-less,
+# so a URL targeting it + --add-label execution → block. Pre-#276 the entry
+# pre-filter matched a bare number only, so the URL silently fell through (allow).
+s69_edit_run "gh issue edit https://github.com/o/r/issues/888 --add-label execution"
+case $? in
+  2) ok "69g: URL-form selector (#276 A1) on marker-less Issue → block (#276)" ;;
+  *) ng "69g: URL-form selector bypassed the matcher, got rc=$? (#276 A1)" ;;
+esac
+
+# §69h (#276 A2): a flag placed BEFORE the positional issue arg must not bypass.
+# gh accepts `gh issue edit --add-label execution 888`; pre-#276 the extraction
+# required the number immediately after `edit`, so this fell through (allow).
+s69_edit_run "gh issue edit --add-label execution 888"
+case $? in
+  2) ok "69h: flag-before-positional selector (#276 A2) → block (#276)" ;;
+  *) ng "69h: flag-before-positional bypassed the matcher, got rc=$? (#276 A2)" ;;
+esac
+
+# §69i (#276 A3): cross-repo resolution. `--repo other/repo` targets issue 444 in
+# the FOREIGN repo (marker-less → execution w/o marker → block). The current repo's
+# 444 HAS a marker (would allow). Pre-#276 the predicate resolved against the cwd
+# repo, wrongly allowing (rc=0). The fix threads the --repo target into the
+# predicate (and its cache key), so it resolves the foreign marker-less body → block.
+s69_edit_run "gh issue edit 444 --repo other/repo --add-label execution"
+case $? in
+  2) ok "69i: cross-repo --repo target resolved (#276 A3) → block (#276)" ;;
+  *) ng "69i: cross-repo target resolved against wrong repo, got rc=$? (#276 A3)" ;;
+esac
+
+# §69j (#276): a non-resolvable / garbage selector must reach a DECIDED state
+# (mark_allow → rc=0), never silent fall-through (the §6.1 pass-through invariant).
+s69_edit_run "gh issue edit --add-label execution"
+case $? in
+  0) ok "69j: garbage selector (no issue#) → mark_allow, decided (#276)" ;;
+  *) ng "69j: garbage selector did not fail-open cleanly, got rc=$? (#276)" ;;
+esac
+
 # §69g (#212): correctness of the BASH_REMATCH renumber — the captured label
 # must be the gated token after the comma, not the prefix. 777 HAS a marker, so
 # `task` (standalone) contradicts it → block. If the prefix `bar` were captured
 # instead of `task`, it would be non-gated and fail-open allow.
 s69_edit_run "gh issue edit 777 --add-label bar,task"
 case $? in
-  2) ok "69g: comma-list label correctly captured (bar,task → task contradiction blocks) (#212)" ;;
-  *) ng "69g: comma-list label mis-captured (renumber regression?), got rc=$? (#212)" ;;
+  2) ok "69k: comma-list label correctly captured (bar,task → task contradiction blocks) (#212)" ;;
+  *) ng "69k: comma-list label mis-captured (renumber regression?), got rc=$? (#212)" ;;
 esac
 
 # §69h (#212): no over-match — a longer label like `executionish` is not the
@@ -6409,8 +6452,8 @@ esac
 # ungated so the arm fails open regardless).
 s69_edit_run "gh issue edit 777 --add-label executionish"
 case $? in
-  0) ok "69h: --add-label executionish does not over-match the gated token → allow (#212)" ;;
-  *) ng "69h: executionish over-matched the gated label, got rc=$? (#212)" ;;
+  0) ok "69l: --add-label executionish does not over-match the gated token → allow (#212)" ;;
+  *) ng "69l: executionish over-matched the gated label, got rc=$? (#212)" ;;
 esac
 
 # Cleanup §69.
