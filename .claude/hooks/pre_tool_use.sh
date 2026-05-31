@@ -148,13 +148,19 @@ case "$tool" in
     fi
 
     # Destructive command with out-of-scope path arg. Entry pre-filter: an
-    # rm/mv/cp verb followed (within its own option run) by a force OR recursive
-    # flag in any surface form — clustered (-rf), separated (-r -f), long
-    # (--force/--recursive), or non-first (-i -rf). Anchored to the verb's
-    # option run so a flag belonging to another pipeline command does not
-    # trigger it (#212). Over-entry is harmless: check_destructive_args allows
-    # in-scope/non-destructive operands.
-    if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+((-[A-Za-z]+|--[a-z-]+)\s+)*(-[A-Za-z]*[fFrR][A-Za-z]*|--force|--recursive)'; then
+    # rm/mv/cp verb followed — ANYWHERE in its own argument run — by a force OR
+    # recursive flag in any surface form: clustered (-rf), separated (-r -f),
+    # long (--force/--recursive), non-first (-i -rf), AND **after operands**
+    # (`rm <path> -rf`, valid GNU syntax — the #277 bypass the old
+    # flag-must-precede-operands regex missed). The `([^;|&]*\s)?` segment spans
+    # operands between the verb and the flag but **stops at a pipeline boundary**
+    # (`;` `|` `&`), so a flag belonging to ANOTHER pipeline command does not
+    # trigger this arm (#212 cross-command anchoring preserved). The trailing
+    # `(\s|$)` + leading `\s` keep the flag a whole token (a `-rf` inside a
+    # filename like `my-rf-file` is not matched). Over-entry is harmless:
+    # check_destructive_args makes the real in-scope/out-of-scope decision and
+    # already inspects every operand regardless of flag position.
+    if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+([^;|&]*\s)?(-[A-Za-z]*[fFrR][A-Za-z]*|--force|--recursive)(\s|$)'; then
       decided=
       if ! check_destructive_args "$cmd"; then
         should_skip out-of-scope && decided=1 || block out-of-scope "destructive command points outside registry: $cmd"
