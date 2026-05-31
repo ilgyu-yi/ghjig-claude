@@ -919,6 +919,41 @@ else
   ng "hook: rm -rf \${HOME}/foo not blocked (#17)"
 fi
 
+# 15f (#277 Theme B): operand-permutation — a force/recursive flag placed AFTER
+# the operand (valid GNU syntax) must not bypass the out-of-scope block. Pre-#277
+# the entry pre-filter required the flag to follow the verb with only other flags
+# between, so `rm <path> -rf` never entered → silent allow.
+if [ "$(hook_run 'rm ${HOME}/foo -rf')" = "2" ]; then
+  ok "hook: rm \${HOME}/foo -rf (flag after operand) blocked (#277)"
+else
+  ng "hook: operand-before-flag rm bypassed the out-of-scope block (#277)"
+fi
+
+# 15g (#277): the same permutation for mv (out-of-scope source) → blocked.
+if [ "$(hook_run 'mv ${HOME}/a ${HOME}/b --force')" = "2" ]; then
+  ok "hook: mv \${HOME}/a \${HOME}/b --force (flag last) blocked (#277)"
+else
+  ng "hook: operand-before-flag mv bypassed the out-of-scope block (#277)"
+fi
+
+# 15h (#277 regression): an IN-SCOPE operand-permutation must still be ALLOWED —
+# the fix widens entry, not the scope decision. `./foo` resolves under $TMP/fake
+# (registered), so a flag-after-operand rm there is the happy path (rc 0).
+if [ "$(hook_run 'rm ./foo -rf')" = "0" ]; then
+  ok "hook: rm ./foo -rf (in-scope, flag after operand) allowed (#277 regression)"
+else
+  ng "hook: in-scope operand-permutation rm wrongly blocked (#277 regression)"
+fi
+
+# 15i (#277): a flag belonging to ANOTHER pipeline command must NOT trigger the
+# rm arm (the #212 cross-command anchoring invariant). `rm ./ok && ls -rf` — the
+# -rf is ls's; rm has no force flag and an in-scope operand → allow (rc 0).
+if [ "$(hook_run 'rm ./ok && ls -rf .')" = "0" ]; then
+  ok "hook: rm ./ok && ls -rf . — ls's flag does not trigger rm arm (#277/#212)"
+else
+  ng "hook: cross-command flag wrongly attributed to rm (#277/#212)"
+fi
+
 # 15c. Benign eval — NOT blocked (exit 0) and audit-warn entry written.
 # Uses `eval "ls"` so no downstream matcher fires; bypass-suspect should
 # NOT short-circuit downstream matchers, so we test with a clean inner
