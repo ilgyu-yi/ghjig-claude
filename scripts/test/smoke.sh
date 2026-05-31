@@ -5260,11 +5260,17 @@ else
   ng "57d: 57d status check failed: missing=$s57d_missing closed_line=$s57d_closed_line proposed_line=$s57d_proposed_line (#96/cluster D)"
 fi
 
-# 57e: workflow parses `Parent Directive: #N` body marker.
-if grep -qE 'Parent Directive: #' "$MIRROR_WF" 2>/dev/null; then
-  ok "57e: workflow parses Parent Directive body marker (#96/cluster D)"
+# 57e: workflow derives the Project Parent field from BOTH line-1 markers —
+# `Parent Directive: #N` AND `Parent Initiative: #N` (#262). The mirror reads
+# a Directive's OWN line-1 marker, which is `Parent Initiative` for an
+# Initiative-parented Directive; recognizing both keeps Parent Directive a
+# strict superset (no regression). This is the one Parent-marker consumer
+# that legitimately reads `Parent Initiative` (§1.7 Derived-view integration).
+if grep -qE 'Parent Directive: #' "$MIRROR_WF" 2>/dev/null \
+   && grep -qE 'Parent Initiative: #' "$MIRROR_WF" 2>/dev/null; then
+  ok "57e: workflow parses BOTH Parent Directive + Parent Initiative markers (#262)"
 else
-  ng "57e: workflow missing Parent Directive marker parse (#96/cluster D)"
+  ng "57e: workflow must parse both Parent Directive AND Parent Initiative markers (strict superset) (#262)"
 fi
 
 # 57f: workflow does NOT mirror Iteration (per Decision 5).
@@ -5284,6 +5290,39 @@ if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; t
   fi
 else
   ok "57g: python3+pyyaml not available — YAML parse check skipped (#96/cluster D)"
+fi
+
+# 57h: deployed mirror == target-substrate template copy (#262 two-copy
+# drift guard). The mirror ships in two byte-identical copies; the #262
+# Parent Initiative change must land in BOTH or /onboard installs a stale
+# template. Lock parity so a one-copy edit fails fast.
+MIRROR_TMPL="$SHELL_ROOT/.claude/templates/target-substrate/workflows/issues-to-project-mirror.yml"
+if [ -f "$MIRROR_TMPL" ]; then
+  if diff -q "$MIRROR_WF" "$MIRROR_TMPL" >/dev/null 2>&1; then
+    ok "57h: deployed mirror == target-substrate template copy (#262)"
+  else
+    ng "57h: mirror deployed/template copies drifted — edit both in lockstep (#262)"
+  fi
+else
+  ng "57h: target-substrate mirror template copy missing (#262)"
+fi
+
+# 57i: scope-down lock (#262) — /reflect + dir-mode-post-merge consume the
+# closing Execution Issue's `Parent Directive` marker only; an Execution
+# Issue is structurally never Initiative-parented (parent-XOR), so these
+# must NOT reference `Parent Initiative`. Guards against a future "make it
+# symmetric everywhere" edit re-introducing dead code the §1.7 Derived-view
+# note explicitly rejects.
+s57i_hits=""
+for f in "$SHELL_ROOT/.claude/commands/reflect.md" \
+         "$SHELL_ROOT/.github/workflows/dir-mode-post-merge.yml" \
+         "$SHELL_ROOT/.claude/templates/dir-mode-post-merge.yml"; do
+  [ -f "$f" ] && grep -qE 'Parent Initiative' "$f" 2>/dev/null && s57i_hits="$s57i_hits ${f##*/}"
+done
+if [ -z "$s57i_hits" ]; then
+  ok "57i: /reflect + dir-mode-post-merge stay Parent Directive-only (no dead Initiative path) (#262)"
+else
+  ng "57i: unexpected Parent Initiative reference in reflect/post-merge:$s57i_hits (#262)"
 fi
 
 # ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
