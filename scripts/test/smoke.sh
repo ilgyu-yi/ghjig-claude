@@ -6491,6 +6491,34 @@ case $? in
   *) ng "69l: executionish over-matched the gated label, got rc=$? (#212)" ;;
 esac
 
+# §69m (#278 Theme C): a HYPHEN-suffixed label (`directive-foo`) must NOT
+# over-match the `directive` token. Pre-#278 the `([^a-z]|$)` terminator
+# treated `-` as a boundary, so `directive-foo` matched the directive arm and
+# (on marker-less 888 → neither parent kind) wrongly BLOCKED. The fix tightens
+# the terminator to a true label boundary (comma / whitespace / quote / end).
+s69_edit_run "gh issue edit 888 --add-label directive-foo"
+case $? in
+  0) ok "69m: --add-label directive-foo (hyphen suffix) does not over-match → allow (#278)" ;;
+  *) ng "69m: directive-foo over-matched the directive token, got rc=$? (#278 C)" ;;
+esac
+
+# §69n (#278): an UNDERSCORE-suffixed label (`task_old`) likewise must not
+# over-match the `task` token (777 has a marker; pre-fix task+marker → block).
+s69_edit_run "gh issue edit 777 --add-label task_old"
+case $? in
+  0) ok "69n: --add-label task_old (underscore suffix) does not over-match → allow (#278)" ;;
+  *) ng "69n: task_old over-matched the task token, got rc=$? (#278 C)" ;;
+esac
+
+# §69o (#278 regression): the bare gated token and comma-joined lists must STILL
+# match. `directive` on 888 (no parent kind) → parent-XOR neither → block (the
+# fix must not loosen the real gate).
+s69_edit_run "gh issue edit 888 --add-label directive"
+case $? in
+  2) ok "69o: bare --add-label directive still gated (parent-XOR) → block (#278 regression)" ;;
+  *) ng "69o: bare directive token no longer gated, got rc=$? (#278 regression)" ;;
+esac
+
 # Cleanup §69.
 s69_tmp_reg=$(mktemp); grep -vxF "$S69_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$s69_tmp_reg" 2>/dev/null || true
 mv "$s69_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
