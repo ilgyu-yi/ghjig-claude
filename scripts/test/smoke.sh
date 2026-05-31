@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 # scripts/test/smoke.sh — shell infrastructure sanity check.
 # Verifies hook/helper/inject behavior without running Claude Code.
+#
+# ── Test-integrity / anti-vacuity discipline (#279, Theme E) ──────────────────
+# An assertion that greens WITHOUT exercising the property it names is worse than
+# no assertion — it reads as coverage while guarding nothing. Two recurring
+# vacuous-pass anti-patterns, and the fix for each:
+#
+#   1. Comment-satisfiable grep. `grep -q 'token' "$FILE"` passes when `token`
+#      appears only in a COMMENT/prose, not the CODE form the assertion claims to
+#      verify. → Anchor the grep to the code form (e.g. `^Parent Initiative` with
+#      the leading caret a regex carries but a comment usually doesn't; or a
+#      `should_skip <cat>`-shaped pattern), not a bare token. (Fixed live: §57e.)
+#
+#   2. Silent skip on an absent target. `[ -f "$f" ] && grep …` (or `… || continue`
+#      over a glob, or an `if [ -f ]; then … ` with no `else`) reports green when
+#      `$f` is absent — the property went unchecked. → Fail LOUD on a missing
+#      target the assertion claims to read (`ng` / `MISSING:`), and when a check
+#      iterates an expected SET, assert the COUNT actually checked (a count-guard)
+#      so an empty glob can't pass "all N …". (Fixed live: §57i, §54g.)
+#
+# Optional-tooling skips (`gdlint`/`timeout`/`pyyaml` absent → ok "… skipped") are
+# NOT vacuous: the property is genuinely untestable without the tool, and the skip
+# is reported. The anti-pattern is a skip that masquerades as a PASS of the thing.
+# ──────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -4850,16 +4873,28 @@ fi
 # 54g: YAML structural sanity via python+pyyaml when available.
 if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
   s54g_fails=0
+  s54g_checked=0
   s54g_list=""
   for f in "$SHELL_ROOT"/.github/ISSUE_TEMPLATE/*.yml "$SHELL_ROOT"/.github/workflows/auto-status-proposed.yml; do
     [ -f "$f" ] || continue
+    s54g_checked=$((s54g_checked+1))
     if ! python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
       s54g_fails=$((s54g_fails+1))
       s54g_list="$s54g_list $(basename "$f")"
     fi
   done
-  if [ "$s54g_fails" = 0 ]; then
-    ok "54g: all 6 template + workflow YAML files parse cleanly (#93)"
+  # Count-guard (#279 Theme E anti-vacuity): the `[ -f ] || continue` skip means
+  # an empty glob (templates deleted/renamed) would leave s54g_fails=0 and pass
+  # "all 6 … parse cleanly" having checked NOTHING. Assert the expected count so
+  # the assertion fails loud instead of greening vacuously.
+  # Expected 7 = 6 ISSUE_TEMPLATE/*.yml (bug-report, config, directive-proposal,
+  # discussion, execution-under-directive, task) + auto-status-proposed.yml. The
+  # count-guard caught a stale "6" here (discussion.yml had been added without
+  # updating this assertion) — exactly the drift it exists to surface (#279).
+  if [ "$s54g_checked" -ne 7 ]; then
+    ng "54g: expected 7 template+workflow YAML files, found $s54g_checked (vacuous-skip guard, #279)"
+  elif [ "$s54g_fails" = 0 ]; then
+    ok "54g: all 7 template + workflow YAML files parse cleanly (#93/#279)"
   else
     ng "54g: $s54g_fails YAML parse failures:$s54g_list (#93)"
   fi
