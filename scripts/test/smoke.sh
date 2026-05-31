@@ -5266,8 +5266,12 @@ fi
 # Initiative-parented Directive; recognizing both keeps Parent Directive a
 # strict superset (no regression). This is the one Parent-marker consumer
 # that legitimately reads `Parent Initiative` (§1.7 Derived-view integration).
-if grep -qE 'Parent Directive: #' "$MIRROR_WF" 2>/dev/null \
-   && grep -qE 'Parent Initiative: #' "$MIRROR_WF" 2>/dev/null; then
+# Anchor to the CODE form (`^Parent <kind>: #`, the literal caret in the
+# grep/sed regexes) — the header + inline comments mention the markers
+# without the caret, so this won't pass vacuously if the elif code is
+# deleted but the comments remain (#262 code-reviewer hardening).
+if grep -qE '\^Parent Directive: #' "$MIRROR_WF" 2>/dev/null \
+   && grep -qE '\^Parent Initiative: #' "$MIRROR_WF" 2>/dev/null; then
   ok "57e: workflow parses BOTH Parent Directive + Parent Initiative markers (#262)"
 else
   ng "57e: workflow must parse both Parent Directive AND Parent Initiative markers (strict superset) (#262)"
@@ -5317,7 +5321,12 @@ s57i_hits=""
 for f in "$SHELL_ROOT/.claude/commands/reflect.md" \
          "$SHELL_ROOT/.github/workflows/dir-mode-post-merge.yml" \
          "$SHELL_ROOT/.claude/templates/dir-mode-post-merge.yml"; do
-  [ -f "$f" ] && grep -qE 'Parent Initiative' "$f" 2>/dev/null && s57i_hits="$s57i_hits ${f##*/}"
+  if [ ! -f "$f" ]; then
+    # A renamed/deleted target must fail loud, not skip green (vacuity guard).
+    s57i_hits="$s57i_hits MISSING:${f##*/}"
+  elif grep -qE 'Parent Initiative' "$f" 2>/dev/null; then
+    s57i_hits="$s57i_hits ${f##*/}"
+  fi
 done
 if [ -z "$s57i_hits" ]; then
   ok "57i: /reflect + dir-mode-post-merge stay Parent Directive-only (no dead Initiative path) (#262)"
