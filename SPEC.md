@@ -1842,7 +1842,7 @@ When starting from an empty directory:
 2. `.claude/audit/` and `.claude/state/` empty dirs with `.gitkeep` — at runtime, `audit.jsonl` (audit/) and `registry.txt` (state/) are created here.
 3. `.claude/templates/*` first — every command and agent consumes these.
 4. `.claude/CLAUDE.md` — shell norms (a summary of §1, §2 of this document).
-5. `.claude/agents/*` (six of them).
+5. `.claude/agents/*` (nine of them).
 6. `.claude/hooks/helpers/*` (log, escape, cwd_guard, detect_stack, git_matcher, branch_guard, conventional_commit, secret_scan, tests, gh_state). `git_matcher` must precede `branch_guard` — branch_guard sources it for the `PROTECTED_BRANCH_PATTERN` SSOT.
 7. `.claude/hooks/{pre_tool_use, post_tool_use, stop, user_prompt_submit, session_start}.sh`.
 8. `.claude/settings.json` — registers the hooks above.
@@ -1875,7 +1875,7 @@ All of the following must be yes before operating.
 - [ ] SessionStart warns when the shell repo is behind origin/main.
 - [ ] `/onboard` checks fork status, push permission, MISSION presence, `.github/`, branch protection.
 - [ ] `/file-issue`, `/work-on`, `/sync-pr`, `/status`, `/review`, `/ship`, `/adr`, `/audit` all behave as intended.
-- [ ] The six subagents are defined; planner produces a Doc → Test → Code checklist.
+- [ ] The nine subagents are defined; planner produces a Doc → Test → Code checklist.
 - [ ] `.claude/templates/*` is the single source of truth for every command.
 - [ ] The escape hatch works for every block category and is recorded in the audit log.
 - [ ] The shell repo can develop itself on this same flow (dogfooding).

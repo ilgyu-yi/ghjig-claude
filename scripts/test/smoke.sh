@@ -6696,12 +6696,20 @@ rm -rf "$S73_DIR"
 # counts/lists against their actual sources so a future drift fails smoke
 # instead of silently rotting — hooks-as-environment applied to the SPEC itself.
 
-# §74a: agent count — SPEC §3.1 "(N)" matches the actual .claude/agents/ files.
+# §74a: agent count — the SPEC directory-tree "(N)" matches .claude/agents/.
 s74_agents=$(ls "$SHELL_ROOT/.claude/agents/"*.md 2>/dev/null | wc -l | tr -d ' ')
 if grep -qF "subagent definitions ($s74_agents)" "$SHELL_ROOT/SPEC.md"; then
-  ok "74a: SPEC §3.1 agent count matches .claude/agents/ ($s74_agents) (#267)"
+  ok "74a: SPEC directory-tree agent count matches .claude/agents/ ($s74_agents) (#267)"
 else
-  ng "74a: SPEC §3.1 agent count drifted from .claude/agents/ ($s74_agents files) (#267)"
+  ng "74a: SPEC directory-tree agent count drifted from .claude/agents/ ($s74_agents files) (#267)"
+fi
+# §74a2: no STALE lower-count agent prose remains anywhere in SPEC (the count
+# grew 6→9, so any "six/seven/eight {subagents|-agent|… of them}" agent-count
+# phrasing is stale). Closes §74a's single-phrase blind spot.
+if grep -qiE '\b(six|seven|eight)([ -])(subagent|agent)|agents/\*` \((six|seven|eight) of them\)|\b(six|seven|eight) subagents' "$SHELL_ROOT/SPEC.md"; then
+  ng "74a2: stale lower-count agent prose remains in SPEC (count is $s74_agents) (#267)"
+else
+  ok "74a2: no stale lower-count agent prose in SPEC (#267)"
 fi
 
 # §74b: SKIP_HOOKS coverage — every `should_skip <cat>` in pre_tool_use.sh is
