@@ -6736,6 +6736,53 @@ else
   ng "74c: SPEC §1.7 label count drifted ($s74_ensure ensure + $s74_inline inline = $s74_total) (#267)"
 fi
 
+# ---------- 75. Initiative-tier spec precision (C2–C5, #263) ----------
+# Four integration-boundary invariants the v2 tier shipped without pinning.
+# Each AC becomes a durable grep so the precision can't silently regress
+# (the §74 enumeration-discipline applied to the Initiative tier).
+
+# 75a (C2): SPEC §1.7 states the create-path split — /file-directive is
+# MISSION-parented; Initiative-parented Directives are born only via
+# /consume-initiative (no hand-authored Parent Initiative marker).
+if grep -qiE 'create-path split' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qE 'sole.*producer of .Parent Initiative|only.*via .?/consume-initiative' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "75a: SPEC §1.7 states the Directive create-path split (C2, #263)"
+else
+  ng "75a: SPEC §1.7 must state /file-directive=MISSION-parented vs /consume-initiative=Initiative-parented (C2, #263)"
+fi
+
+# 75b (C3): SPEC §1.7 states an Initiative is outside the 4-state lifecycle
+# and the status:* taxonomy (the §2.1 half landed with EI-A; this is the
+# §1.7 residual cross-reference).
+if grep -qiE 'outside the 4-state.*lifecycle' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qiE 'never applies .status:|never.*status:\*|outside.*status:\* taxonomy' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "75b: SPEC §1.7 places Initiative outside the 4-state lifecycle + status:* taxonomy (C3, #263)"
+else
+  ng "75b: SPEC §1.7 must state an Initiative is outside the 4-state lifecycle + status:* taxonomy (C3, #263)"
+fi
+
+# 75c (C4): /activate guards the initiative label (refuses, routes to
+# /consume-initiative) and SPEC §5.12 names the tri-state resolution —
+# closing the binary-vs-tri-state mis-typing gap.
+ACTIVATE_CMD="$SHELL_ROOT/.claude/commands/activate.md"
+if grep -qiE 'initiative.*(refuse|consumed via .?/consume-initiative)' "$ACTIVATE_CMD" 2>/dev/null \
+   && grep -qiE 'tri-state' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qE '§5\.12.*[Aa]ctivate|/activate.*tri-state|tri-state.*activate' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "75c: /activate + SPEC §5.12 guard the initiative label (tri-state) (C4, #263)"
+else
+  ng "75c: /activate must refuse the initiative label and SPEC §5.12 must name the tri-state resolution (C4, #263)"
+fi
+
+# 75d (C5): SPEC §6.1 documents that initiative-readonly's block beats
+# trusted-filer-mutate's --reason completed allowance on an Initiative close,
+# and names the real mechanism (block-is-terminal, not matcher ordering).
+if grep -qiE 'block-is-terminal|block.*terminat' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qiE 'never.*closed by the shell|Precedence over .trusted-filer-mutate' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "75d: SPEC §6.1 documents initiative-readonly close precedence (block-is-terminal) (C5, #263)"
+else
+  ng "75d: SPEC §6.1 must document initiative-readonly's close precedence over trusted-filer-mutate (C5, #263)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
