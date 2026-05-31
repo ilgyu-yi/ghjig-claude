@@ -509,14 +509,25 @@ case "$tool" in
     # 2=unresolvable). The block fires only on a positively-resolved
     # contradiction; an unresolvable body (rc 2) or an undefined predicate
     # fails open per SPEC §6.1 (parity with proposed-protect / trusted-filer-mutate).
-    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+issue[[:space:]]+edit[[:space:]]+[0-9]+\b.*--add-label\b'; then
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+issue[[:space:]]+edit\b.*--add-label\b'; then
       decided=
       if should_skip label-parent-consistency; then
         decided=1
       else
+        # Selector normalization (#276): resolve the issue number AND a `-R`/`--repo`
+        # or URL-embedded target repo via the shared helper, tolerant of selector
+        # form (bare/quoted/URL — A1) and flag order (A2). The repo (A3) is threaded
+        # into every predicate below so a cross-repo `--add-label` edit resolves the
+        # marker/labels against the COMMAND's target, not the cwd repo.
         lpc_issue=
-        if [[ "$cmd" =~ gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+([0-9]+) ]]; then
-          lpc_issue="${BASH_REMATCH[1]}"
+        lpc_repo=
+        if command -v resolve_gh_issue_target >/dev/null 2>&1; then
+          # Capture FIRST, then split — never `IFS=$'\t' read <<< "$(...)"`, whose
+          # prefix would leak tab-IFS into the helper's own tokenizer (#276).
+          lpc_target="$(resolve_gh_issue_target "$cmd" 'edit')"
+          IFS=$'\t' read -r lpc_issue lpc_repo <<< "$lpc_target"
+        elif [[ "$cmd" =~ gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+([0-9]+) ]]; then
+          lpc_issue="${BASH_REMATCH[1]}"   # fail-soft: pre-#276 issue_type.sh w/o the helper
         fi
         # Which gated type label is being added? Only execution/task/bug are
         # gated; accept space- or =-separated, optionally quoted, and the gated
@@ -543,9 +554,9 @@ case "$tool" in
              || ! command -v is_initiative_issue >/dev/null 2>&1; then
             mark_allow label-parent-consistency
             decided=1
-          elif [ "$lpc_label" = initiative ] && is_directive_issue "$lpc_issue"; then
+          elif [ "$lpc_label" = initiative ] && is_directive_issue "$lpc_issue" "$lpc_repo"; then
             block label-parent-consistency "Issue #${lpc_issue}: --add-label initiative on a Directive is blocked — the 'initiative' and 'directive' tier type-keys are mutually exclusive (SPEC §1.7). An Issue is a Directive or an Initiative, not both. Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
-          elif [ "$lpc_label" = directive ] && is_initiative_issue "$lpc_issue"; then
+          elif [ "$lpc_label" = directive ] && is_initiative_issue "$lpc_issue" "$lpc_repo"; then
             block label-parent-consistency "Issue #${lpc_issue}: --add-label directive on an Initiative is blocked — the 'directive' and 'initiative' tier type-keys are mutually exclusive (SPEC §1.7). Or SKIP_HOOKS=label-parent-consistency SKIP_REASON='<why>'."
           elif [ "$lpc_label" = directive ]; then
             # (b) parent-XOR: a Directive needs exactly one parent kind — a
@@ -555,8 +566,8 @@ case "$tool" in
               mark_allow label-parent-consistency
               decided=1
             else
-              issue_has_mission_fit_field "$lpc_issue"; lpc_mf=$?
-              issue_has_initiative_parent_marker "$lpc_issue"; lpc_im=$?
+              issue_has_mission_fit_field "$lpc_issue" "$lpc_repo"; lpc_mf=$?
+              issue_has_initiative_parent_marker "$lpc_issue" "$lpc_repo"; lpc_im=$?
               if [ "$lpc_mf" = 2 ] || [ "$lpc_im" = 2 ]; then
                 mark_allow label-parent-consistency   # unresolvable → fail open
                 decided=1
@@ -579,7 +590,7 @@ case "$tool" in
           mark_allow label-parent-consistency
           decided=1
         else
-          issue_has_parent_marker "$lpc_issue"
+          issue_has_parent_marker "$lpc_issue" "$lpc_repo"
           lpc_rc=$?
           if [ "$lpc_rc" = 2 ]; then
             # Unresolvable body (gh down / no auth / not found) → fail open.
@@ -613,10 +624,18 @@ case "$tool" in
       if should_skip initiative-readonly; then
         decided=1
       else
+        # Selector via the shared helper (#276): tolerant of form (bare/quoted/URL
+        # — already handled pre-#276) AND flag order (new: `gh issue close --foo x N`).
+        # NOTE: the helper also resolves a `-R`/`--repo` target, but initiative-readonly
+        # deliberately IGNORES it and resolves against the CURRENT repo — cross-repo
+        # Initiatives are out of scope (SPEC §1.7:333; they would reintroduce the
+        # cross-repo-trust surface), so this matcher only governs same-repo Initiatives.
         iro_issue=
-        iro_sel_re='gh[[:space:]]+issue[[:space:]]+(edit|close|reopen)[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
-        if [[ "$cmd" =~ $iro_sel_re ]]; then
-          iro_sel="${BASH_REMATCH[2]}"
+        if command -v resolve_gh_issue_target >/dev/null 2>&1; then
+          iro_target="$(resolve_gh_issue_target "$cmd" 'edit|close|reopen')"   # capture before split (#276)
+          IFS=$'\t' read -r iro_issue _iro_repo <<< "$iro_target"
+        elif [[ "$cmd" =~ gh[[:space:]]+issue[[:space:]]+(edit|close|reopen)[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+) ]]; then
+          iro_sel="${BASH_REMATCH[2]}"   # fail-soft: pre-#276 issue_type.sh w/o the helper
           case "$iro_sel" in
             */issues/*) iro_issue="${iro_sel##*/issues/}"; iro_issue="${iro_issue%%[!0-9]*}" ;;
             *)          iro_issue="${iro_sel//[^0-9]/}" ;;

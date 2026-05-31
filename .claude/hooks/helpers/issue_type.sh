@@ -31,7 +31,7 @@
 # A `gh` failure caches no entry / returns rc 1 — the caller fails open (§6.1).
 
 is_directive_issue() {
-  local issue="$1"
+  local issue="$1" repo="${2:-}"
   case "$issue" in
     ''|*[!0-9]*) return 1 ;;  # not a number → not a directive issue
   esac
@@ -40,12 +40,21 @@ is_directive_issue() {
 
   local cache_dir cache_file
   cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
-  # Cache key: use the repo's GH owner/name (resolved once per invocation).
-  # If gh repo view fails (not a GH repo or no auth), bail rc 1 — defer
-  # Type-awareness to the no-op state per SPEC §6.1 fail-open framing.
+  # Cache key: the GH owner/name. An explicit `repo` arg (#276, e.g. a `-R`/URL
+  # cross-repo selector) overrides the cwd repo for BOTH the key and the query,
+  # so a foreign `owner/repo#N` lookup keys on `owner__repo__N` and can never
+  # poison the current repo's same-numbered entry (the #231 collision class).
+  # Empty repo → current repo (existing behavior; callers passing only <issue#>
+  # are unchanged). If gh repo view fails (not a GH repo / no auth), bail rc 1 —
+  # defer Type-awareness to the no-op state per SPEC §6.1 fail-open framing.
   local owner name
-  owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
-  name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  if [ -n "$repo" ]; then
+    owner="${repo%%/*}"
+    name="${repo##*/}"
+  else
+    owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
+    name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  fi
   cache_file="$cache_dir/${owner}__${name}__${issue}"
 
   if [ -f "$cache_file" ]; then
@@ -61,7 +70,11 @@ is_directive_issue() {
   # Fetch labels via gh. If the issue doesn't exist or gh fails, return 1
   # without caching — the hook will fail-open per SPEC §6.1.
   local labels
-  labels=$(gh issue view "$issue" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  if [ -n "$repo" ]; then
+    labels=$(gh issue view "$issue" --repo "$repo" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  else
+    labels=$(gh issue view "$issue" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  fi
 
   mkdir -p "$cache_dir" 2>/dev/null || true
   # Case-insensitive match anchored on comma-list boundaries (mirrors
@@ -82,7 +95,7 @@ is_directive_issue() {
 # file (`…__<n>.initiative`) with its own sentinels so it never clobbers / is
 # clobbered by the directive/execution cache on a shared key (#249).
 is_initiative_issue() {
-  local issue="$1"
+  local issue="$1" repo="${2:-}"
   case "$issue" in
     ''|*[!0-9]*) return 1 ;;  # not a number → not an initiative issue
   esac
@@ -91,9 +104,18 @@ is_initiative_issue() {
 
   local cache_dir cache_file
   cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
+  # Repo override (#276): same contract as is_directive_issue — an explicit
+  # owner/name keys (and queries) the foreign repo; empty → current repo. The
+  # `.initiative` cache suffix is preserved on the repo-qualified key so the
+  # initiative sentinel never collides with the directive/execution sentinel.
   local owner name
-  owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
-  name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  if [ -n "$repo" ]; then
+    owner="${repo%%/*}"
+    name="${repo##*/}"
+  else
+    owner=$(gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
+    name=$(gh repo view --json name -q .name 2>/dev/null) || return 1
+  fi
   cache_file="$cache_dir/${owner}__${name}__${issue}.initiative"
 
   if [ -f "$cache_file" ]; then
@@ -107,7 +129,11 @@ is_initiative_issue() {
   fi
 
   local labels
-  labels=$(gh issue view "$issue" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  if [ -n "$repo" ]; then
+    labels=$(gh issue view "$issue" --repo "$repo" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  else
+    labels=$(gh issue view "$issue" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 1
+  fi
 
   mkdir -p "$cache_dir" 2>/dev/null || true
   # Comma-list boundary match (mirrors is_directive_issue; NOT a grep word-match,
@@ -162,13 +188,17 @@ is_proposed_issue() {
 # prepends it post-creation; a relabel may add/remove it), so a stale cache would
 # mis-gate a just-edited Issue until session restart.
 issue_has_parent_marker() {
-  local issue="$1"
+  local issue="$1" repo="${2:-}"
   case "$issue" in
     ''|*[!0-9]*) return 2 ;;  # not a number → cannot resolve → fail open
   esac
 
   local body="" first_line=""
-  body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  if [ -n "$repo" ]; then
+    body=$(gh issue view "$issue" --repo "$repo" --json body -q .body 2>/dev/null) || return 2
+  else
+    body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  fi
   first_line=$(printf '%s\n' "$body" | head -1 || true)
   if printf '%s' "$first_line" | grep -qE '^Parent Directive: #[0-9]+$'; then
     return 0
@@ -190,13 +220,17 @@ issue_has_parent_marker() {
 #   rc 1 → resolved, marker ABSENT
 #   rc 2 → unresolvable (not a number / gh failure / no auth / issue not found)
 issue_has_initiative_parent_marker() {
-  local issue="$1"
+  local issue="$1" repo="${2:-}"
   case "$issue" in
     ''|*[!0-9]*) return 2 ;;  # not a number → cannot resolve → fail open
   esac
 
   local body="" first_line=""
-  body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  if [ -n "$repo" ]; then
+    body=$(gh issue view "$issue" --repo "$repo" --json body -q .body 2>/dev/null) || return 2
+  else
+    body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  fi
   first_line=$(printf '%s\n' "$body" | head -1 || true)
   if printf '%s' "$first_line" | grep -qE '^Parent Initiative: #[0-9]+$'; then
     return 0
@@ -219,10 +253,71 @@ issue_has_mission_fit_field() {
     ''|*[!0-9]*) return 2 ;;
   esac
 
+  local repo="${2:-}"
   local body=""
-  body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  if [ -n "$repo" ]; then
+    body=$(gh issue view "$issue" --repo "$repo" --json body -q .body 2>/dev/null) || return 2
+  else
+    body=$(gh issue view "$issue" --json body -q .body 2>/dev/null) || return 2
+  fi
   if printf '%s\n' "$body" | grep -qE '^##[[:space:]]+MISSION fit[[:space:]]*$'; then
     return 0
   fi
   return 1
+}
+
+# resolve_gh_issue_target <cmd> <verb-alternation> — extract the target issue
+# number and (optionally) the owner/name repo from a `gh issue <verb> ...`
+# command, tolerant of (a) selector FORM — bare / quoted / URL — and (b) flag
+# ORDER (the positional issue arg need not immediately follow the verb). Echoes
+# "<issue><TAB><repo>" (either field may be empty). Shared by the
+# label-parent-consistency and initiative-readonly matchers (#276) so the
+# selector parsers do not drift independently (the A1/A2 bypass class that this
+# function closes). Portability: echo + `IFS=$'\t' read`, NOT bash-4 namerefs
+# (macOS bash 3.2 is a supported target). Fail-soft: an unparseable command
+# yields an empty issue → the caller's existing `[ -z "$issue" ]` arm fails open.
+#
+# Flag-order heuristic: gh's `issue edit/close/reopen` flags overwhelmingly take
+# a value (`--add-label X`, `--body X`, `--repo X`, `-R X`); the FIRST positional
+# token that is a bare integer is the issue selector. We skip each `-flag` and its
+# following value token (the `--flag=value` form consumes a single token), so a
+# flag value that happens to contain digits (`--repo o/r2`) is never mistaken for
+# the issue number. Boolean flags before the positional are vanishingly rare on
+# these subcommands; treating a flag as value-taking is the safe over-skip.
+resolve_gh_issue_target() {
+  local cmd="$1" verbs="$2"
+  local issue="" repo=""
+  printf '%s' "$cmd" | grep -qE "\\bgh[[:space:]]+issue[[:space:]]+(${verbs})\\b" || { printf '\t'; return 0; }
+  # URL form anywhere → issue + owner/name straight from the URL (authoritative).
+  if [[ "$cmd" =~ [Hh][Tt][Tt][Pp][Ss]?://[^[:space:]\"\']+/([^/[:space:]\"\']+)/([^/[:space:]\"\']+)/issues/([0-9]+) ]]; then
+    printf '%s\t%s' "${BASH_REMATCH[3]}" "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    return 0
+  fi
+  # Bare/flag-ordered: tokenize and walk, skipping flags (+ their value token).
+  # Pin IFS locally: a caller using `IFS=$'\t' read ... <<< "$(resolve_...)"`
+  # would otherwise leak tab-only IFS into this command substitution, collapsing
+  # a space-separated command into one token (#276 — the bug that motivated the
+  # two-statement call form at the matcher sites).
+  local IFS=$' \t\n'
+  local -a toks=()
+  read -ra toks <<< "$cmd"
+  local i t skip_next=""
+  for ((i=0; i<${#toks[@]}; i++)); do
+    t="${toks[$i]}"
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
+    case "$t" in
+      --repo=*|-R=*) repo="${t#*=}"; continue ;;
+      --repo|-R)     repo="${toks[$((i+1))]:-}"; skip_next=1; continue ;;
+      --*=*)         continue ;;             # long flag with inline value → 1 token
+      -*)            skip_next=1; continue ;; # flag consumes its value token
+    esac
+    # A positional token: the issue selector is the first bare integer one.
+    if [ -z "$issue" ]; then
+      case "$t" in
+        ''|*[!0-9]*) ;;        # gh / issue / verb / non-numeric positionals → skip
+        *) issue="$t" ;;
+      esac
+    fi
+  done
+  printf '%s\t%s' "$issue" "$repo"
 }
