@@ -49,6 +49,8 @@ In `unattended` mode, the reviewers above substitute for human review at their r
 
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
+**Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`, `explorer`) share the parent's working tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage the parent's uncommitted work. Invoke them with **worktree isolation** (canonical); their prompts also constrain them to read-only git. Run `git status` before each commit/merge as the catch-all.
+
 ## Branch & commit convention
 - Branch: `<gh-username>/<type>/[<issue#>-]<slug>`
 - Commit: `<type>(#<issue>)[!]: <subject>` (codepoint 1–72)

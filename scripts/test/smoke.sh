@@ -7028,6 +7028,26 @@ else
   ng "76d: URL parse regression — issue=[$s76d_issue] repo=[$s76d_repo] (#283)"
 fi
 
+# ---------- 77. reviewer working-tree discipline (#285) ----------
+# Each read-only-by-intent Bash subagent must carry the working-tree-discipline
+# constraint (read-only git only) so a reviewer can't silently revert/stage the
+# parent's uncommitted work when sharing the tree. Belt-and-suspenders to the
+# canonical worktree-isolation invocation (SPEC §1.5).
+s77_missing=""
+for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer explorer; do
+  f="$SHELL_ROOT/.claude/agents/$a.md"
+  if ! { [ -f "$f" ] \
+         && grep -qiF 'Working-tree discipline' "$f" \
+         && grep -qiF 'read-only git' "$f"; }; then
+    s77_missing="$s77_missing $a"
+  fi
+done
+if [ -z "$s77_missing" ]; then
+  ok "77: all 6 read-only Bash subagents carry the read-only-git working-tree constraint (#285)"
+else
+  ng "77: working-tree-discipline constraint missing from:$s77_missing (#285)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

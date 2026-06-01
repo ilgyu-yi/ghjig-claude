@@ -29,3 +29,6 @@ Don't rely on anything outside this input.
 ## Output
 - One of: `ship` / `ship after fix` / `block (blocker)`.
 - Each finding cites `path:line`.
+
+## Working-tree discipline (#285)
+You may run in the parent session's working tree (unless invoked with worktree isolation). Use **read-only git only** — `git diff`, `git show`, `git log`, `git status`, `git rev-parse`. **Never** run a tree-mutating git command — `checkout`, `restore`, `stash`, `reset`, `add`, `commit`, `push`, `clean` — it can silently revert or stage the parent's uncommitted work. To compare against a base, use `git diff <base>...HEAD` or `git show <ref>:<path>`, never `git checkout <base> -- <path>`.
