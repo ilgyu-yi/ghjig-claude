@@ -6972,6 +6972,62 @@ else
   ng "75d: SPEC §6.1 must document initiative-readonly's close precedence over trusted-filer-mutate (C5, #263)"
 fi
 
+# ---------- 76. resolve_gh_issue_target parser hardening (#283) ----------
+# Direct unit tests of the selector helper (pure string parsing — no gh needed).
+# The helper is sourced + called in a subshell that echoes "issue<TAB>repo"; the
+# parent captures and asserts so ok/ng counters live in the parent.
+s76_call() {
+  # $1 = command, $2 = verb-regex → echoes "<issue>\t<repo>"
+  ( export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"
+    # shellcheck disable=SC1091
+    . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
+    resolve_gh_issue_target "$1" "$2" )
+}
+
+# 76a (#283): quote-aware — a quoted flag value with an INTERIOR digit
+# (`--body "fixes 99 things"`) must not be mistaken for the positional issue
+# selector. Pre-#283 `read -ra` word-split the value, so `99` won was picked
+# over the real `7`. shlex tokenization keeps the quoted value one token.
+s76a=$(s76_call 'gh issue edit --body "fixes 99 things" 7 --add-label execution' 'edit')
+s76a_issue=${s76a%%	*}
+if [ "$s76a_issue" = 7 ]; then
+  ok "76a: quoted flag value's interior digit not mistaken for the issue (#283)"
+else
+  ng "76a: interior digit of a quoted flag value picked as issue — got [$s76a_issue] want 7 (#283)"
+fi
+
+# 76b (#283): host-prefix — `--repo github.com/o/r` must normalize to `o/r`,
+# not `github.com/r` (`${repo%%/*}`/`${repo##*/}` lost the owner pre-#283 →
+# gh query failed → fail-open). gh accepts the `[HOST/]OWNER/REPO` spec.
+s76b=$(s76_call 'gh issue edit 5 --repo github.com/o/r --add-label execution' 'edit')
+s76b_repo=${s76b#*	}
+if [ "$s76b_repo" = "o/r" ]; then
+  ok "76b: host-prefixed --repo normalized to owner/name (#283)"
+else
+  ng "76b: host-prefixed --repo not normalized — got [$s76b_repo] want o/r (#283)"
+fi
+
+# 76c (#283 regression): the bare, flag-ordered, and =-form selectors still
+# resolve correctly (no regression from the tokenizer swap).
+s76c1=$(s76_call 'gh issue edit 888 --add-label execution' 'edit');         s76c1=${s76c1%%	*}
+s76c2=$(s76_call 'gh issue edit --add-label execution 888' 'edit');         s76c2=${s76c2%%	*}
+s76c3=$(s76_call 'gh issue close 42 --repo=o/r' 'edit|close|reopen'); s76c3_repo=${s76c3#*	}; s76c3=${s76c3%%	*}
+if [ "$s76c1" = 888 ] && [ "$s76c2" = 888 ] && [ "$s76c3" = 42 ] && [ "$s76c3_repo" = "o/r" ]; then
+  ok "76c: bare / flag-ordered / =-form selectors still resolve (#283 regression)"
+else
+  ng "76c: selector regression — bare=[$s76c1] flagfirst=[$s76c2] close=[$s76c3] repo=[$s76c3_repo] (#283)"
+fi
+
+# 76d (#283 regression): URL form still extracts issue + owner/name (incl. an
+# enterprise host) — the URL branch already handled host correctly.
+s76d=$(s76_call 'gh issue edit https://gh.corp.example/o/r/issues/77 --add-label execution' 'edit')
+s76d_issue=${s76d%%	*}; s76d_repo=${s76d#*	}
+if [ "$s76d_issue" = 77 ] && [ "$s76d_repo" = "o/r" ]; then
+  ok "76d: URL-form (enterprise host) still extracts issue + owner/name (#283 regression)"
+else
+  ng "76d: URL parse regression — issue=[$s76d_issue] repo=[$s76d_repo] (#283)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
