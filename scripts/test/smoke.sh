@@ -7048,6 +7048,99 @@ else
   ng "77: working-tree-discipline constraint missing from:$s77_missing (#285)"
 fi
 
+# ---------- 78. merge-strategy matcher (#288) ----------
+# Enforces SPEC §5.7.1: `gh pr merge` to the DEFAULT branch must be `--merge`.
+# squash/rebase/bare → block; --merge → allow; squash on a NON-default base →
+# allow. Keyed on the live default branch. Fail-open if gh can't resolve.
+PT78_DIR=$(mktemp -d)
+PT78_SHIM="$PT78_DIR/bin"
+PT78_STATE="$PT78_DIR/state"
+mkdir -p "$PT78_SHIM" "$PT78_STATE"
+# Shim answers the two resolutions the matcher needs (and nothing for the
+# ac-closeout arm, which then fail-opens to allow — so rc is decided by
+# merge-strategy). Empty state file → empty output → fail-open path.
+cat > "$PT78_SHIM/gh" <<'SHIM'
+#!/bin/sh
+case "$*" in
+  *"repo view"*"defaultBranchRef"*) cat "$GH_SHIM_STATE/default_branch" 2>/dev/null ;;
+  *"pr view"*"baseRefName"*)        cat "$GH_SHIM_STATE/base_branch" 2>/dev/null ;;
+esac
+exit 0
+SHIM
+chmod +x "$PT78_SHIM/gh"
+printf 'main\n' > "$PT78_STATE/default_branch"
+printf 'main\n' > "$PT78_STATE/base_branch"
+
+pt78_run() {  # $1 = command (may carry a SKIP_HOOKS env-prefix) → echoes hook exit code
+  (
+    cd "$TMP/fake" || exit 1
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$1" | jq -Rs .)" \
+      | PATH="$PT78_SHIM:$PATH" GH_SHIM_STATE="$PT78_STATE" \
+        CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
+    printf '%s' "$?"
+  )
+}
+
+# 78a (#288): squash → default branch (base=main, default=main) → BLOCK.
+# RED before the matcher (today only ac-closeout runs → allow).
+[ "$(pt78_run 'gh pr merge 200 --squash --delete-branch')" = 2 ] \
+  && ok "78a: squash → default branch blocked (#288)" \
+  || ng "78a: squash → default branch NOT blocked (#288)"
+
+# 78b: rebase → default branch → BLOCK.
+[ "$(pt78_run 'gh pr merge 200 --rebase')" = 2 ] \
+  && ok "78b: rebase → default branch blocked (#288)" \
+  || ng "78b: rebase → default branch NOT blocked (#288)"
+
+# 78c: bare merge (no strategy flag) → default branch → BLOCK.
+[ "$(pt78_run 'gh pr merge 200 --delete-branch')" = 2 ] \
+  && ok "78c: bare merge → default branch blocked (#288)" \
+  || ng "78c: bare merge → default branch NOT blocked (#288)"
+
+# 78d: --merge → default branch → ALLOW (the policy-compliant path).
+[ "$(pt78_run 'gh pr merge 200 --merge --delete-branch')" = 0 ] \
+  && ok "78d: --merge → default branch allowed (#288)" \
+  || ng "78d: --merge → default branch wrongly blocked (#288)"
+
+# 78e: --auto --merge (the /ship form) → ALLOW.
+[ "$(pt78_run 'gh pr merge 200 --auto --merge --delete-branch')" = 0 ] \
+  && ok "78e: --auto --merge (/ship form) → default branch allowed (#288)" \
+  || ng "78e: --auto --merge wrongly blocked (#288)"
+
+# 78f: squash → NON-default base (base=feature-x, default=main) → ALLOW
+# (topic-branch consolidation, §10.5).
+printf 'feature-x\n' > "$PT78_STATE/base_branch"
+[ "$(pt78_run 'gh pr merge 200 --squash --delete-branch')" = 0 ] \
+  && ok "78f: squash → non-default base allowed (#288)" \
+  || ng "78f: squash → non-default base wrongly blocked (#288)"
+printf 'main\n' > "$PT78_STATE/base_branch"   # restore
+
+# 78g: fail-open — default branch unresolvable (empty) + squash → ALLOW.
+printf '' > "$PT78_STATE/default_branch"
+[ "$(pt78_run 'gh pr merge 200 --squash')" = 0 ] \
+  && ok "78g: fail-open when default branch unresolvable → allow (#288)" \
+  || ng "78g: did not fail-open on unresolvable default branch (#288)"
+printf 'main\n' > "$PT78_STATE/default_branch"  # restore
+
+# 78h: escape — SKIP_HOOKS=merge-strategy bypasses the squash→default block
+# (rc=0) AND emits an escape audit record.
+REAL_AUDIT_78="$SHELL_ROOT/.claude/audit/audit.jsonl"
+s78_before=$(wc -l < "$REAL_AUDIT_78" 2>/dev/null | tr -d ' '); [ -z "$s78_before" ] && s78_before=0
+s78_rc=$(pt78_run "SKIP_HOOKS=merge-strategy SKIP_REASON=consolidator gh pr merge 200 --squash")
+s78_after=$(wc -l < "$REAL_AUDIT_78" 2>/dev/null | tr -d ' '); [ -z "$s78_after" ] && s78_after=0
+s78_delta=$((s78_after - s78_before))
+if [ "$s78_rc" = 0 ] && [ "$s78_delta" -ge 1 ] \
+   && tail -n "$s78_delta" "$REAL_AUDIT_78" 2>/dev/null | grep -q '"category":"merge-strategy"' \
+   && tail -n "$s78_delta" "$REAL_AUDIT_78" 2>/dev/null | grep -q '"event":"escape"'; then
+  ok "78h: SKIP_HOOKS=merge-strategy bypasses + audit-logs escape (#288)"
+else
+  ng "78h: merge-strategy escape not honored / not audited (rc=$s78_rc delta=$s78_delta) (#288)"
+fi
+
+rm -rf "$PT78_DIR"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
