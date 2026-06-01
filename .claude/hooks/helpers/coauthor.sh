@@ -37,6 +37,8 @@ _coauthor_resolve() {
 coauthor_trailer() {
   case "$(_coauthor_resolve)" in
     off) return 0 ;;
-    *)   printf 'Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n' ;;
+    # Version-agnostic (#294): no model version, so the trailer never re-drifts
+    # at a model bump (it was last stale at "Opus 4.7" while the model was 4.8).
+    *)   printf 'Co-Authored-By: Claude <noreply@anthropic.com>\n' ;;
   esac
 }

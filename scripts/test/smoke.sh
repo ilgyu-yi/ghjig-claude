@@ -1911,6 +1911,22 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 ) && ok "coauthor: unknown value fails-safe to on + warns (#63)" \
    || ng "coauthor: unknown value should fail-safe to on + warn (#63)"
 
+# 33e (#294). Version-AGNOSTIC trailer: the emitted line must be exactly
+# `Co-Authored-By: Claude <noreply@anthropic.com>` with NO model version
+# (`Opus`, `4.x`, `(1M context)`), so it never re-drifts at a model bump.
+(
+  export CLAUDE_ENG_SHELL_ROOT="$COAUTHOR_TMP"
+  unset CLAUDE_ENG_COAUTHOR
+  rm -f "$COAUTHOR_TMP/.claude/state/coauthor"
+  [ -f "$COAUTHOR_HELPER" ] || exit 1
+  . "$COAUTHOR_HELPER"
+  out=$(coauthor_trailer)
+  [ "$out" = 'Co-Authored-By: Claude <noreply@anthropic.com>' ] || exit 1
+  printf '%s' "$out" | grep -qiE 'opus|[0-9]\.[0-9]|1M context' && exit 1
+  exit 0
+) && ok "coauthor: trailer is version-agnostic (no model version) (#294)" \
+   || ng "coauthor: trailer must be version-agnostic 'Claude <noreply@anthropic.com>' (#294)"
+
 rm -rf "$COAUTHOR_TMP"
 
 # ---------- 34. README currency (#65, extended for activation-reviewer #58) ----------
