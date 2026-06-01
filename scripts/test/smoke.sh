@@ -7063,6 +7063,10 @@ cat > "$PT78_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
   *"repo view"*"defaultBranchRef"*) cat "$GH_SHIM_STATE/default_branch" 2>/dev/null ;;
+  # Per-PR bases for the #290 finding-B test: PR 5 is on the default branch,
+  # PR 7 is on a non-default base. (Specific cases before the generic one.)
+  *"pr view 7 "*"baseRefName"*)     echo feature-x ;;
+  *"pr view 5 "*"baseRefName"*)     echo main ;;
   *"pr view"*"baseRefName"*)        cat "$GH_SHIM_STATE/base_branch" 2>/dev/null ;;
 esac
 exit 0
@@ -7138,6 +7142,32 @@ if [ "$s78_rc" = 0 ] && [ "$s78_delta" -ge 1 ] \
 else
   ng "78h: merge-strategy escape not honored / not audited (rc=$s78_rc delta=$s78_delta) (#288)"
 fi
+
+# 78i (#290 C): the short merge flag `-m` (gh's `--merge` shorthand) → ALLOW.
+# RED pre-#290 (substring grep saw no `--merge` → treated as non-merge → block).
+[ "$(pt78_run 'gh pr merge 200 -m')" = 0 ] \
+  && ok "78i: short -m (merge) → default branch allowed (#290 C)" \
+  || ng "78i: short -m wrongly blocked (#290 C)"
+
+# 78j (#290 A): `--merge` inside a --body VALUE must NOT be read as the strategy;
+# the real strategy is --squash → BLOCK. RED pre-#290 (substring grep matched the
+# body's `--merge` → silent allow while gh squashes).
+[ "$(pt78_run 'gh pr merge 200 --squash --body "see --merge discussion"')" = 2 ] \
+  && ok "78j: --merge inside --body value not read as strategy → block (#290 A)" \
+  || ng "78j: --merge in a --body value bypassed the squash block (#290 A)"
+
+# 78k (#290 B): the PR is the first POSITIONAL token, not a flag value.
+# `--body 7 --squash 5` → PR 5 (on default `main` → block), NOT PR 7 (on
+# non-default `feature-x` → would allow). RED pre-#290 (extract_pr returned 7).
+[ "$(pt78_run 'gh pr merge --body 7 --squash 5')" = 2 ] \
+  && ok "78k: PR resolved as positional (5), not the --body value (7) → block (#290 B)" \
+  || ng "78k: PR mis-resolved from a flag value → wrong base (#290 B)"
+
+# 78l (#290 C regression): short `-s` (squash) → default branch → BLOCK (the
+# short squash/rebase forms must still be caught).
+[ "$(pt78_run 'gh pr merge 200 -s')" = 2 ] \
+  && ok "78l: short -s (squash) → default branch blocked (#290 C)" \
+  || ng "78l: short -s squash not blocked (#290 C)"
 
 rm -rf "$PT78_DIR"
 
