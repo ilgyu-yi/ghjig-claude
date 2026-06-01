@@ -7171,6 +7171,29 @@ fi
 
 rm -rf "$PT78_DIR"
 
+# ---------- 79. /file-issue priority capture (#291) ----------
+# /file-issue must capture a P0-P3 priority (parity with /file-directive) so
+# eng-mode issues don't land priority-less: ask in attended, default P2 in
+# unattended, apply the P<N> label graceful-degradation-guarded, and state the
+# contract in SPEC §5.2.
+FILE_ISSUE_79="$SHELL_ROOT/.claude/commands/file-issue.md"
+if [ -f "$FILE_ISSUE_79" ] \
+   && grep -qiE 'priority' "$FILE_ISSUE_79" \
+   && grep -qE 'P0\|P1\|P2\|P3|P0` / `P1` / `P2` / `P3|P0`/`P1`/`P2`/`P3' "$FILE_ISSUE_79" \
+   && grep -qiE 'default.*\bP2\b' "$FILE_ISSUE_79" \
+   && grep -qiE 'graceful-degradation|absent on target' "$FILE_ISSUE_79"; then
+  ok "79a: /file-issue captures priority (P0-P3, unattended default P2, degradation-guarded) (#291)"
+else
+  ng "79a: /file-issue.md missing the priority-capture contract (#291)"
+fi
+# 79b: SPEC §5.2 documents the /file-issue priority contract.
+if grep -qE '\*\*Priority\*\* \(#291' "$SHELL_ROOT/SPEC.md" \
+   && grep -qiE 'never lands priority-less|priority-less backlog' "$SHELL_ROOT/SPEC.md"; then
+  ok "79b: SPEC §5.2 states the /file-issue priority-capture contract (#291)"
+else
+  ng "79b: SPEC §5.2 missing the /file-issue priority contract (#291)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"

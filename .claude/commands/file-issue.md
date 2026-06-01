@@ -1,6 +1,6 @@
 ---
-description: Create a GitHub issue. Enforces MISSION reference and acceptance criteria. Supports --parent <directive-id> to parent the new Execution Issue under an active Directive (SPEC §5.2 dir-mode integration).
-argument-hint: [--quick] [--parent <directive-id>|--no-parent] <description>
+description: Create a GitHub issue. Enforces MISSION reference, acceptance criteria, and a priority (P0–P3). Supports --parent <directive-id> to parent the new Execution Issue under an active Directive (SPEC §5.2 dir-mode integration).
+argument-hint: [--quick] [--parent <directive-id>|--no-parent] [--priority P0|P1|P2|P3] <description>
 ---
 
 Create an issue.
@@ -9,6 +9,7 @@ Create an issue.
    - With `--quick`: one-line issue (label `bug`), ask only for one acceptance criterion. (`bug` matches the `bug-report.yml` Issue Form template label.)
    - With `--parent <directive-id>`: parent this Issue under the named Directive (SPEC §5.2 dir-mode integration). The Directive's number is the value passed to the flag — e.g., `/file-issue --parent 91 fix-the-thing`.
    - With `--no-parent`: explicitly opt out of parenting (skip step 1.5).
+   - With `--priority P0|P1|P2|P3`: set the priority explicitly (skips the step-1.6 prompt).
    - Otherwise: confirm title, body, label with the user.
 1.5. **Directive parenting** (added by tracking #41 child #6; SPEC §5.2 dir-mode integration) — runs unless `--no-parent` or `--quick` was passed:
    - Resolve the dir-mode Project (see `/file-directive` step 1).
@@ -29,6 +30,11 @@ Create an issue.
    - If no active Directives exist OR the user picked "none": skip this step. No body change, no Project parenting.
 
    This step is **metadata only** — the rationale check (step 3) and `issue-reviewer` gate (step 4) are unchanged. Parenting is not part of the rationale triad.
+1.6. **Priority** (#291; parity with `/file-directive`) — capture one of `P0` / `P1` / `P2` / `P3` so the Issue lands triageable, never priority-less:
+   - If `--priority P<N>` was passed (step 1), use it.
+   - Otherwise in **attended** mode, ask the user (`P0` drop-everything / `P1` next / `P2` soon / `P3` eventually).
+   - In **unattended** mode with no `--priority`, default to **`P2`** (the same default `/file-directive` uses). Do not block on the absence of a human.
+   - The chosen `P<N>` is applied as a label at create time (step 5, graceful-degradation guarded) **and** recorded in the step-5 audit line, so the priority survives even if the label can't be applied. For a `--parent`ed Execution Issue, this is still captured (an Execution Issue carries its own priority; it does not silently inherit the Directive's).
 2. The body follows the structure of `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/issue.md`. MISSION reference and acceptance criteria must be filled.
 3. **Rationale check** (mandatory; not skipped in Auto / unattended mode). Before `gh issue create`, surface to the user:
    - **(a) MISSION fit**: which MISSION item does this serve?
@@ -44,7 +50,19 @@ Create an issue.
    - a parent Directive was selected in step 1.5 (via `--parent` or the prompt) → **`execution`** (a unit of work parented under a Directive).
    - otherwise — standalone (`--no-parent`, no active Directives, the prompt answered "none", or unattended with no `--parent`) → **`task`**.
 
-   These three values match the Issue-Form template labels (`bug-report.yml` / `execution-under-directive.yml` / `task.yml`) so skill-path and UI-path filings classify identically. Then call `gh issue create --title "..." --body "..." --label "<derived: bug|execution|task>" --label "status:proposed"`. **Full-symmetry stamp (#172, SPEC §2.1/§5.2):** every new Issue is filed `status:proposed` and must pass `/activate <N>` before it is actionable. `issue-reviewer` here is author-side; `activation-reviewer` at `/activate` is observer-side — complementary, not redundant. (If the target lacks the `status:proposed` label — tier &lt; 2 — omit the label and note it; the lifecycle gate is a tier-2 capability.)
+   These three values match the Issue-Form template labels (`bug-report.yml` / `execution-under-directive.yml` / `task.yml`) so skill-path and UI-path filings classify identically. Then call `gh issue create` with the derived type label, `status:proposed`, **and the step-1.6 priority label** — the `P<N>` label is **graceful-degradation guarded** (parity with `/file-directive`): apply it only if it exists on the target, else warn and file without it (never abort):
+   ```bash
+   # P-label is degradable: apply if present, else warn + continue (never abort).
+   PLABEL=()
+   if gh label list --limit 200 | cut -f1 | grep -qx "P<N>"; then
+     PLABEL=(--label "P<N>")
+   else
+     printf 'warn: priority label P<N> absent on target — filing without it (run scripts/ensure_v3_labels.sh to install P0-P3).\n' >&2
+   fi
+   gh issue create --title "..." --body "..." \
+     --label "<derived: bug|execution|task>" --label "status:proposed" "${PLABEL[@]}"
+   ```
+   **Full-symmetry stamp (#172, SPEC §2.1/§5.2):** every new Issue is filed `status:proposed` and must pass `/activate <N>` before it is actionable. `issue-reviewer` here is author-side; `activation-reviewer` at `/activate` is observer-side — complementary, not redundant. (If the target lacks the `status:proposed` label — tier &lt; 2 — omit the label and note it; the lifecycle gate is a tier-2 capability.) After create, audit `audit_log info issue-file created "type=<bug|execution|task> issue=#<N> priority=P<N>"` so the priority is recorded even when the label was degraded away.
 6. Output the created issue number and URL, with a `Next: /activate <N>` line. Do NOT `/work-on <N>` before activation — `proposed-protect` (SPEC §6.1) blocks branch creation against a `status:proposed` Issue.
 
 **Forbidden**: creating an issue with empty or ambiguous acceptance criteria, with a weak rationale that didn't pass the §3 check, OR with a non-`ship` verdict from `issue-reviewer`. If unclear, re-ask the user and stop.
