@@ -6269,6 +6269,54 @@ else
   ng "66f: check-changelog.yml header missing self-trigger policy comment (#135)"
 fi
 
+# §66g — fragment-gate must FAIL on ANY malformed fragment, not pass on the
+# first valid one (#303). The original validation step (SPEC §18.1) had an
+# any-valid masking bug: it set `ok=1` on the first fragment that passed all
+# three rules and then `exit 0`'d after the loop if `ok=1`, while a malformed
+# sibling fragment merely `echo ::error` + `continue`d. Net: a PR carrying one
+# good fragment and one broken one would pass the gate, defeating the contract.
+# The fix replaces the any-valid `ok=1` flag with an all-valid `bad=1` failure
+# accumulator (set inside the loop on any rule miss) plus a post-loop
+# `[ "$bad" = 1 ]` → `exit 1`, and adds a leading "- " bullet check so the
+# fragment is a real markdown list item. This is a STRUCTURAL grep against the
+# workflow file — smoke cannot run a real Actions runner, and §66b already
+# locks the shell + canonical copies byte-identical, so asserting on
+# $S66_SHELL_WF alone suffices. Patterns are chosen RED-now / GREEN-after:
+# the fix has not landed yet (Phase C), so §66g is expected to report `ng`.
+s66g_ok=0
+s66g_reasons=""
+if [ -f "$S66_SHELL_WF" ]; then
+  s66g_ok=1
+  # (1) all-valid accumulator present: a `bad=1` failure flag set in the loop.
+  if ! grep -qE 'bad=1' "$S66_SHELL_WF"; then
+    s66g_ok=0
+    s66g_reasons="$s66g_reasons missing-bad-accumulator;"
+  fi
+  # (2) post-loop fail gate keyed on the accumulator (exit 1 when bad=1),
+  #     replacing the old `[ "$ok" = 1 ]` … exit 0 any-valid pass gate.
+  if ! grep -qE '\[ "\$bad" = 1 \]' "$S66_SHELL_WF"; then
+    s66g_ok=0
+    s66g_reasons="$s66g_reasons missing-bad-fail-gate;"
+  fi
+  # (3) the any-valid masking token is GONE: no `ok=1` flag used as the sole
+  #     pass gate (the literal old bug shape).
+  if grep -qE 'ok=1' "$S66_SHELL_WF"; then
+    s66g_ok=0
+    s66g_reasons="$s66g_reasons any-valid-ok-flag-still-present;"
+  fi
+  # (4) leading "- " bullet validation: the gate must require each fragment
+  #     to start with a markdown dash bullet.
+  if ! grep -qE 'grep[^|]*"\^- "|grep[^|]*'\''\^- '\''' "$S66_SHELL_WF"; then
+    s66g_ok=0
+    s66g_reasons="$s66g_reasons missing-dash-bullet-check;"
+  fi
+fi
+if [ "$s66g_ok" = 1 ]; then
+  ok "66g: check-changelog.yml fragment-gate fails on ANY malformed fragment (all-valid bad=1 accumulator + post-loop exit, no any-valid ok=1 mask) and checks the leading \"- \" bullet (#303)"
+else
+  ng "66g: check-changelog.yml fragment-gate still has any-valid masking / missing dash-bullet check:$s66g_reasons (#303)"
+fi
+
 # §66d — ensure_v3_labels.sh enumerates skip-changelog. The label is the
 # documented opt-out per SPEC §18.6; its absence from the bootstrap label
 # set would break the workflow's bypass path in adopting repos.
