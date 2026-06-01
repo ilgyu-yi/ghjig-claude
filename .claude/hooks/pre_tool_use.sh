@@ -276,6 +276,54 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace ac-closeout "$cmd"
     fi
 
+    # merge-strategy (#288) — enforce SPEC §5.7.1: `gh pr merge` to the DEFAULT
+    # branch must be `--merge` (no-ff merge commit) so the Doc→Test→Code arc is
+    # preserved on the trunk (§1.2). squash/rebase/bare → block; `--merge` →
+    # allow; any strategy when base != default branch → allow (topic-branch
+    # consolidation, §10.5). Independent of the ac-closeout arm above (own
+    # `should_skip` category; both fire on `gh pr merge`, each decides on its own).
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
+      decided=
+      # Strategy detection up front (not via an `if printf…grep` arm, which the
+      # §39b structural awk would mis-read as a second matcher entry): whole-token
+      # `--merge` so `--merge-queue`-style flags can't masquerade; `--auto --merge`
+      # (the /ship form) matches.
+      ms_is_merge=
+      printf '%s' "$cmd" | grep -qE '(^|[[:space:]])--merge([[:space:]]|$)' && ms_is_merge=1
+      if should_skip merge-strategy; then
+        decided=1
+      # An explicit `--merge` is allowed SILENTLY with no base resolution — keeps
+      # the §39d "silent on --merge" invariant and skips gh calls on the happy path.
+      elif [ -n "$ms_is_merge" ]; then
+        mark_allow merge-strategy
+        decided=1
+      else
+        # Non-`--merge` strategy (squash / rebase / bare). Resolve the PR base and
+        # the repo default branch; block only when base == default. Bounded gh via
+        # _ac_run_gh (timeout 5, macOS-safe). Fail-open if either is unresolvable.
+        ms_pr= ; ms_base= ; ms_default=
+        if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-strategy; then
+          ms_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+          if [ -n "$ms_pr" ]; then
+            ms_base=$(_ac_run_gh pr view "$ms_pr" --json baseRefName -q .baseRefName 2>/dev/null || true)
+          else
+            ms_base=$(_ac_run_gh pr view --json baseRefName -q .baseRefName 2>/dev/null || true)
+          fi
+          ms_default=$(_ac_run_gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)
+        fi
+        if [ -z "$ms_base" ] || [ -z "$ms_default" ]; then
+          audit_log warn merge-strategy notice "base/default-branch unresolved — allowing (fail-open, §6.1)"
+          decided=1
+        elif [ "$ms_base" = "$ms_default" ]; then
+          block merge-strategy "Merge to the default branch '${ms_default}' must use --merge (no-ff merge commit) to preserve the Doc→Test→Code arc on the trunk (SPEC §5.7.1). Re-run: gh pr merge ${ms_pr:-<pr>} --merge --delete-branch. squash/rebase are allowed only on a non-default base (topic-branch consolidation, §10.5). Or SKIP_HOOKS=merge-strategy SKIP_REASON='<why>' for a sanctioned exception."
+        else
+          mark_allow merge-strategy
+          decided=1
+        fi
+      fi
+      [ -z "$decided" ] && pass_through_trace merge-strategy "$cmd"
+    fi
+
     # proposed-protect — block branch-creation referencing an Issue that is not
     # yet a branchable Execution Issue (SPEC §1.7, §6.1, §10.5). Generalized from
     # directive-protect (#171): block when the target Issue is EITHER
