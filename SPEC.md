@@ -123,7 +123,7 @@ An operating shell for Claude Code that runs on top of the standard GitHub workf
 The shell covers two layers of the same workflow:
 
 - **Engineering execution** — issue → branch → draft PR → checklist commits → ready PR → merge. Per the GitHub-standard flow.
-- **Directing maintenance** — `MISSION.md` → Directive Issue → Execution Issue, where a Directive is a medium-term directional context that scopes several issues without being directly executable.
+- **Setting direction** — `MISSION.md` → Directive Issue → Execution Issue, where a Directive is a medium-term directional context that scopes several issues — a feature with subsystems, a refactor, a migration alike — without being directly executable.
 
 Both layers use the same generate → review → mode-based-approval → audit pattern (§1.5). See §1.7 for the eng-mode / dir-mode split, §2.1 for the Directive lifecycle, §4.9 for the dir-mode reviewer.
 
