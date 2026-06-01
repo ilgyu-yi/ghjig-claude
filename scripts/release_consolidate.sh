@@ -170,6 +170,11 @@ for cat in $CATEGORIES; do
       echo "release_consolidate: $f — bullet missing or mismatched (#$base) reference (stem '$base')" >&2
       exit 2
     fi
+    # Leading "- " bullet form (contract parity with check-changelog.yml; #303).
+    if ! grep -qE '^- ' "$f"; then
+      echo "release_consolidate: $f — fragment must be a single-line bullet beginning with '- ' (stem '$base')" >&2
+      exit 2
+    fi
     FRAGMENTS_FOUND=$((FRAGMENTS_FOUND + 1))
     ALL_FRAGMENTS_LIST="$ALL_FRAGMENTS_LIST$f
 "
