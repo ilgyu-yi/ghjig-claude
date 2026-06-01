@@ -2406,26 +2406,27 @@ else
   ok "protected-ssot: literal pattern centralized in git_matcher.sh (#16)"
 fi
 
-# ---------- 35. README env-var catalog SSOT (#15) ----------
-# The README "Configuration toggles" table is the user-facing SSOT for env
-# vars per SPEC §1.3. Every env var documented elsewhere in the shell must
-# also appear in the table. A missing row is the same drift class as a
-# missing SPEC TOC entry (§28). Mirrors the §27 multi-target loop idiom.
-README_MD="$SHELL_ROOT/README.md"
-if [ -f "$README_MD" ]; then
+# ---------- 35. config-toggle env-var catalog SSOT (#15, relocated #296) ----------
+# The "Configuration toggles" table in docs/CONFIG.md is the user-facing
+# catalog for env vars per SPEC §1.3 (relocated from README.md in #296 to
+# keep the README front-door lean). Every env var documented elsewhere in
+# the shell must also appear in the table. A missing row is the same drift
+# class as a missing SPEC TOC entry (§28). Mirrors the §27 multi-target loop.
+CONFIG_MD="$SHELL_ROOT/docs/CONFIG.md"
+if [ -f "$CONFIG_MD" ]; then
   missing=""
   for v in SESSION_START_FETCH_TIMEOUT CLAUDE_ENG_STOP_THROTTLE SHIP_PARK_LOG_PATH PR_CACHE_REPO; do
-    if ! grep -q "$v" "$README_MD"; then
+    if ! grep -q "$v" "$CONFIG_MD"; then
       missing="$missing $v"
     fi
   done
   if [ -z "$missing" ]; then
-    ok "readme-toggles: all four env vars documented in README (#15)"
+    ok "config-toggles: all four env vars documented in docs/CONFIG.md (#15)"
   else
-    ng "readme-toggles: env vars missing from README Configuration toggles:$missing (#15)"
+    ng "config-toggles: env vars missing from docs/CONFIG.md catalog:$missing (#15)"
   fi
 else
-  ng "readme-toggles: README.md not found at $README_MD (#15)"
+  ng "config-toggles: docs/CONFIG.md not found at $CONFIG_MD (#15)"
 fi
 
 # ---------- 37. SessionStart inject-consistency banner (#23) ----------
