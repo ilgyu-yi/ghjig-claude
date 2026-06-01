@@ -46,7 +46,7 @@ claude-eng
 운영 계층은 두 가지이고, 둘 다 **generate → review → gated approval → audit**라는 같은 흐름을 따릅니다.
 
 - **eng-mode** — 실제 엔지니어링 작업. `/file-issue` → `/activate` → `/work-on`(branch와 draft PR 생성) → Doc·Test·Code commit → `/ship`(reviewer 실행, AC 체크, ready 전환) → merge.
-- **dir-mode** — 유지보수의 방향을 잡는 작업. `/file-directive` → `/activate` → `/file-issue --parent <N>`로 Execution Issue를 떼어내고, Directive의 success signal이 충족되면 `/complete-directive`. Directive 위에는 **Initiative** 계층을 선택적으로 둘 수 있습니다. 셸이 직접 쓰지 않고 *읽어서 소비만 하는* 계획 아티팩트입니다(`/consume-initiative`, `/initiative-feedback`). 전체 흐름과 substrate 설치(`/onboard-dir-mode`)는 **[docs/DIR_MODE_FLOW.md](docs/DIR_MODE_FLOW.md)**에 정리돼 있고, 여러 PR에 걸친 Directive의 topic-branch 격리는 SPEC §10.5에서 다룹니다.
+- **dir-mode** — 방향을 정하는 작업. Directive 하나가 여러 Execution Issue를 "왜 하는가"라는 하나의 맥락으로 묶습니다. 기능 개발이든 refactor든 migration이든 가리지 않으며, Directive 자체는 직접 실행되지 않습니다. `/file-directive` → `/activate` → `/file-issue --parent <N>`로 Execution Issue를 떼어내고, Directive의 success signal이 충족되면 `/complete-directive`. Directive 위에는 **Initiative** 계층을 선택적으로 둘 수 있습니다. 셸이 직접 쓰지 않고 *읽어서 소비만 하는* 계획 아티팩트입니다(`/consume-initiative`, `/initiative-feedback`). 전체 흐름과 substrate 설치(`/onboard-dir-mode`)는 **[docs/DIR_MODE_FLOW.md](docs/DIR_MODE_FLOW.md)**에 정리돼 있고, 여러 PR에 걸친 Directive의 topic-branch 격리는 SPEC §10.5에서 다룹니다.
 
 기본값인 **`attended`** 모드에서는 PR이 ready 상태가 되면 에이전트가 멈추고, 사람이 리뷰하고 merge합니다. **`unattended`** 모드에서는 reviewer subagent가 사람의 승인을 대신하며, `/ship`이 깨끗한 PR은 merge까지, 막힌 곳(hard blocker)이 있으면 park까지 진행합니다. target마다 `echo unattended > .claude/state/mode`로 정하거나, 실행할 때 `/ship --mode=unattended`로 덮어쓸 수 있습니다. 우선순위와 blocker 판정 규칙은 SPEC §5.7.1에 있습니다.
 
