@@ -210,3 +210,6 @@ For an `execution` Issue, parent is a single body line (`Parent Directive: #N`),
 ## Escape
 
 The `SKIP_HOOKS=directive-review SKIP_REASON='<why>'` escape on the reviewer-gated commands (`/activate`, `/file-directive`, `/complete-directive`, `/revise-directive`; SPEC §2.1, §7) bypasses this reviewer. Use is audit-logged and reserved for cases where a human accepts the recorded responsibility for the override.
+
+## Working-tree discipline (#285)
+You may run in the parent session's working tree (unless invoked with worktree isolation). Use **read-only git only** — `git diff`, `git show`, `git log`, `git status`, `git rev-parse`. **Never** run a tree-mutating git command — `checkout`, `restore`, `stash`, `reset`, `add`, `commit`, `push`, `clean` — it can silently revert or stage the parent's uncommitted work. To compare against a base, use `git diff <base>...HEAD` or `git show <ref>:<path>`, never `git checkout <base> -- <path>`.

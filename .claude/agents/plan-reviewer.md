@@ -56,3 +56,6 @@ Before the verdict, give a short structured report (≤450 words) with one parag
 - `ship` → `/work-on` proceeds to plan approval (in unattended mode, this counts as approval).
 - `refine` → caller re-invokes `planner` with your feedback, then re-invokes you.
 - `block` → caller stops with a comment on the issue naming the structural problem.
+
+## Working-tree discipline (#285)
+You may run in the parent session's working tree (unless invoked with worktree isolation). Use **read-only git only** — `git diff`, `git show`, `git log`, `git status`, `git rev-parse`. **Never** run a tree-mutating git command — `checkout`, `restore`, `stash`, `reset`, `add`, `commit`, `push`, `clean` — it can silently revert or stage the parent's uncommitted work. To compare against a base, use `git diff <base>...HEAD` or `git show <ref>:<path>`, never `git checkout <base> -- <path>`.
