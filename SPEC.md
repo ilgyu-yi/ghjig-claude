@@ -1707,7 +1707,7 @@ Types: `feat | fix | docs | style | refactor | perf | test | build | ci | chore 
 
 Closes #<N>     ← last commit, or single-PR consolidator
 Refs #<N>       ← intermediate commit
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>   ← optional trailer; toggleable
+Co-Authored-By: Claude <noreply@anthropic.com>   ← optional trailer; toggleable
 ```
 
 Phase prefixes:
@@ -1721,7 +1721,7 @@ Phase prefixes:
 2. `.claude/state/coauthor` per-target file (one of `on` / `off`, no other content).
 3. Default `on`.
 
-Unknown values fail-safe to `on` and emit a stderr warning naming the offending source. The helper `.claude/hooks/helpers/coauthor.sh` exposes `coauthor_trailer` (prints the line when enabled, empty when disabled); `/work-on`'s commit template sources it. The toggle covers the default behavior of `/work-on` flows only — the trailer remains free to be added or omitted manually in any specific commit.
+Unknown values fail-safe to `on` and emit a stderr warning naming the offending source. The helper `.claude/hooks/helpers/coauthor.sh` exposes `coauthor_trailer` (prints the line when enabled, empty when disabled); `/work-on`'s commit template sources it. The line is **version-agnostic** — `Co-Authored-By: Claude <noreply@anthropic.com>`, with no model version (#294) — so it never re-drifts at a model bump (it was previously pinned to `Opus 4.7` and went stale once the model advanced to 4.8). The toggle covers the default behavior of `/work-on` flows only — the trailer remains free to be added or omitted manually in any specific commit.
 
 **Relationship with Conventional Commits (conscious choice)**: we reuse the standard CC `scope` slot for the issue # marker. Consequences:
 
