@@ -7363,6 +7363,52 @@ else
   ng "80g: /onboard.md must stay read-only — no mutating command (#307)"
 fi
 
+# ---------- 81. workflow YAML loadability (#309) ----------
+# A workflow file that fails to PARSE startup-fails on GitHub — every job is
+# skipped, the run name shows the file path instead of the declared `name:`,
+# and it fires on the raw push event regardless of `on:`. Such a failure is
+# invisible unless the workflow is a required check. #309's root cause was a
+# bash heredoc whose `EOF` terminator sat at column 0, dedenting out of the
+# `run: |` block scalar and breaking YAML for the whole file. This regression
+# parses EVERY workflow so a future block-scalar break is caught pre-merge.
+
+# Parse one YAML file. rc 0 = parses, 1 = parse error, 2 = no parser available.
+s81_yaml_ok() {
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+    python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' "$1" >/dev/null 2>&1
+    return $?
+  elif command -v ruby >/dev/null 2>&1; then
+    ruby -ryaml -e 'YAML.load_file(ARGV[0])' "$1" >/dev/null 2>&1
+    return $?
+  fi
+  return 2
+}
+
+s81_parser=skip
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  s81_parser=python3
+elif command -v ruby >/dev/null 2>&1; then
+  s81_parser=ruby
+fi
+
+if [ "$s81_parser" = skip ]; then
+  # No YAML parser in this environment — the GitHub CI run is the backstop.
+  ok "81a: workflow-YAML parse regression skipped — no python3-yaml/ruby parser here (#309)"
+else
+  s81_bad=""
+  for wf in "$SHELL_ROOT"/.github/workflows/*.yml "$SHELL_ROOT"/.github/workflows/*.yaml; do
+    [ -e "$wf" ] || continue
+    if ! s81_yaml_ok "$wf"; then
+      s81_bad="$s81_bad $(basename "$wf")"
+    fi
+  done
+  if [ -z "$s81_bad" ]; then
+    ok "81a: every .github/workflows/*.yml parses as YAML (parser=$s81_parser) (#309)"
+  else
+    ng "81a: workflow YAML failed to parse —$s81_bad (parser=$s81_parser) (#309)"
+  fi
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
