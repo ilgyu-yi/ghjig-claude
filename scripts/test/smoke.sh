@@ -7490,6 +7490,61 @@ else
   ng "82e: shell's own settings.json must stay \$CLAUDE_ENG_SHELL_ROOT-based, no eng-shell-root (#312)"
 fi
 
+# ---------- 83. per-project audit + cache isolation (EI-2a, #314, Directive #311) ----------
+# eng_state_dir() routes ephemeral assets (audit, caches) to a per-project
+# $CLAUDE_PROJECT_DIR/.claude/eng-state when CLAUDE_PROJECT_DIR is set (hook
+# context), else empty → callers use the legacy shared path. The scope-guard
+# registry is NOT moved here (deferred to EI-2b).
+
+# 83a: resolver — set → per-project; unset → empty; override wins. (#314)
+s83_set=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; CLAUDE_PROJECT_DIR=/tmp/projX eng_state_dir )
+s83_unset=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset CLAUDE_PROJECT_DIR 2>/dev/null; eng_state_dir )
+s83_ovr=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; ENG_STATE_DIR_OVERRIDE=/tmp/ovr CLAUDE_PROJECT_DIR=/tmp/projX eng_state_dir )
+if [ "$s83_set" = "/tmp/projX/.claude/eng-state" ] && [ -z "$s83_unset" ] && [ "$s83_ovr" = "/tmp/ovr" ]; then
+  ok "83a: eng_state_dir resolves per-project / empty / override (#314)"
+else
+  ng "83a: eng_state_dir resolution wrong (set='$s83_set' unset='$s83_unset' ovr='$s83_ovr') (#314)"
+fi
+
+# 83b: audit logs are mutually invisible across two CLAUDE_PROJECT_DIR projects.
+S83_A=$(cd "$(mktemp -d)" && pwd -P)
+S83_B=$(cd "$(mktemp -d)" && pwd -P)
+( export CLAUDE_PROJECT_DIR="$S83_A"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-A" ) >/dev/null 2>&1
+( export CLAUDE_PROJECT_DIR="$S83_B"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-B" ) >/dev/null 2>&1
+s83a_log="$S83_A/.claude/eng-state/audit/audit.jsonl"
+s83b_log="$S83_B/.claude/eng-state/audit/audit.jsonl"
+if grep -q 'ei2a-mark-A' "$s83a_log" 2>/dev/null && ! grep -q 'ei2a-mark-B' "$s83a_log" 2>/dev/null \
+   && grep -q 'ei2a-mark-B' "$s83b_log" 2>/dev/null && ! grep -q 'ei2a-mark-A' "$s83b_log" 2>/dev/null; then
+  ok "83b: per-project audit logs mutually invisible (#314)"
+else
+  ng "83b: audit logs should isolate per CLAUDE_PROJECT_DIR (#314)"
+fi
+rm -rf "$S83_A" "$S83_B"
+
+# 83c: legacy fallback — CLAUDE_PROJECT_DIR unset → audit lands at the legacy
+# $CLAUDE_ENG_SHELL_ROOT/.claude/audit path (existing behavior preserved).
+S83_LEG=$(cd "$(mktemp -d)" && pwd -P)
+( export CLAUDE_ENG_SHELL_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+  . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-legacy" ) >/dev/null 2>&1
+if grep -q 'ei2a-legacy' "$S83_LEG/.claude/audit/audit.jsonl" 2>/dev/null \
+   && [ ! -d "$S83_LEG/.claude/eng-state" ]; then
+  ok "83c: env-unset audit falls back to legacy shared path (#314)"
+else
+  ng "83c: env-unset audit should use legacy \$CLAUDE_ENG_SHELL_ROOT/.claude/audit (#314)"
+fi
+rm -rf "$S83_LEG"
+
+# 83d: inject adds .claude/eng-state to the target's .git/info/exclude.
+S83_INJ=$(cd "$(mktemp -d)" && pwd -P)
+( cd "$S83_INJ" && git init -q ) || true
+inject_into "$S83_INJ" >/dev/null 2>&1
+if grep -qxF '.claude/eng-state' "$S83_INJ/.git/info/exclude" 2>/dev/null; then
+  ok "83d: inject excludes .claude/eng-state in the target (#314)"
+else
+  ng "83d: inject must add .claude/eng-state to .git/info/exclude (#314)"
+fi
+rm -rf "$S83_INJ"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
