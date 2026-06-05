@@ -125,7 +125,9 @@ ship_decide_post_ready() {
 # `cd` first or extend this helper to accept an explicit PR number.
 ship_park_pr() {
   local reason="${1:-unspecified}"
-  local log_path="${SHIP_PARK_LOG_PATH:-$CLAUDE_ENG_SHELL_ROOT/.claude/state/unattended-park.log}"
+  local esd; esd=$(eng_state_dir 2>/dev/null || true)   # per-project (#314)
+  local log_path="${SHIP_PARK_LOG_PATH:-${esd:+$esd/unattended-park.log}}"
+  [ -n "$log_path" ] || log_path="$CLAUDE_ENG_SHELL_ROOT/.claude/state/unattended-park.log"
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

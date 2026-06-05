@@ -56,6 +56,7 @@ inject_into() {
       printf '\n# claude-eng-shell injection\n.claude/settings.local.json\n' >> "$excl"
     fi
     grep -qxF '.claude/eng-shell-root' "$excl" || printf '.claude/eng-shell-root\n' >> "$excl"
+    grep -qxF '.claude/eng-state' "$excl" || printf '.claude/eng-state\n' >> "$excl"
   fi
 
   # Record in registry

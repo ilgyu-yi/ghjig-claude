@@ -17,7 +17,9 @@
 # .claude/state/.
 _status_cache_path() {
   local branch="$1"
-  local dir="${STATUS_CACHE_DIR_OVERRIDE:-${CLAUDE_ENG_SHELL_ROOT:-.}/.claude/state/status-cache}"
+  local esd; esd=$(eng_state_dir 2>/dev/null || true)
+  local dir="${STATUS_CACHE_DIR_OVERRIDE:-${esd:+$esd/status-cache}}"   # per-project (#314)
+  [ -n "$dir" ] || dir="${CLAUDE_ENG_SHELL_ROOT:-.}/.claude/state/status-cache"
   local safe
   safe=$(printf '%s' "$branch" | tr '/' '_')
   printf '%s/%s.json' "$dir" "$safe"

@@ -18,7 +18,10 @@
 #   pr_cache_check <pr_number> <remote_body_sha256>    — exit 0 if absent/match, !=0 + stderr if mismatch
 
 _pr_cache_dir() {
-  printf '%s' "${PR_CACHE_DIR:-${CLAUDE_ENG_SHELL_ROOT:-.}/.claude/state/pr-cache}"
+  local esd; esd=$(eng_state_dir 2>/dev/null || true)   # per-project (#314)
+  if [ -n "${PR_CACHE_DIR:-}" ]; then printf '%s' "$PR_CACHE_DIR"
+  elif [ -n "$esd" ]; then printf '%s' "$esd/pr-cache"
+  else printf '%s' "${CLAUDE_ENG_SHELL_ROOT:-.}/.claude/state/pr-cache"; fi
 }
 
 _pr_cache_key() {

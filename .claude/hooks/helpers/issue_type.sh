@@ -36,10 +36,14 @@ is_directive_issue() {
     ''|*[!0-9]*) return 1 ;;  # not a number → not a directive issue
   esac
 
-  : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
-
-  local cache_dir cache_file
-  cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
+  local cache_dir cache_file esd
+  esd=$(eng_state_dir 2>/dev/null || true)
+  if [ -n "$esd" ]; then
+    cache_dir="$esd/issue-type-cache"   # per-project (#314)
+  else
+    : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
+    cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
+  fi
   # Cache key: the GH owner/name. An explicit `repo` arg (#276, e.g. a `-R`/URL
   # cross-repo selector) overrides the cwd repo for BOTH the key and the query,
   # so a foreign `owner/repo#N` lookup keys on `owner__repo__N` and can never
@@ -100,10 +104,14 @@ is_initiative_issue() {
     ''|*[!0-9]*) return 1 ;;  # not a number → not an initiative issue
   esac
 
-  : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
-
-  local cache_dir cache_file
-  cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
+  local cache_dir cache_file esd
+  esd=$(eng_state_dir 2>/dev/null || true)
+  if [ -n "$esd" ]; then
+    cache_dir="$esd/issue-type-cache"   # per-project (#314)
+  else
+    : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
+    cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache"
+  fi
   # Repo override (#276): same contract as is_directive_issue — an explicit
   # owner/name keys (and queries) the foreign repo; empty → current repo. The
   # `.initiative` cache suffix is preserved on the repo-qualified key so the

@@ -40,10 +40,14 @@ is_trusted_filer() {
     ''|*[!0-9]*) return 1 ;;
   esac
 
-  : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
-
-  local cache_dir cache_file
-  cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-filer-cache"
+  local cache_dir cache_file esd
+  esd=$(eng_state_dir 2>/dev/null || true)
+  if [ -n "$esd" ]; then
+    cache_dir="$esd/issue-filer-cache"   # per-project (#314)
+  else
+    : "${CLAUDE_ENG_SHELL_ROOT:?CLAUDE_ENG_SHELL_ROOT must be set}"
+    cache_dir="$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-filer-cache"
+  fi
 
   # Repo resolution (#231): an explicit `owner/name` (e.g. extracted from a URL
   # issue selector targeting a foreign repo) overrides the current directory's

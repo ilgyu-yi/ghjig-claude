@@ -78,6 +78,18 @@ _audit_validate_format() {
   return 0
 }
 
+# eng_state_dir — per-project ephemeral-state base (#314, Directive #311).
+# Resolution (set -u-safe, no external calls): ENG_STATE_DIR_OVERRIDE (test
+# seam) → $CLAUDE_PROJECT_DIR/.claude/eng-state (the hook case — Claude Code
+# guarantees CLAUDE_PROJECT_DIR for hook commands) → empty. Empty means "no
+# per-project context"; callers then fall back to the legacy shared path, so
+# behavior (and existing smoke) is unchanged outside hook context.
+eng_state_dir() {
+  if [ -n "${ENG_STATE_DIR_OVERRIDE:-}" ]; then printf '%s' "$ENG_STATE_DIR_OVERRIDE"; return 0; fi
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then printf '%s' "$CLAUDE_PROJECT_DIR/.claude/eng-state"; return 0; fi
+  printf ''
+}
+
 # audit_log <event> <category> <decision> <reason> — append one JSON
 # record to audit.jsonl. `reason` is user-controllable / filesystem-
 # derived so it's JSON-encoded; other fields are call-site constants.
@@ -90,10 +102,12 @@ _audit_validate_format() {
 # requested record is NOT written.
 audit_log() {
   local event="$1" category="$2" decision="$3" reason="$4"
-  local ts cwd log
+  local ts cwd log esd
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   cwd=$(pwd -P 2>/dev/null || pwd)
-  log="$CLAUDE_ENG_SHELL_ROOT/.claude/audit/audit.jsonl"
+  # Per-project audit (#314) when in hook context; else legacy shared path.
+  esd=$(eng_state_dir)
+  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$CLAUDE_ENG_SHELL_ROOT/.claude/audit/audit.jsonl"; fi
   mkdir -p "$(dirname "$log")"
   local r_reason r_cwd
   r_cwd=$(_audit_json_string "$cwd")
