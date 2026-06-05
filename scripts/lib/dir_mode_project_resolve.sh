@@ -40,14 +40,26 @@ command -v audit_log >/dev/null 2>&1 || audit_log() { :; }
 dr_check_registry_guard() {
   local target registry
   target=$(pwd -P)
-  registry="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
-  if [ ! -f "$registry" ] || ! grep -qxF "$target" "$registry"; then
-    echo "$DR_SCRIPT_NAME: refusing — '$target' is not a registered target" >&2
-    echo "  Register first: $CLAUDE_ENG_SHELL_ROOT/scripts/register.sh '$target'" >&2
-    audit_log block "$DR_AUDIT_CATEGORY" deny "unregistered-path: $target" 2>/dev/null || true
-    return 1
+  # Per-project registry (#316), explicit-arg = CLI context (no CLAUDE_PROJECT_DIR);
+  # discovery key is "does cwd carry its own eng-state/registry.txt?". Parents source
+  # hookrt; defensively source from the code root if the resolver is somehow absent.
+  command -v eng_registry_file >/dev/null 2>&1 \
+    || { [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -f "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+  registry=$(eng_registry_file "$target")
+  # Back-compat (#316, Directive #311 "existing setups keep working"): a target
+  # registered before #316 lives only in the legacy shared registry. Accept either
+  # the per-project registry OR the legacy shared one (read-only floor; new
+  # registrations still write per-project, so write-isolation is preserved).
+  local legacy="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt"
+  if { [ -f "$registry" ] && grep -qxF "$target" "$registry"; } \
+     || { [ -f "$legacy" ] && grep -qxF "$target" "$legacy"; }; then
+    return 0
   fi
-  return 0
+  echo "$DR_SCRIPT_NAME: refusing — '$target' is not a registered target" >&2
+  echo "  Register first: $CLAUDE_ENG_SHELL_ROOT/scripts/register.sh '$target'" >&2
+  audit_log block "$DR_AUDIT_CATEGORY" deny "unregistered-path: $target" 2>/dev/null || true
+  return 1
 }
 
 # rc=2 if gh is not authenticated.

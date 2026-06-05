@@ -3,7 +3,14 @@
 
 # in_scope: returns 0 if PWD is inside any registry entry, 1 otherwise.
 in_scope() {
-  local registry="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+  # Per-project registry (#316), argless = hook context. set -u-safe.
+  local registry; registry=$(eng_registry_file)
+  # Back-compat read-floor: if the per-project registry is absent (a target
+  # registered before #316, with only a legacy shared entry), fall back to the
+  # legacy shared registry so existing setups keep enforcing. Only ever ADDS
+  # scope (more enforcement); writes stay per-project, so isolation holds.
+  [ -f "$registry" ] || registry="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt"
+  # Missing both → return 1 (out-of-scope) → hooks fail-open, as in the shared era.
   [ -f "$registry" ] || return 1
   local pwd_real
   pwd_real=$(cd "$PWD" 2>/dev/null && pwd -P) || return 1
@@ -45,11 +52,14 @@ path_in_scope() {
   if [ -d "$ancestor" ]; then
     p="$(cd "$ancestor" 2>/dev/null && pwd -P)$suffix"
   fi
-  # Allow shell self-modification
+  # Allow shell self-modification (registry-location-independent; set -u-safe).
   case "$p/" in
-    "$CLAUDE_ENG_SHELL_ROOT"/*) return 0 ;;
+    "${CLAUDE_ENG_SHELL_ROOT:-}"/*) [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && return 0 ;;
   esac
-  local registry="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+  # Per-project registry (#316), argless = hook context. set -u-safe.
+  local registry; registry=$(eng_registry_file)
+  # Back-compat read-floor (mirrors in_scope): per-project absent → legacy shared.
+  [ -f "$registry" ] || registry="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt"
   [ -f "$registry" ] || return 1
   local entry
   while IFS= read -r entry; do

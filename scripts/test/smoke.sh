@@ -113,18 +113,35 @@ fi
 inject_into "$TMP/fake" >/dev/null 2>&1 && ok "inject_into ok" || ng "inject_into failed"
 [ -L "$TMP/fake/.claude/settings.local.json" ] && ok "settings.local.json symlinked" || ng "settings.local.json missing"
 [ -L "$TMP/fake/.claude/agents/planner.md" ] && ok "agents/planner.md symlinked" || ng "agents/planner.md missing"
-grep -q "$TMP/fake" "$SHELL_ROOT/.claude/state/registry.txt" 2>/dev/null && ok "registry entry added" || ng "registry not updated"
+grep -q "$TMP/fake" "$TMP/fake/.claude/eng-state/registry.txt" 2>/dev/null && ok "registry entry added (per-project, #316)" || ng "registry not updated"
 grep -q "^.claude/settings.local.json" "$TMP/fake/.git/info/exclude" 2>/dev/null && ok ".git/info/exclude updated" || ng "exclude not updated"
 
+# #316: inject now records the entry in the TARGET's per-project registry. The
+# hook-integration tests (§7+) and hook_run drive the hook with CLAUDE_PROJECT_DIR
+# unset — so audit lands at the legacy REAL_AUDIT path AND in_scope resolves via
+# the legacy shared-registry fallback. Mirror the target into the shared registry
+# so those matcher tests reach the matchers (the per-project path is covered by §84).
+# Use the CANONICAL path (inject_into canonicalizes via `cd && pwd -P`; the hook's
+# in_scope compares against pwd -P), else macOS /var vs /private/var never matches.
+FAKE_CANON=$(cd "$TMP/fake" && pwd -P)
+mkdir -p "$SHELL_ROOT/.claude/state"
+grep -qxF "$FAKE_CANON" "$SHELL_ROOT/.claude/state/registry.txt" 2>/dev/null \
+  || printf '%s\n' "$FAKE_CANON" >> "$SHELL_ROOT/.claude/state/registry.txt"
+
 # ---------- 5. cwd_guard ----------
+# hookrt.sh hosts eng_registry_file (#316); cwd_guard rides it. In a real hook
+# the hook sources hookrt first — mirror that here. The registry now resolves
+# per-project, so the registered-path checks run with CLAUDE_PROJECT_DIR set
+# (hook context); the unregistered + carve-out checks need no project context.
+. "$SHELL_ROOT/.claude/hooks/hookrt.sh"
 . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
 
-(cd "$TMP/fake" && in_scope) && ok "in_scope: registered path" || ng "in_scope should be true"
-(cd "$TMP" && in_scope) && ng "in_scope: unregistered should be false" || ok "in_scope: unregistered false"
+(cd "$TMP/fake" && CLAUDE_PROJECT_DIR="$TMP/fake" in_scope) && ok "in_scope: registered path" || ng "in_scope should be true"
+(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" in_scope) && ng "in_scope: unregistered should be false" || ok "in_scope: unregistered false"
 
-path_in_scope "$TMP/fake/some/file" && ok "path_in_scope: inside registered" || ng "path_in_scope should be true"
-path_in_scope "/etc/passwd" && ng "path_in_scope: /etc/passwd should be false" || ok "path_in_scope: /etc/passwd false"
-path_in_scope "$HOME/.zshrc" && ng "path_in_scope: ~/.zshrc should be false" || ok "path_in_scope: ~/.zshrc false"
+CLAUDE_PROJECT_DIR="$TMP/fake" path_in_scope "$TMP/fake/some/file" && ok "path_in_scope: inside registered" || ng "path_in_scope should be true"
+CLAUDE_PROJECT_DIR="$TMP/fake" path_in_scope "/etc/passwd" && ng "path_in_scope: /etc/passwd should be false" || ok "path_in_scope: /etc/passwd false"
+CLAUDE_PROJECT_DIR="$TMP/fake" path_in_scope "$HOME/.zshrc" && ng "path_in_scope: ~/.zshrc should be false" || ok "path_in_scope: ~/.zshrc false"
 path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" && ok "path_in_scope: shell self allowed" || ng "shell self should be allowed"
 
 # 5b (#218): a registry entry WITH a trailing slash must still scope paths under
@@ -427,13 +444,13 @@ rm -rf "$GODOT_DIR"
 # 9a. ensure_self_registered: appends to registry, idempotent
 # Canonicalize via pwd -P (ensure_self_registered does the same internally; macOS).
 SR_TMP=$(cd "$(mktemp -d)" && pwd -P)
-mkdir -p "$SR_TMP/.claude/state"
+mkdir -p "$SR_TMP/.claude/eng-state"
 if command -v ensure_self_registered >/dev/null 2>&1; then
   ensure_self_registered "$SR_TMP" >/dev/null 2>&1
-  grep -qxF "$SR_TMP" "$SR_TMP/.claude/state/registry.txt" 2>/dev/null \
-    && ok "self-register: registry entry added" || ng "self-register: should add registry entry"
+  grep -qxF "$SR_TMP" "$SR_TMP/.claude/eng-state/registry.txt" 2>/dev/null \
+    && ok "self-register: registry entry added (per-project, #316)" || ng "self-register: should add registry entry"
   ensure_self_registered "$SR_TMP" >/dev/null 2>&1
-  count=$(grep -cxF "$SR_TMP" "$SR_TMP/.claude/state/registry.txt" 2>/dev/null || echo 0)
+  count=$(grep -cxF "$SR_TMP" "$SR_TMP/.claude/eng-state/registry.txt" 2>/dev/null || echo 0)
   [ "$count" = "1" ] && ok "self-register: idempotent (1 entry after 2 runs)" \
     || ng "self-register: should be idempotent (got $count entries)"
 else
@@ -447,11 +464,15 @@ rm -rf "$SR_TMP"
 # Canonicalize via pwd -P so the registry's stored path matches our grep target
 # (on macOS, mktemp returns /var/folders/... but pwd -P resolves to /private/var/...).
 FAKE_SR=$(cd "$(mktemp -d)" && pwd -P)
-mkdir -p "$FAKE_SR/scripts/lib" "$FAKE_SR/.claude/state" "$FAKE_SR/.claude/agents" "$FAKE_SR/.claude/commands" "$FAKE_SR/workspace"
+mkdir -p "$FAKE_SR/scripts/lib" "$FAKE_SR/.claude/state" "$FAKE_SR/.claude/hooks" "$FAKE_SR/.claude/agents" "$FAKE_SR/.claude/commands" "$FAKE_SR/workspace"
 echo '{}' > "$FAKE_SR/.claude/settings.json"
 cp "$SHELL_ROOT/scripts/register.sh" "$FAKE_SR/scripts/register.sh"
 cp "$SHELL_ROOT/scripts/lib/inject.sh" "$FAKE_SR/scripts/lib/inject.sh"
 [ -f "$SHELL_ROOT/scripts/lib/self_register.sh" ] && cp "$SHELL_ROOT/scripts/lib/self_register.sh" "$FAKE_SR/scripts/lib/self_register.sh"
+# self_register/inject resolve the registry via eng_registry_file (hookrt.sh, #316),
+# defensively sourced from CLAUDE_ENG_SHELL_ROOT (= FAKE_SR here) — so the fake root
+# needs a real hookrt.sh, exactly as a real shell root carries one.
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$FAKE_SR/.claude/hooks/hookrt.sh"
 chmod +x "$FAKE_SR/scripts/register.sh"
 
 "$FAKE_SR/scripts/register.sh" "$FAKE_SR" >/dev/null 2>&1 || true
@@ -460,8 +481,8 @@ ws_link="$FAKE_SR/workspace/$(basename "$FAKE_SR")"
 [ ! -e "$ws_link" ] && ok "register.sh: no workspace symlink-loop when target=SHELL_ROOT" \
   || ng "register.sh created workspace symlink-loop: $ws_link"
 
-grep -qxF "$FAKE_SR" "$FAKE_SR/.claude/state/registry.txt" 2>/dev/null \
-  && ok "register.sh: SHELL_ROOT recorded in registry" \
+grep -qxF "$FAKE_SR" "$FAKE_SR/.claude/eng-state/registry.txt" 2>/dev/null \
+  && ok "register.sh: SHELL_ROOT recorded in registry (per-project, #316)" \
   || ng "register.sh did not register SHELL_ROOT"
 
 rm -rf "$FAKE_SR"
@@ -7544,6 +7565,127 @@ else
   ng "83d: inject must add .claude/eng-state to .git/info/exclude (#314)"
 fi
 rm -rf "$S83_INJ"
+
+# ---------- 84. per-project scope-guard registry isolation (EI-2b, #316, Directive #311) ----------
+# eng_registry_file [project_dir] resolves the scope-guard registry. Argless =
+# hook context (rides eng_state_dir → CLAUDE_PROJECT_DIR, else legacy shared);
+# explicit arg = launcher/CLI context ($arg/.claude/eng-state/registry.txt),
+# where CLAUDE_PROJECT_DIR is unset because the call precedes the Claude session.
+# The registry gates the out-of-scope matcher; missing → in_scope=false → fail-open.
+
+# 84a: resolver resolution — explicit arg / hook (CLAUDE_PROJECT_DIR) / override / legacy.
+s84_arg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; eng_registry_file /tmp/projA )
+s84_hook=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; CLAUDE_PROJECT_DIR=/tmp/projX eng_registry_file )
+s84_ovr=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; ENG_STATE_DIR_OVERRIDE=/tmp/ovr eng_registry_file )
+s84_leg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; export CLAUDE_ENG_SHELL_ROOT=/tmp/legroot; unset CLAUDE_PROJECT_DIR 2>/dev/null; eng_registry_file )
+if [ "$s84_arg" = "/tmp/projA/.claude/eng-state/registry.txt" ] \
+   && [ "$s84_hook" = "/tmp/projX/.claude/eng-state/registry.txt" ] \
+   && [ "$s84_ovr" = "/tmp/ovr/registry.txt" ] \
+   && [ "$s84_leg" = "/tmp/legroot/.claude/state/registry.txt" ]; then
+  ok "84a: eng_registry_file resolves arg / hook / override / legacy (#316)"
+else
+  ng "84a: eng_registry_file resolution wrong (arg='$s84_arg' hook='$s84_hook' ovr='$s84_ovr' leg='$s84_leg') (#316)"
+fi
+
+# 84b: registrations are mutually invisible across two projects (inject writes per-project).
+S84_A=$(cd "$(mktemp -d)" && pwd -P)
+S84_B=$(cd "$(mktemp -d)" && pwd -P)
+( cd "$S84_A" && git init -q ) || true
+( cd "$S84_B" && git init -q ) || true
+inject_into "$S84_A" >/dev/null 2>&1
+inject_into "$S84_B" >/dev/null 2>&1
+s84a_reg="$S84_A/.claude/eng-state/registry.txt"
+s84b_reg="$S84_B/.claude/eng-state/registry.txt"
+if grep -qxF "$S84_A" "$s84a_reg" 2>/dev/null && ! grep -qxF "$S84_B" "$s84a_reg" 2>/dev/null \
+   && grep -qxF "$S84_B" "$s84b_reg" 2>/dev/null && ! grep -qxF "$S84_A" "$s84b_reg" 2>/dev/null; then
+  ok "84b: per-project registries mutually invisible (#316)"
+else
+  ng "84b: registries should isolate per project (#316)"
+fi
+rm -rf "$S84_A" "$S84_B"
+
+# 84c: legacy fallback — argless in_scope with no CLAUDE_PROJECT_DIR reads the
+# legacy shared $CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt (back-compat).
+S84_LEG=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$S84_LEG/.claude/state"
+printf '%s\n' "$S84_LEG" > "$S84_LEG/.claude/state/registry.txt"
+if ( cd "$S84_LEG"; export CLAUDE_ENG_SHELL_ROOT="$S84_LEG"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+     . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"; in_scope ); then
+  ok "84c: argless in_scope falls back to legacy shared registry, no project context (#316)"
+else
+  ng "84c: legacy-shared registry fallback broken (#316)"
+fi
+rm -rf "$S84_LEG"
+
+# 84d: set -u safety — cwd_guard must not abort with CLAUDE_ENG_SHELL_ROOT unset
+# (the #312 self-located case); fail-open (return), never crash the guard.
+s84d=$( set -u; unset CLAUDE_ENG_SHELL_ROOT 2>/dev/null; unset CLAUDE_PROJECT_DIR 2>/dev/null
+        . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+        . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
+        in_scope; printf 'ic=%s ' "$?"; path_in_scope /tmp/x; printf 'pis=%s' "$?" )
+if printf '%s' "$s84d" | grep -q 'pis='; then
+  ok "84d: cwd_guard set -u-safe with CLAUDE_ENG_SHELL_ROOT unset (#316)"
+else
+  ng "84d: cwd_guard aborts under set -u when CLAUDE_ENG_SHELL_ROOT unset (got '$s84d') (#316)"
+fi
+
+# 84e: dogfood coherence — self-register write-target == cwd_guard read-target;
+# carve-out stays registry-location-independent.
+S84_DOG=$(cd "$(mktemp -d)" && pwd -P)
+( export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"; . "$SHELL_ROOT/scripts/lib/self_register.sh"; ensure_self_registered "$S84_DOG" >/dev/null 2>&1 )
+s84e_written="$S84_DOG/.claude/eng-state/registry.txt"
+s84e_read=$( export CLAUDE_PROJECT_DIR="$S84_DOG"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; eng_registry_file )
+if [ "$s84e_read" = "$s84e_written" ] && grep -qxF "$S84_DOG" "$s84e_written" 2>/dev/null; then
+  ok "84e: self-register write-target == cwd_guard read-target (dogfood coherence) (#316)"
+else
+  ng "84e: dogfood write/read mismatch (read='$s84e_read' written='$s84e_written') (#316)"
+fi
+if ( export CLAUDE_PROJECT_DIR="$S84_DOG"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+     . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"; path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" ); then
+  ok "84e: shell-root carve-out independent of registry location (#316)"
+else
+  ng "84e: shell-root carve-out broken under per-project registry (#316)"
+fi
+rm -rf "$S84_DOG"
+
+# 84f: CLI-context discovery (dr_check_registry_guard) reads the self-describing
+# per-project registry from cwd, with CLAUDE_PROJECT_DIR unset (launcher context).
+S84_CLI=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$S84_CLI/.claude/eng-state"
+printf '%s\n' "$S84_CLI" > "$S84_CLI/.claude/eng-state/registry.txt"
+if ( cd "$S84_CLI"; export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+     . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
+     dr_check_registry_guard >/dev/null 2>&1 ); then
+  ok "84f: CLI-context discovery reads per-project registry, CLAUDE_PROJECT_DIR unset (#316)"
+else
+  ng "84f: dr_check_registry_guard should find self-describing per-project registry (#316)"
+fi
+S84_CLI2=$(cd "$(mktemp -d)" && pwd -P)
+if ( cd "$S84_CLI2"; export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+     . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
+     dr_check_registry_guard >/dev/null 2>&1 ); then
+  ng "84f: unregistered project should fail dr_check_registry_guard (#316)"
+else
+  ok "84f: unregistered project (no eng-state/registry.txt) reads unregistered (#316)"
+fi
+rm -rf "$S84_CLI" "$S84_CLI2"
+
+# 84g: hook-context back-compat read-floor — a target registered before #316
+# (legacy shared registry only, NO per-project eng-state/registry.txt) still
+# enforces: in_scope falls back to the legacy shared registry even with
+# CLAUDE_PROJECT_DIR set (where argless eng_registry_file points per-project).
+S84_BC=$(cd "$(mktemp -d)" && pwd -P)
+S84_BC_ROOT=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$S84_BC_ROOT/.claude/state"
+printf '%s\n' "$S84_BC" > "$S84_BC_ROOT/.claude/state/registry.txt"   # legacy shared only
+if ( cd "$S84_BC"; export CLAUDE_ENG_SHELL_ROOT="$S84_BC_ROOT"; export CLAUDE_PROJECT_DIR="$S84_BC"
+     . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
+     [ ! -f "$S84_BC/.claude/eng-state/registry.txt" ] && in_scope ); then
+  ok "84g: hook-context back-compat — pre-#316 target enforces via legacy floor (#316)"
+else
+  ng "84g: pre-#316 target (legacy-only registry) lost hook enforcement (#316)"
+fi
+rm -rf "$S84_BC" "$S84_BC_ROOT"
 
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then

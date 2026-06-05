@@ -59,8 +59,13 @@ inject_into() {
     grep -qxF '.claude/eng-state' "$excl" || printf '.claude/eng-state\n' >> "$excl"
   fi
 
-  # Record in registry
-  local registry="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+  # Record in the target's per-project registry (#316). Resolve via the single
+  # eng_registry_file resolver, defensively sourcing hookrt from the code root
+  # (CLAUDE_ENG_SHELL_ROOT, not $target — the target may not carry hooks).
+  command -v eng_registry_file >/dev/null 2>&1 \
+    || { [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -f "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+  local registry; registry=$(eng_registry_file "$target")
   mkdir -p "$(dirname "$registry")"
   touch "$registry"
   if ! grep -qxF "$target" "$registry"; then

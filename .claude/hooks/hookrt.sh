@@ -90,6 +90,26 @@ eng_state_dir() {
   printf ''
 }
 
+# eng_registry_file [project_dir] — per-project scope-guard registry path
+# (#316, Directive #311). One definition, two execution contexts:
+#   - With an explicit <project_dir> (launcher / CLI — bin/claude-eng,
+#     register.sh/inject, self_register, dr_check_registry_guard — where
+#     CLAUDE_PROJECT_DIR is unset because the call precedes the Claude
+#     session): "<project_dir>/.claude/eng-state/registry.txt".
+#   - Argless (hook context — cwd_guard): rides eng_state_dir() →
+#     "<esd>/registry.txt", else the legacy shared
+#     "${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt".
+# set -u-safe (every read guarded). A missing file → the caller's
+# `[ -f ]` guard yields out-of-scope → hooks fail-open (transparent),
+# unchanged from the shared-registry era; the move changes only WHICH
+# path is read, never the fail posture.
+eng_registry_file() {
+  if [ -n "${1:-}" ]; then printf '%s' "$1/.claude/eng-state/registry.txt"; return 0; fi
+  local esd; esd=$(eng_state_dir)
+  if [ -n "$esd" ]; then printf '%s' "$esd/registry.txt"; return 0; fi
+  printf '%s' "${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt"
+}
+
 # audit_log <event> <category> <decision> <reason> — append one JSON
 # record to audit.jsonl. `reason` is user-controllable / filesystem-
 # derived so it's JSON-encoded; other fields are call-site constants.

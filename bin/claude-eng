@@ -24,17 +24,28 @@ fi
 # If the first arg is a directory, check if it's registered; offer to register if not.
 if [ $# -gt 0 ] && [ -d "$1" ]; then
   target_path=$(cd "$1" && pwd -P)
-  registry="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+  # Per-project registry (#316): this launcher runs BEFORE the Claude session, so
+  # CLAUDE_PROJECT_DIR is unset — discover via the explicit-arg resolver against
+  # target_path ("does <dir> carry its own eng-state/registry.txt?"). Source hookrt
+  # for the resolver (the self-located CLAUDE_ENG_SHELL_ROOT always carries it).
+  . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"
+  registry=$(eng_registry_file "$target_path")
+  # Back-compat (#316): accept the per-project registry OR the legacy shared one
+  # (a target registered before #316 lives only in the shared registry). New
+  # registrations still write per-project via register.sh.
+  legacy="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
   registered=0
-  if [ -f "$registry" ]; then
+  for reg in "$registry" "$legacy"; do
+    [ -f "$reg" ] || continue
     while IFS= read -r entry; do
       [ -z "$entry" ] && continue
       case "$target_path/" in
         "$entry"/*) registered=1; break ;;
       esac
       [ "$target_path" = "$entry" ] && { registered=1; break; }
-    done < "$registry"
-  fi
+    done < "$reg"
+    [ "$registered" = 1 ] && break
+  done
   if [ "$registered" = 0 ]; then
     printf "? '%s' is not registered. Register as workspace/%s and enter? [Y/n] " \
       "$target_path" "$(basename "$target_path")"
