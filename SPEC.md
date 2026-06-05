@@ -593,7 +593,19 @@ Inside hook scripts, shell-side **code** (helpers, hooks) is accessed via `$CLAU
 
 #### 3.2.2 Per-project ephemeral state (`eng-state/`)
 
-Ephemeral runtime assets — currently the **audit log** and the `.claude/state` **caches** (issue-type, issue-filer, status, pr; the park log) — resolve per project via `eng_state_dir()` in `hookrt.sh` (#314, Directive #311). Resolution order (`set -u`-safe, no external calls): `ENG_STATE_DIR_OVERRIDE` (test seam) → `${CLAUDE_PROJECT_DIR}/.claude/eng-state` when `CLAUDE_PROJECT_DIR` is set (Claude Code guarantees it for hook commands) → otherwise **empty**, in which case callers fall back to the legacy shared `$CLAUDE_ENG_SHELL_ROOT/.claude/{audit,state}`. Consequence: in hook context two projects bound to the same canonical code source have **mutually-invisible** audit/caches; in plain-Bash context (env unset) behavior is unchanged (back-compat). This realizes the §1.7 / MISSION principle that the **codebase is shared** while **ephemeral state isolates per project**. `eng-state/` is added to the target's `.git/info/exclude`. (The scope-guard **registry** is not yet per-project — a follow-up EI moves it under `eng-state/` with the same resolver; until then it stays at the shared `$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt`.)
+Ephemeral runtime assets — the **audit log**, the `.claude/state` **caches** (issue-type, issue-filer, status, pr; the park log), and the scope-guard **registry** — resolve per project under `eng-state/` (#314 + #316, Directive #311). The audit log and caches resolve via `eng_state_dir()`; the registry resolves via `eng_registry_file [project_dir]`; both live in `hookrt.sh`.
+
+`eng_state_dir()` resolution order (`set -u`-safe, no external calls): `ENG_STATE_DIR_OVERRIDE` (test seam) → `${CLAUDE_PROJECT_DIR}/.claude/eng-state` when `CLAUDE_PROJECT_DIR` is set (Claude Code guarantees it for hook commands) → otherwise **empty**, in which case callers fall back to the legacy shared `$CLAUDE_ENG_SHELL_ROOT/.claude/{audit,state}`.
+
+`eng_registry_file [project_dir]` serves two execution contexts with a single definition (#316):
+- **Argless** (hook context — `cwd_guard.in_scope`/`path_in_scope`): defers to `eng_state_dir()` → `${esd}/registry.txt`, else the legacy shared `${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state/registry.txt`.
+- **With an explicit project-dir argument** (launcher / CLI context — `bin/claude-eng`, `register.sh`/`inject`, `self_register`, `dr_check_registry_guard` — where `CLAUDE_PROJECT_DIR` is unset because the call *precedes* the Claude session): `${1}/.claude/eng-state/registry.txt`.
+
+The caller passes the project root it already holds (the `<dir>` argument or `pwd -P`), so registry discovery becomes "does `<dir>` carry its own `eng-state/registry.txt`?" — a **self-describing per-project registry**, not a lookup in a shared cross-project index. Under Directive #311's model there is no longer a central authority listing every project.
+
+Consequence: in hook context two projects bound to the same canonical code source have **mutually-invisible** audit/caches **and registries** (writing audit/registry/state in project A leaves project B's `eng-state/` unchanged); in plain-Bash context (env unset, no arg) behavior is unchanged (back-compat — the legacy shared paths remain the floor). This realizes the §1.7 / MISSION principle that the **codebase is shared** while **ephemeral state isolates per project**. `eng-state/` is added to the target's `.git/info/exclude` (the shell repo excludes its own `eng-state/` via its tracked `.gitignore`).
+
+**Fail posture (security).** The registry gates the `out-of-scope` enforcement matcher (§6.1). A missing/empty registry yields `in_scope=false` → hooks pass through transparently (**fail-open**), unchanged from the pre-#316 shared-registry behavior — the move changes only *which path* is read, never the `[ -f "$registry" ] || return 1` posture or the #218 trailing-slash normalization. Because the resolver is `set -u`-safe, an unset `CLAUDE_ENG_SHELL_ROOT` (the #312 self-located case) cannot abort the guard. Dogfood coherence: `self_register` writes through `eng_registry_file "$SHELL_ROOT"`, so the shell's registration write-target equals the path `cwd_guard` reads under `CLAUDE_PROJECT_DIR=$SHELL_ROOT` — a mismatch would silently disable enforcement inside the shell repo (§3.6).
 
 ### 3.3 Scope guard — cwd-based
 
@@ -602,7 +614,9 @@ All hook scripts prelude:
 ```bash
 # Match physical PWD against registered (physical) paths in the registry.
 # The registry is written by register.sh / clone-into.sh; clones inside workspace/ are recorded the same way.
-REGISTRY="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+# It resolves per-project via eng_registry_file (hookrt.sh, #316): argless = hook
+# context (CLAUDE_PROJECT_DIR), set -u-safe, legacy shared path as the floor.
+REGISTRY=$(eng_registry_file)
 PWD_REAL=$(cd "$PWD" 2>/dev/null && pwd -P) || exit 0
 [ -f "$REGISTRY" ] || exit 0
 in_scope=0
@@ -616,7 +630,7 @@ done < "$REGISTRY"
 
 → If `claude-eng` is invoked from an unregistered directory, hooks pass through transparently. Works regardless of logical vs physical `$PWD` (we use PWD_REAL). External path registration is covered by the same mechanism.
 
-`.claude/state/registry.txt` format: one physical path (`pwd -P` output) per line. Comments and blank lines are ignored.
+The registry (per-project `.claude/eng-state/registry.txt`, or the legacy shared `.claude/state/registry.txt` outside hook context) format: one physical path (`pwd -P` output) per line. Comments and blank lines are ignored.
 
 ### 3.4 User-global isolation
 
@@ -639,7 +653,7 @@ Target repos are the shell's work — they fall outside this isolation rule (the
 
 `claude-eng` is meant to start at the root of `workspace/<repo>/`. Subdirectories work too (walk-up), but starting at the root avoids edge cases in monorepos where subprojects may carry their own `.claude/`.
 
-**External path support**: a target repo can live outside the shell's `workspace/` (e.g. `~/code/<repo>`). `scripts/register.sh <abs-path>` (1) creates a `workspace/<basename>` symlink, (2) adds the target's physical path (`pwd -P`) to `.claude/state/registry.txt`, (3) runs the inject logic of §3.2. The shell's `.gitignore` whitelists `workspace/*` so the shell git tree doesn't pick up target trees even in the external-path case. Direct clones into `workspace/` are also recorded in the registry — the guard is always registry-based.
+**External path support**: a target repo can live outside the shell's `workspace/` (e.g. `~/code/<repo>`). `scripts/register.sh <abs-path>` (1) creates a `workspace/<basename>` symlink, (2) records the target's physical path (`pwd -P`) in the target's per-project `.claude/eng-state/registry.txt` via `eng_registry_file "$target"` (#316), (3) runs the inject logic of §3.2. The shell's `.gitignore` whitelists `workspace/*` so the shell git tree doesn't pick up target trees even in the external-path case. Direct clones into `workspace/` are also recorded in the registry — the guard is always registry-based.
 
 **Auto-register prompt**: when `claude-eng <path>` is called with an unregistered external path, prompt once before entering the session:
 ```
@@ -654,9 +668,9 @@ yes → run `scripts/register.sh` → inject logic (§3.2) → start session. no
 
 ### 3.6 Shell self-registration
 
-The shell repo itself must appear in `.claude/state/registry.txt` so that `cwd_guard.in_scope` (§3.3) returns true when `claude-eng` is invoked from the shell root. Without it, the shell's own hooks short-circuit on `in_scope || exit 0` and the dogfooding promise of §17 is empty — the shell can't enforce its own discipline on itself.
+The shell repo itself must appear in its own registry so that `cwd_guard.in_scope` (§3.3) returns true when `claude-eng` is invoked from the shell root. Without it, the shell's own hooks short-circuit on `in_scope || exit 0` and the dogfooding promise of §17 is empty — the shell can't enforce its own discipline on itself. Self-registration writes through `eng_registry_file "$SHELL_ROOT"` → `$SHELL_ROOT/.claude/eng-state/registry.txt` (#316), which is exactly the path `cwd_guard` reads in a dogfood session (`CLAUDE_PROJECT_DIR=$SHELL_ROOT` → argless `eng_registry_file` → the same file). Write-target == read-target; a divergence would silently fail-open the shell's own scope guard.
 
-`scripts/bootstrap.sh` ensures `$SHELL_ROOT` is present in the registry (idempotent — repeated runs do not duplicate). Self-registration is **registry-only**: no `workspace/<basename>` symlink and no `inject_into` are performed against the shell, because the shell IS the injection source and the symlink would loop into `workspace/` contained within `$SHELL_ROOT`.
+`scripts/bootstrap.sh` (and `scripts/register.sh "$SHELL_ROOT"`) ensure `$SHELL_ROOT` is present in the registry (idempotent — repeated runs do not duplicate). Self-registration is **registry-only**: no `workspace/<basename>` symlink and no `inject_into` are performed against the shell, because the shell IS the injection source and the symlink would loop into `workspace/` contained within `$SHELL_ROOT`.
 
 `scripts/register.sh "$SHELL_ROOT"` (or any path that physical-resolves to the shell root) recognizes this case and:
 - skips the `workspace/<basename>` symlink (would otherwise create a directory loop);
