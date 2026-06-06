@@ -4336,6 +4336,18 @@ else
   ng "45d: /reflect does not name audit category 'directive-reflect' (#47)"
 fi
 
+# 45f (#329): /reflect classifies by content marker (not the shared PR URL) and
+# enriches the workflow stub IN PLACE — locks both markers, the PATCH mechanism,
+# and the enrich-in-place branch (the fix for the URL-keyed permanent-stub bug).
+RF329="$SHELL_ROOT/.claude/commands/reflect.md"
+if grep -qF 'reflect-stub' "$RF329" && grep -qF 'reflect-enriched' "$RF329" \
+   && grep -qF 'gh api -X PATCH' "$RF329" \
+   && grep -qiF 'enrich in place' "$RF329"; then
+  ok "45f: /reflect enriches the workflow stub in place via content markers (#329)"
+else
+  ng "45f: /reflect missing marker-based enrich-in-place contract (#329)"
+fi
+
 # 45e: /file-issue parents via /link-directive to keep linkage idempotent.
 if grep -qF '/link-directive' "$SHELL_ROOT/.claude/commands/file-issue.md" 2>/dev/null; then
   ok "45e: /file-issue routes Project parenting through /link-directive (#47)"
@@ -4447,6 +4459,19 @@ else
     ok "48f: .github/workflows/ install matches .claude/templates/ source (#63)"
   else
     ng "48f: workflow install drifts from template (#63)"
+  fi
+
+  # 48h (#329): the reflection stub carries the reflect-stub marker + the corrected
+  # in-place-edit wording, and the false "will replace this comment's content"
+  # claim is gone (the bug was the stub claiming /reflect would replace it while
+  # /reflect's URL-keyed idempotency made it no-op). Checked on the install; 48f
+  # cmp-locks the template to match.
+  if grep -qF 'reflect-stub pr=#' "$DPM_INSTALL" \
+     && grep -qF 'edits this comment in place' "$DPM_INSTALL" \
+     && ! grep -qF 'will replace this comment' "$DPM_INSTALL"; then
+    ok "48h: reflection stub carries reflect-stub marker + in-place-edit wording, no false replace claim (#329)"
+  else
+    ng "48h: workflow reflection-stub marker/wording wrong (#329)"
   fi
 
   # 48g: every `gh <subcommand>` in the workflow carries --repo (#66 fix).
