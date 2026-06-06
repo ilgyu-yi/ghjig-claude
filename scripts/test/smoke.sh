@@ -7711,6 +7711,38 @@ else
 fi
 rm -rf "$S84_BC" "$S84_BC_ROOT"
 
+# ---------- 85. shell repo dogfoods its own PR template (#320) ----------
+# The shell ships .claude/templates/pr_template_for_target.md to targets but must
+# also carry its OWN .github/PULL_REQUEST_TEMPLATE.md (dogfooding, SPEC §9.5/§17).
+# Anti-drift contract: the PR template equals the target template with its leading
+# install-hint HTML comment line(s) stripped — so editing one without the other
+# fails here. The skill path (pr_body.md) is unaffected and not tested here.
+S85_PRT="$SHELL_ROOT/.github/PULL_REQUEST_TEMPLATE.md"
+S85_SRC="$SHELL_ROOT/.claude/templates/pr_template_for_target.md"
+if [ -f "$S85_PRT" ]; then
+  ok "85a: .github/PULL_REQUEST_TEMPLATE.md present (dogfood scaffold, #320)"
+else
+  ng "85a: .github/PULL_REQUEST_TEMPLATE.md missing (#320)"
+fi
+# 85b: no leftover "install as ..." HTML comment (it IS the installed file).
+if [ -f "$S85_PRT" ] && grep -q '^<!--' "$S85_PRT"; then
+  ng "85b: PR template still carries an install-hint HTML comment (#320)"
+else
+  ok "85b: PR template has no install-hint comment (#320)"
+fi
+# 85c: anti-drift — PR template == target template minus its leading comment line(s).
+if [ -f "$S85_PRT" ] && [ -f "$S85_SRC" ]; then
+  s85_stripped=$(grep -v '^<!--' "$S85_SRC" | sed '/./,$!d')   # drop comment lines + leading blanks
+  s85_actual=$(sed '/./,$!d' "$S85_PRT")                        # normalize leading blanks
+  if [ "$s85_stripped" = "$s85_actual" ]; then
+    ok "85c: PR template stays in sync with pr_template_for_target.md (#320)"
+  else
+    ng "85c: PR template drifted from pr_template_for_target.md (#320)"
+  fi
+else
+  ng "85c: PR template or target-template source missing (#320)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
