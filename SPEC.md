@@ -1126,7 +1126,7 @@ Any non-empty language code is accepted **verbatim** (BCP-47-style tokens such a
 
 **Config placement** — `.claude/state/work-lang`, **not** `eng-state/`. Work language is user-set, set-once **configuration** (the same tier as the `mode` toggle §5.7.1 and the `coauthor` toggle §10.2), not regenerable **ephemeral state** (`eng-state/` holds the audit log, caches, and registry — §3.2.2). Directive #322's body says "eng-state" but cites "the mode toggle" as the analog; the mode toggle lives at `.claude/state/mode`, so `work-lang` follows that concrete precedent (config tier, cwd-relative) rather than the mislabeled category word. Like §5.7.1, `settings.json` is intentionally **not** a layer — it is symlinked across targets (§3.2) and a work-language key would leak between unrelated projects.
 
-Back-compat: unset → `en`, i.e. today's behavior; nothing changes for a target that never sets a work language. Surfacing the active work language in the statusline / `/status`, and the artifact-authoring skills (`file-issue`, `file-directive`, `work-on`, `ship`, `complete-directive`) consuming it, are separate Execution Issues under #322.
+Back-compat: unset → `en`, i.e. today's behavior; nothing changes for a target that never sets a work language. **Surfacing** is delivered (#325): `status_compact` emits a `work-lang:` line and `status_json` a `work_lang` key (resolved via `resolve_work_lang`), so `/status` and the per-turn statusline show the active work language alongside `mode`. The artifact-authoring skills (`file-issue`, `file-directive`, `work-on`, `ship`, `complete-directive`) consuming the work language is a separate Execution Issue under #322.
 
 ### 5.8 `/adr <title>`
 
