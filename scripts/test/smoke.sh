@@ -817,6 +817,31 @@ fi
 ) && ok "13e: status_json carries shell_root + state_locality (parity, #318)" \
   || ng "13e: status_json missing shell_root/state_locality (#318)"
 
+# 13f/13g (#325). status_compact/status_json surface the active work language,
+# resolved via resolve_work_lang. Drive with CLAUDE_ENG_WORK_LANG for determinism,
+# and an isolated STATUS_CACHE_DIR_OVERRIDE so a pre-existing per-branch status
+# cache (written before this field landed) can't serve a stale short-circuit.
+WL13_CACHE=$(cd "$(mktemp -d)" && pwd -P)
+
+# 13f: compact emits `work-lang: <code>`.
+(
+  cd "$SHELL_ROOT" || exit 1
+  command -v status_compact >/dev/null 2>&1 || exit 1
+  out=$(CLAUDE_ENG_WORK_LANG=ja STATUS_CACHE_DIR_OVERRIDE="$WL13_CACHE" status_compact 2>/dev/null)
+  printf '%s' "$out" | grep -q '^work-lang: ja$'
+) && ok "13f: status_compact surfaces work-lang (#325)" \
+  || ng "13f: status_compact missing work-lang field (#325)"
+
+# 13g: json carries .work_lang with the same value (parity).
+(
+  cd "$SHELL_ROOT" || exit 1
+  command -v status_json >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || exit 1
+  out=$(CLAUDE_ENG_WORK_LANG=ja STATUS_CACHE_DIR_OVERRIDE="$WL13_CACHE" status_json 2>/dev/null)
+  printf '%s' "$out" | jq -e '.work_lang == "ja"' >/dev/null 2>&1
+) && ok "13g: status_json carries work_lang (parity, #325)" \
+  || ng "13g: status_json missing work_lang (#325)"
+rm -rf "$WL13_CACHE"
+
 # ---------- 14. /sync-pr body cache (#16) ----------
 # SPEC §5.4: persistent SHA-256 cache at
 # .claude/state/pr-cache/<owner>__<repo>__pr-<n>.json. pr_cache_check exits
