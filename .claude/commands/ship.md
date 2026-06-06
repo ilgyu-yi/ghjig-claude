@@ -30,3 +30,6 @@ Execute ship steps in order. If any step fails, stop immediately and report.
 11. Emit a single summary line to stdout naming the terminal action taken: `stopped at ready`, `merged`, or `parked: <reason>`.
 
 At the end, print the PR URL and follow-up notes (reviewer mentions, etc.).
+
+## Work language
+Author the **curated PR body** (and any commit you push) in the **work language** — `resolve_work_lang` (SPEC §5.7.2), not necessarily the conversation language. Before authoring, recast the task context into the work language; your chat replies to the user stay in the communication language. Default (unset) is `en`.

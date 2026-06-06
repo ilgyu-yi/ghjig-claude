@@ -75,3 +75,6 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
 - Skipping the reviewer gate without `SKIP_HOOKS=directive-review`.
 - Writing directly to the Project Item — that's the mirror workflow's job.
 - Setting the `directive` label without `status:proposed` — Proposed is the first state for any new Directive.
+
+## Work language
+Author the **Directive body** (Objective, Success signals, Non-goals, Constraints, MISSION fit) in the **work language** — `resolve_work_lang` (SPEC §5.7.2), not necessarily the conversation language. Before authoring, recast the task context into the work language; your chat replies to the user stay in the communication language. Default (unset) is `en`.
