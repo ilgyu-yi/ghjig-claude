@@ -4474,6 +4474,22 @@ else
     ng "48h: workflow reflection-stub marker/wording wrong (#329)"
   fi
 
+  # 48i (#329): the target-substrate workflow copy (the canonical install source
+  # for onboarded target repos, NOT cmp-locked to the dogfood copy) must carry the
+  # same #329 fix — else targets onboarded post-#329 would install the buggy stub.
+  DPM_TARGETSUB="$SHELL_ROOT/.claude/templates/target-substrate/workflows/dir-mode-post-merge.yml"
+  if [ -f "$DPM_TARGETSUB" ]; then
+    if grep -qF 'reflect-stub pr=#' "$DPM_TARGETSUB" \
+       && ! grep -qF 'will replace this comment' "$DPM_TARGETSUB" \
+       && ! grep -qF 'dedupes across both paths' "$DPM_TARGETSUB"; then
+      ok "48i: target-substrate workflow copy carries the #329 reflect-stub fix (#329)"
+    else
+      ng "48i: target-substrate workflow copy missing the #329 fix (targets would install the bug) (#329)"
+    fi
+  else
+    ng "48i: target-substrate workflow copy not found (#329)"
+  fi
+
   # 48g: every `gh <subcommand>` in the workflow carries --repo (#66 fix).
   # The runner has no checkout step; gh would otherwise read git context from
   # cwd and fail. Lock the --repo flag on every gh invocation. The pattern

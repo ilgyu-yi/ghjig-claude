@@ -16,8 +16,9 @@
 #
 # Defense in depth: the Markdown procedures in .claude/commands/ship.md
 # step 10.5 and .claude/commands/reflect.md remain valid for Claude-in-loop
-# execution. Both paths arrive at the same comment shape; the existing-URL
-# idempotency check prevents duplicates.
+# execution. This workflow's URL check (above) prevents IT from double-posting;
+# /reflect dedupes on the reflect-stub/reflect-enriched content markers and
+# enriches this stub in place rather than no-op'ing on the shared URL (#329).
 
 name: dir-mode-post-merge
 on:
@@ -93,16 +94,17 @@ jobs:
           # path is not accessible from a workflow runner).
           comment=$(cat <<COMMENT
           ## Reflection from PR #${PR} (resolved by hook-enforced post-merge workflow)
+          <!-- reflect-stub pr=#${PR} -->
 
           **PR**: [${PR_TITLE}](${PR_URL}) — merged ${MERGED_AT}
           **Linked Execution Issue**: #${EXEC} (auto-closed)
           **Parent Directive**: #${DIRECTIVE}
 
           ### Audit
-          \`directive-exec-count merged directive=#${DIRECTIVE} pr=#${PR} issue=#${EXEC}\` — recorded by \`.github/workflows/dir-mode-post-merge.yml\` (SPEC §5.7 + §5.15, Directive #61). The Markdown procedures in \`/ship\` step 10.5 and \`/reflect\` remain valid for Claude-in-loop runs; the existing-URL idempotency check dedupes across both paths.
+          \`directive-exec-count merged directive=#${DIRECTIVE} pr=#${PR} issue=#${EXEC}\` — recorded by \`.github/workflows/dir-mode-post-merge.yml\` (SPEC §5.7 + §5.15, Directive #61). This workflow posts the floor once (URL-guarded above); a Claude-in-loop \`/reflect\` enriches it in place, keyed on the \`reflect-stub\`/\`reflect-enriched\` markers (SPEC §5.15).
 
           ### Contribution
-          Auto-generated — see the merged PR body for the substantive narrative. A Claude-in-loop \`/reflect\` invocation can re-run this Action's emission with a richer per-signal evidence block; the existing-URL check will replace this comment's content if the second emission references the same PR URL, OR the second emission will skip per idempotency.
+          Auto-generated stub — the minimal floor. A Claude-in-loop \`/reflect\` run **edits this comment in place** (via the REST comment-update API, PATCH by comment id) with the per-signal block (Contribution + Success signals advanced + Next), swapping the \`reflect-stub\` marker for \`reflect-enriched\` so it runs exactly once. \`/reflect\` keys on those markers, not the PR URL — so it enriches this stub rather than no-op'ing on the shared URL. Absent a \`/reflect\` run, this stub stands.
 
           Posted by \`.github/workflows/dir-mode-post-merge.yml\` on \`pull_request.closed\` (merged=true).
           COMMENT

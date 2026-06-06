@@ -16,8 +16,9 @@
 #
 # Defense in depth: the Markdown procedures in .claude/commands/ship.md
 # step 10.5 and .claude/commands/reflect.md remain valid for Claude-in-loop
-# execution. Both paths arrive at the same comment shape; the existing-URL
-# idempotency check prevents duplicates.
+# execution. This workflow's URL check (above) prevents IT from double-posting;
+# /reflect dedupes on the reflect-stub/reflect-enriched content markers and
+# enriches this stub in place rather than no-op'ing on the shared URL (#329).
 
 name: dir-mode-post-merge
 on:
