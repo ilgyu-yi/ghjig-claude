@@ -81,7 +81,8 @@ _status_cache_write() {
     --arg mode "$STATUS_MODE" \
     --arg shell_root "$STATUS_SHELL_ROOT" \
     --arg state_locality "$STATUS_STATE_LOCALITY" \
-    '{branch:$branch,dirty:$dirty,pr_num:$pr_num,pr_state:$pr_state,pr_title:$pr_title,pr_base:$pr_base,issue_num:$issue_num,issue_title:$issue_title,tasks_done:$tasks_done,tasks_total:$tasks_total,next:$next,phase:$phase,ci:$ci,mode:$mode,shell_root:$shell_root,state_locality:$state_locality}' \
+    --arg work_lang "$STATUS_WORK_LANG" \
+    '{branch:$branch,dirty:$dirty,pr_num:$pr_num,pr_state:$pr_state,pr_title:$pr_title,pr_base:$pr_base,issue_num:$issue_num,issue_title:$issue_title,tasks_done:$tasks_done,tasks_total:$tasks_total,next:$next,phase:$phase,ci:$ci,mode:$mode,shell_root:$shell_root,state_locality:$state_locality,work_lang:$work_lang}' \
     > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
   rm -f "$tmp" 2>/dev/null
 }
@@ -104,6 +105,7 @@ _status_collect() {
   STATUS_MODE=""
   STATUS_SHELL_ROOT=""
   STATUS_STATE_LOCALITY=""
+  STATUS_WORK_LANG=""
 
   # eng_state_dir (hookrt.sh) drives both the cache path and the #318 locality
   # field; defensively source hookrt from the code root when sourced standalone
@@ -111,6 +113,11 @@ _status_collect() {
   command -v eng_state_dir >/dev/null 2>&1 \
     || { [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -f "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
          && . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+  # resolve_work_lang (work_lang.sh, #325) drives the work-lang status field;
+  # defensively source it the same way for standalone callers.
+  command -v resolve_work_lang >/dev/null 2>&1 \
+    || { [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -f "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/work_lang.sh" ] \
+         && . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/work_lang.sh"; }
 
   command -v git >/dev/null 2>&1 || return 0
   STATUS_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -210,6 +217,9 @@ EOF
   local _esd; _esd=$(eng_state_dir 2>/dev/null || true)
   [ -n "$_esd" ] && STATUS_STATE_LOCALITY="project-local" || STATUS_STATE_LOCALITY="legacy-shared"
 
+  # Active work language for durable artifacts (#325, SPEC §5.7.2).
+  STATUS_WORK_LANG=$(resolve_work_lang 2>/dev/null || true)
+
   # Persist the freshly-collected state for the next invocation within
   # the TTL window. Skips silently if we couldn't get a branch (no git
   # repo / empty rev-parse) — no key, no cache.
@@ -252,6 +262,7 @@ status_compact() {
   printf 'mode: %s\n' "$(_status_or_dash "$STATUS_MODE")"
   printf 'shell-root: %s\n' "$(_status_or_dash "$STATUS_SHELL_ROOT")"
   printf 'state: %s\n' "$(_status_or_dash "$STATUS_STATE_LOCALITY")"
+  printf 'work-lang: %s\n' "$(_status_or_dash "$STATUS_WORK_LANG")"
 }
 
 status_json() {
@@ -279,6 +290,7 @@ status_json() {
     --arg mode "$STATUS_MODE" \
     --arg shell_root "$STATUS_SHELL_ROOT" \
     --arg state_locality "$STATUS_STATE_LOCALITY" \
+    --arg work_lang "$STATUS_WORK_LANG" \
     '{
       branch: ($branch | select(. != "") // null),
       dirty: ($dirty == "dirty"),
@@ -298,6 +310,7 @@ status_json() {
       ci: ($ci | select(. != "") // null),
       mode: ($mode | select(. != "") // null),
       shell_root: ($shell_root | select(. != "") // null),
-      state_locality: ($state_locality | select(. != "") // null)
+      state_locality: ($state_locality | select(. != "") // null),
+      work_lang: ($work_lang | select(. != "") // null)
     }'
 }
