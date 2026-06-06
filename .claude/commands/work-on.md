@@ -45,3 +45,6 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default `m
 
    If Phase A isn't ready to commit (e.g. planner output needs more clarification), **defer the PR** — keep the issue + plan in conversation. Don't fall back to an empty seed commit just to open the draft PR; see SPEC §5.3.
 9. Print "ready to start" message. Continue with the next phase (Test).
+
+## Work language
+Author the **commit messages and the PR body** in the **work language** — `resolve_work_lang` (SPEC §5.7.2), not necessarily the conversation language. Before authoring, recast the task context into the work language; your chat replies to the user stay in the communication language. Default (unset) is `en`. Run the context-recast **before Phase A (Doc)** — the Doc/Test/Code artifacts and every commit subject are work-language.

@@ -77,3 +77,6 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 - Closing with `--reason not planned` or `--reason duplicate` (use a separate `gh issue close` invocation with explicit reason + human confirm; the `trusted-filer-mutate` matcher blocks the not-planned case on trusted-filer Issues per SPEC §1.5).
 - Closing without the closing comment (step 5) — the comment is the canonical evidence record.
 - Writing to the Project Item directly — the mirror handles the Status field.
+
+## Work language
+Author the **closing comment** (the per-signal evidence record) in the **work language** — `resolve_work_lang` (SPEC §5.7.2), not necessarily the conversation language. Before authoring, recast the task context into the work language; your chat replies to the user stay in the communication language. Default (unset) is `en`.

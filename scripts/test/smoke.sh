@@ -7824,6 +7824,27 @@ else
 fi
 rm -rf "$WL_TMP"
 
+# ---------- 87. artifact-authoring skills carry the work-language note (EI-3, #327) ----------
+# SPEC §5.7.2: each artifact-authoring skill carries a `## Work language` note so
+# the instruction reaches the agent at the authoring moment (skills-as-environment).
+# Grep-lock with a count-guard (must be exactly 5) — an empty/short match set fails
+# (anti-vacuity, smoke.sh:20 discipline). Prose-language compliance is review-judged.
+WL87_SKILLS="file-issue file-directive work-on ship complete-directive"
+wl87_n=0
+for s in $WL87_SKILLS; do
+  f="$SHELL_ROOT/.claude/commands/$s.md"
+  if [ -f "$f" ] && grep -q '## Work language' "$f" && grep -q 'resolve_work_lang' "$f"; then
+    wl87_n=$((wl87_n + 1))
+  else
+    ng "87: $s.md missing the work-language note (#327)"
+  fi
+done
+if [ "$wl87_n" = 5 ]; then
+  ok "87: all 5 artifact-authoring skills carry the work-language note (count-guard, #327)"
+else
+  ng "87: expected 5 skills with work-language note, got $wl87_n (#327)"
+fi
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
