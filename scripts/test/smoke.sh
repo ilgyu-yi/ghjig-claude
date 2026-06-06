@@ -7886,6 +7886,59 @@ else
   ng "87: expected 5 skills with work-language note, got $wl87_n (#327)"
 fi
 
+# ---------- 88. bin/claude-eng binding-health check (#334) ----------
+# An injected target (settings.local.json is a symlink) whose .claude/eng-shell-root
+# binding is missing/dangling silently no-ops all hooks; bin/claude-eng warns at
+# launch (the detector the #318-removed SessionStart banner structurally couldn't
+# be). Tested against a fake shell root + a stub `claude` on PATH so the tail
+# `exec claude` returns 0 instead of launching the real CLI; targets are registered
+# in the fake legacy registry so the unregistered-prompt is skipped (no hang).
+S88_FAKE=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$S88_FAKE/bin" "$S88_FAKE/.claude/hooks" "$S88_FAKE/.claude/state" "$S88_FAKE/workspace"
+cp "$SHELL_ROOT/bin/claude-eng" "$S88_FAKE/bin/claude-eng"; chmod +x "$S88_FAKE/bin/claude-eng"
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$S88_FAKE/.claude/hooks/hookrt.sh"
+S88_STUB=$(cd "$(mktemp -d)" && pwd -P); printf '#!/usr/bin/env bash\nexit 0\n' > "$S88_STUB/claude"; chmod +x "$S88_STUB/claude"
+S88_VALIDROOT=$(cd "$(mktemp -d)" && pwd -P)   # a real dir for a healthy binding to point at
+# shellcheck disable=SC2069  # intentional swap: capture stderr (the warning), discard stdout (same pattern as hook_run)
+s88_run() { ( cd "$S88_FAKE" || exit; PATH="$S88_STUB:$PATH" "$S88_FAKE/bin/claude-eng" "$1" 2>&1 >/dev/null ); }
+s88_reg() { printf '%s\n' "$1" >> "$S88_FAKE/.claude/state/registry.txt"; }   # pre-register → skip prompt
+
+# 88a: injected (settings.local.json symlink) + MISSING eng-shell-root → warn.
+S88_A=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_A/.claude"
+ln -sfn /dev/null "$S88_A/.claude/settings.local.json"
+s88_reg "$S88_A"
+printf '%s' "$(s88_run "$S88_A")" | grep -q 'WARN binding-health' \
+  && ok "88a: injected + missing binding → warn (#334)" \
+  || ng "88a: should warn on missing binding (#334)"
+
+# 88b: injected + HEALTHY eng-shell-root (resolves) → silent.
+S88_B=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_B/.claude"
+ln -sfn /dev/null "$S88_B/.claude/settings.local.json"
+ln -sfn "$S88_VALIDROOT" "$S88_B/.claude/eng-shell-root"
+s88_reg "$S88_B"
+printf '%s' "$(s88_run "$S88_B")" | grep -q 'WARN binding-health' \
+  && ng "88b: healthy binding should be silent (#334)" \
+  || ok "88b: injected + healthy binding → silent (#334)"
+
+# 88c: NOT injected (no settings.local.json symlink) → silent.
+S88_C=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_C/.claude"
+s88_reg "$S88_C"
+printf '%s' "$(s88_run "$S88_C")" | grep -q 'WARN binding-health' \
+  && ng "88c: non-injected should be silent (#334)" \
+  || ok "88c: non-injected dir → silent (#334)"
+
+# 88d: injected + DANGLING eng-shell-root (symlink to a missing target) → warn
+# (the subtle half of `! -e`, which follows the link).
+S88_D=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_D/.claude"
+ln -sfn /dev/null "$S88_D/.claude/settings.local.json"
+ln -sfn "$S88_D/.claude/nonexistent-binding-target-$$" "$S88_D/.claude/eng-shell-root"
+s88_reg "$S88_D"
+printf '%s' "$(s88_run "$S88_D")" | grep -q 'WARN binding-health' \
+  && ok "88d: injected + dangling binding → warn (#334)" \
+  || ng "88d: should warn on dangling binding (#334)"
+
+rm -rf "$S88_FAKE" "$S88_STUB" "$S88_VALIDROOT" "$S88_A" "$S88_B" "$S88_C" "$S88_D"
+
 # ---------- restore registry ----------
 if [ -n "$ORIG_REG_BAK" ]; then
   mv "$ORIG_REG_BAK" "$ORIG_REG"
