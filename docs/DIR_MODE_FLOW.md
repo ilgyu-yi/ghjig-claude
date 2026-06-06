@@ -36,7 +36,7 @@ The `initiative-readonly` hook matcher blocks `gh issue edit/close/reopen` on an
 | `/block-directive <N> --reason '<why>'` | Annotation-only block | — (no body change) | Active → Blocked |
 | `/revise-directive <N>` | Replace Directive body in place | `activation-reviewer` (new body) | (no Status flip) |
 | `/complete-directive <N>` | Close Directive as Completed | `activation-reviewer` (evidence sufficiency) | Active → Completed |
-| `/reflect [<pr-#>]` | Post per-signal reflection on parent Directive | — (idempotent on URL match) | — |
+| `/reflect [<pr-#>]` | Post per-signal reflection on parent Directive | — (marker-keyed: enriches the workflow stub in place; no-op once enriched, #329) | — |
 
 ## Operating mode coupling
 
