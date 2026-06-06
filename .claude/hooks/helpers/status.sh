@@ -79,7 +79,9 @@ _status_cache_write() {
     --arg phase "$STATUS_PHASE" \
     --arg ci "$STATUS_CI" \
     --arg mode "$STATUS_MODE" \
-    '{branch:$branch,dirty:$dirty,pr_num:$pr_num,pr_state:$pr_state,pr_title:$pr_title,pr_base:$pr_base,issue_num:$issue_num,issue_title:$issue_title,tasks_done:$tasks_done,tasks_total:$tasks_total,next:$next,phase:$phase,ci:$ci,mode:$mode}' \
+    --arg shell_root "$STATUS_SHELL_ROOT" \
+    --arg state_locality "$STATUS_STATE_LOCALITY" \
+    '{branch:$branch,dirty:$dirty,pr_num:$pr_num,pr_state:$pr_state,pr_title:$pr_title,pr_base:$pr_base,issue_num:$issue_num,issue_title:$issue_title,tasks_done:$tasks_done,tasks_total:$tasks_total,next:$next,phase:$phase,ci:$ci,mode:$mode,shell_root:$shell_root,state_locality:$state_locality}' \
     > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
   rm -f "$tmp" 2>/dev/null
 }
@@ -100,6 +102,15 @@ _status_collect() {
   STATUS_PHASE=""
   STATUS_CI=""
   STATUS_MODE=""
+  STATUS_SHELL_ROOT=""
+  STATUS_STATE_LOCALITY=""
+
+  # eng_state_dir (hookrt.sh) drives both the cache path and the #318 locality
+  # field; defensively source hookrt from the code root when sourced standalone
+  # (e.g. smoke §13) so the resolver is present, mirroring the other helper libs.
+  command -v eng_state_dir >/dev/null 2>&1 \
+    || { [ -n "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -f "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
 
   command -v git >/dev/null 2>&1 || return 0
   STATUS_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -188,6 +199,17 @@ EOF
     STATUS_MODE=$(resolve_mode 2>/dev/null)
   fi
 
+  # Bound canonical root + ephemeral-state locality (#318, SPEC §5.5). Bound
+  # root = the back-filled env (§3.2.1), else the project's binding symlink
+  # target. Locality = project-local when eng_state_dir resolves (hook context),
+  # else legacy-shared — surfaces the §1.7 shared-code/per-project-state model.
+  STATUS_SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-}"
+  if [ -z "$STATUS_SHELL_ROOT" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    STATUS_SHELL_ROOT=$(readlink "$CLAUDE_PROJECT_DIR/.claude/eng-shell-root" 2>/dev/null || true)
+  fi
+  local _esd; _esd=$(eng_state_dir 2>/dev/null || true)
+  [ -n "$_esd" ] && STATUS_STATE_LOCALITY="project-local" || STATUS_STATE_LOCALITY="legacy-shared"
+
   # Persist the freshly-collected state for the next invocation within
   # the TTL window. Skips silently if we couldn't get a branch (no git
   # repo / empty rev-parse) — no key, no cache.
@@ -228,6 +250,8 @@ status_compact() {
   printf 'phase: %s\n' "$(_status_or_dash "$STATUS_PHASE")"
   printf 'next: %s\n' "$(_status_or_dash "$STATUS_NEXT")"
   printf 'mode: %s\n' "$(_status_or_dash "$STATUS_MODE")"
+  printf 'shell-root: %s\n' "$(_status_or_dash "$STATUS_SHELL_ROOT")"
+  printf 'state: %s\n' "$(_status_or_dash "$STATUS_STATE_LOCALITY")"
 }
 
 status_json() {
@@ -253,6 +277,8 @@ status_json() {
     --arg phase "$STATUS_PHASE" \
     --arg ci "$STATUS_CI" \
     --arg mode "$STATUS_MODE" \
+    --arg shell_root "$STATUS_SHELL_ROOT" \
+    --arg state_locality "$STATUS_STATE_LOCALITY" \
     '{
       branch: ($branch | select(. != "") // null),
       dirty: ($dirty == "dirty"),
@@ -270,6 +296,8 @@ status_json() {
       next: ($next_item | select(. != "") // null),
       phase: ($phase | select(. != "") // null),
       ci: ($ci | select(. != "") // null),
-      mode: ($mode | select(. != "") // null)
+      mode: ($mode | select(. != "") // null),
+      shell_root: ($shell_root | select(. != "") // null),
+      state_locality: ($state_locality | select(. != "") // null)
     }'
 }

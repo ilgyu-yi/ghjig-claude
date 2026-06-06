@@ -1,29 +1,14 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# 0) Inject-consistency banner — runs even when CLAUDE_ENG_SHELL_ROOT is
-# unset, so it must precede the env-guard below. Trigger: env empty AND
-# this cwd's .claude/settings.local.json is a symlink (the canonical
-# "shell was injected" marker; the only place that symlink shape is
-# created is scripts/lib/inject.sh). In that state every other hook
-# silently exits 0, which evaporates the SPEC §0.1 enforcement guarantee
-# with no signal. The banner makes the silence visible. SPEC §6.5(c).
-#
-# Debounce: one stamp file under $TMPDIR keyed on CLAUDE_SESSION_ID
-# (set by Claude Code) with $PPID as the same-session fallback. Stamp
-# is touched once; subsequent SessionStart calls within the same
-# session skip the banner. A PID-recycle miss costs at most one
-# undetected mis-invocation, strictly better than the prior silent-no-op.
-if [ -z "${CLAUDE_ENG_SHELL_ROOT:-}" ] && [ -L "$PWD/.claude/settings.local.json" ]; then
-  # Stamp is a directory created via mkdir, not a file via `: >`. mkdir is
-  # atomic and refuses to follow symlinks, so a hostile $TMPDIR cannot
-  # redirect the truncate to a victim-owned file. Predictable-name race
-  # is reduced to "attacker may suppress the banner" — security-neutral.
-  _banner_stamp="${TMPDIR:-/tmp}/claude-eng-banner.${CLAUDE_SESSION_ID:-$PPID}"
-  if [ ! -d "$_banner_stamp" ] && mkdir "$_banner_stamp" 2>/dev/null; then
-    printf "[claude-eng-shell] WARN inject-consistency: shell injected here but CLAUDE_ENG_SHELL_ROOT is unset — every hook will silently no-op. Fix: invoke 'claude-eng' instead of 'claude', OR 'export CLAUDE_ENG_SHELL_ROOT=<shell repo path>' before launching.\n" >&2
-  fi
-fi
+# The inject-consistency banner was removed in #318 (Directive #311). Post-#312 a
+# plain `claude` in an injected target (env unset + settings.local.json symlink)
+# is the NORMAL working state — hooks self-locate via the binding symlink and the
+# env is back-filled below — so the old banner only false-fired. The residual
+# genuine no-op (binding symlink missing/broken) is structurally undetectable
+# here: this hook is itself invoked through that binding
+# (${CLAUDE_PROJECT_DIR}/.claude/eng-shell-root/...), so a broken binding means
+# this script never runs. See SPEC §6.5(c). The hookrt-missing banner below stays.
 
 SHELL_ROOT="${CLAUDE_ENG_SHELL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0

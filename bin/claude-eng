@@ -21,6 +21,34 @@ if [ "${1:-}" = "--version" ]; then
   exit 1
 fi
 
+# `list` subcommand (#318, Directive #311): print the registered target projects,
+# one resolved physical path per line, then exit 0. Like --version it runs BEFORE
+# the cwd registry guard, so it works from any cwd, and has no side effects.
+# Advisory enumeration — post-#316 the registry is self-describing per-project
+# (SPEC §3.2.2), so there is no authoritative global index. Union two sources,
+# dedup by resolved path: (1) workspace/* symlink targets (skip dangling), (2) the
+# legacy shared registry. A target without a workspace symlink is invisible here
+# by design (SPEC §3.5).
+if [ "${1:-}" = "list" ]; then
+  {
+    if [ -d "$CLAUDE_ENG_SHELL_ROOT/workspace" ]; then
+      for ws in "$CLAUDE_ENG_SHELL_ROOT/workspace"/*; do
+        [ -e "$ws" ] || continue                  # -e follows the link → skips dangling / empty glob
+        ( cd "$ws" 2>/dev/null && pwd -P ) || true
+      done
+    fi
+    legacy="$CLAUDE_ENG_SHELL_ROOT/.claude/state/registry.txt"
+    if [ -f "$legacy" ]; then
+      while IFS= read -r entry; do
+        [ -z "$entry" ] && continue
+        case "$entry" in \#*) continue ;; esac    # skip comments
+        printf '%s\n' "${entry%/}"
+      done < "$legacy"
+    fi
+  } | awk 'NF && !seen[$0]++'                      # drop blanks, dedup by resolved path
+  exit 0
+fi
+
 # If the first arg is a directory, check if it's registered; offer to register if not.
 if [ $# -gt 0 ] && [ -d "$1" ]; then
   target_path=$(cd "$1" && pwd -P)
