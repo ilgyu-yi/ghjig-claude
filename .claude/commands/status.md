@@ -12,5 +12,7 @@ Compact-mode output (one line each, `-` for missing):
 - `phase:` inferred from the next unchecked checklist item (Doc / Test / Code / Review / Ship)
 - `next:` first unchecked checklist item
 - `mode:` attended / unattended via `ship_mode.sh::resolve_mode`
+- `shell-root:` the bound canonical shell root this project resolves to (#318, the §1.7 shared-code model)
+- `state:` ephemeral-state locality — `project-local` (`$CLAUDE_PROJECT_DIR/.claude/eng-state`) or `legacy-shared` (#318)
 
 For diff-friendly machine output: `status_json` instead.
