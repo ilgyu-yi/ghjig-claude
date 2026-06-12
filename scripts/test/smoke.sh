@@ -5838,6 +5838,33 @@ else
   ng "57i: unexpected Parent Initiative reference in reflect/post-merge:$s57i_hits (#262)"
 fi
 
+# 57j: dir-mode Project field is named off the Projects-v2 RESERVED name (#342).
+# GitHub promoted `Type` to a built-in reserved Projects-v2 field name, so
+# `gh project field-create --name Type` now fails ("Name cannot have a reserved
+# value"), breaking tier-3 onboarding. The field must use a non-reserved name
+# (`Item Type`). Assert across the field-creator (setup_project.sh) AND both
+# byte-identical mirror copies: the new name is present and the bare reserved
+# token is absent. (Disambiguated from the issue-`type` label and the
+# `type_val`/`TYPE_VAL` derivation variables, which are a separate concept.)
+s57j_bad=""
+SP_SCRIPT_57j="$SHELL_ROOT/scripts/setup_project.sh"
+if grep -q 'ensure_field "Item Type"' "$SP_SCRIPT_57j" 2>/dev/null; then :; else
+  s57j_bad="$s57j_bad setup_project:item-type-missing"; fi
+if grep -q 'ensure_field "Type"' "$SP_SCRIPT_57j" 2>/dev/null; then
+  s57j_bad="$s57j_bad setup_project:reserved-Type-present"; fi
+for wf in "$MIRROR_WF" "$MIRROR_TMPL"; do
+  [ -f "$wf" ] || { s57j_bad="$s57j_bad MISSING:${wf##*/}"; continue; }
+  if grep -q 'field_id "Item Type"' "$wf" 2>/dev/null; then :; else
+    s57j_bad="$s57j_bad ${wf##*/}:item-type-missing"; fi
+  if grep -q 'field_id "Type"' "$wf" 2>/dev/null; then
+    s57j_bad="$s57j_bad ${wf##*/}:reserved-Type-present"; fi
+done
+if [ -z "$s57j_bad" ]; then
+  ok "57j: dir-mode Project field uses non-reserved name 'Item Type' (#342)"
+else
+  ng "57j: reserved/renamed Project field-name issues:$s57j_bad (#342)"
+fi
+
 # ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
 # Cluster E (commands) + F (activation-reviewer) + G (setup_project.sh) + H
 # (SPEC §1.7/§2.1/§5.10-§5.18). Structural sanity for the
