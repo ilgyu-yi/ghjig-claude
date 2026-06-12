@@ -157,9 +157,14 @@ else
   echo "  copied ISSUE_TEMPLATE + workflow files (incl. resolver helper) into $TARGET_GITHUB/"
 fi
 
-# Open a PR if there are changes. Idempotent: skip if no diff.
+# Open a PR if there are changes. Idempotent: skip if nothing to install.
+# Use `git status --porcelain` (not `git diff --quiet`): on a greenfield target
+# the freshly-copied .github/ is UNTRACKED, and `git diff` is blind to untracked
+# paths — it would report "no changes" and skip the PR, never installing the
+# substrate (#343). `status --porcelain` sees untracked + modified + staged and
+# is read-only on the index. Empty output => genuinely nothing to install.
 if [ -z "$DRY_RUN" ]; then
-  if git -C "$(pwd)" diff --quiet -- .github/; then
+  if [ -z "$(git -C "$(pwd)" status --porcelain -- .github/)" ]; then
     echo "onboard_target: tier 3 files already match canonical-source (no PR needed; idempotent)"
   else
     BRANCH="onboard-dir-mode-substrate"
