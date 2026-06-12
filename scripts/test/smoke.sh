@@ -6442,6 +6442,47 @@ else
   ng "63i: SPEC §1.7 tier-3 workflow brace-list omits check-changelog (doc-vs-shipped drift) (#190)"
 fi
 
+# §63j: tier-3 onboard change-detection must see UNTRACKED .github (#343). On a
+# greenfield target the freshly-copied substrate is untracked; `git diff --quiet
+# -- .github/` is blind to untracked paths (returns 0 = "no changes"), so the
+# tier-3 PR-creation branch was skipped and the substrate never installed. The
+# fix swaps the predicate to `git status --porcelain -- .github/` (non-empty =>
+# changes), which sees untracked + modified + staged and is read-only on the
+# index. Two-part guard: (a) a live throwaway-repo truth table proving porcelain
+# sees untracked where diff --quiet does not, and that a clean tracked tree is
+# empty (idempotent skip preserved); (b) the script source uses the porcelain
+# gate and no longer carries the bare `diff --quiet -- .github/` predicate.
+s63j_tmp=$(mktemp -d)
+(
+  cd "$s63j_tmp" || exit 9
+  git init -q || exit 9
+  git config user.email smoke@example.com; git config user.name smoke
+  # Disable commit signing: a user's global commit.gpgsign=true would otherwise
+  # make these throwaway commits fail (no signing key in the smoke context).
+  git config commit.gpgsign false
+  git commit --allow-empty -q -m init || exit 9
+  mkdir -p .github/workflows
+  printf 'x\n' > .github/workflows/probe.yml
+  # Untracked .github/: porcelain MUST report it; diff --quiet MUST NOT (the bug).
+  [ -n "$(git status --porcelain -- .github/)" ] || exit 1
+  git diff --quiet -- .github/ || exit 2   # exit 2 only if diff DID see it (it shouldn't)
+  # Already-onboarded (committed) .github/: porcelain MUST be empty (idempotent skip).
+  git add .github/ && git commit -q -m onboard || exit 9
+  [ -z "$(git status --porcelain -- .github/)" ] || exit 3
+  exit 0
+)
+s63j_git_rc=$?
+rm -rf "$s63j_tmp"
+s63j_src_bad=""
+s63j_ot="$SHELL_ROOT/scripts/onboard_target.sh"
+grep -q 'status --porcelain -- .github/' "$s63j_ot" 2>/dev/null || s63j_src_bad="$s63j_src_bad porcelain-gate-missing"
+grep -q 'diff --quiet -- .github/' "$s63j_ot" 2>/dev/null && s63j_src_bad="$s63j_src_bad bare-diff-quiet-present"
+if [ "$s63j_git_rc" = 0 ] && [ -z "$s63j_src_bad" ]; then
+  ok "63j: tier-3 onboard detects untracked .github via status --porcelain (#343)"
+else
+  ng "63j: untracked-.github detection regression: git_rc=$s63j_git_rc src=[${s63j_src_bad:-ok}] (#343)"
+fi
+
 # ---------- 64. version surface (#123 / Directive #122) ----------
 # 64a — VERSION file is exactly one non-empty line (semver 0.x format
 # locked by Directive #122 constraint #1; no comments, no trailing
