@@ -10,7 +10,7 @@ name: issues-to-project-mirror
 # if it doesn't exist yet).
 #
 # Mirrored fields:
-#   - Type      ← `directive` label → Directive; else → Execution
+#   - Item Type ← `directive` label → Directive; else → Execution
 #   - Status    ← labels + open/closed → Proposed | Active | Blocked | Completed
 #                 (v3 4-state lifecycle; Revised dropped per Decision 7)
 #   - Priority  ← P0 / P1 / P2 / P3 label
@@ -175,8 +175,8 @@ jobs:
 
           # Write each mirrored field. Each call is best-effort; a failure
           # on one field doesn't abort the others.
-          type_field_id=$(field_id "Type")
-          type_opt_id=$(option_id "Type" "$TYPE_VAL")
+          type_field_id=$(field_id "Item Type")
+          type_opt_id=$(option_id "Item Type" "$TYPE_VAL")
           if [ -n "$type_field_id" ] && [ -n "$type_opt_id" ]; then
             gh project item-edit --id "$item_id" --project-id "$project_id" \
               --field-id "$type_field_id" --single-select-option-id "$type_opt_id" >/dev/null 2>&1 || true

@@ -112,10 +112,13 @@ ensure_field() {
   audit_log info project-setup created "field: $name ($data_type)" 2>/dev/null || true
 }
 
-ensure_field "Type"     SINGLE_SELECT "Directive,Execution"
-ensure_field "Status"   SINGLE_SELECT "Proposed,Active,Blocked,Completed"
-ensure_field "Priority" SINGLE_SELECT "P0,P1,P2,P3"
-ensure_field "Parent"   TEXT
+# Field is named "Item Type" (not "Type"): GitHub reserves "Type" as a
+# built-in Projects-v2 field name, so `field-create --name Type` fails with
+# "Name cannot have a reserved value" (#342).
+ensure_field "Item Type" SINGLE_SELECT "Directive,Execution"
+ensure_field "Status"    SINGLE_SELECT "Proposed,Active,Blocked,Completed"
+ensure_field "Priority"  SINGLE_SELECT "P0,P1,P2,P3"
+ensure_field "Parent"    TEXT
 # Confidence and Success Signals live in the Issue body, not Project fields.
 # Confidence + Success Signals content lives in Directive Issue body sections.
 # Goal Type option removed; MISSION.md is the canonical direction.

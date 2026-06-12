@@ -3471,7 +3471,7 @@ else
     sp41a_proj_create=$( { grep -c 'project create' "$SP_DIR/gh.log" 2>/dev/null; } || true)
     : "${sp41a_creates:=0}"
     : "${sp41a_proj_create:=0}"
-    # Schema: 4 CLI-managed fields (Type / Status / Priority / Parent).
+    # Schema: 4 CLI-managed fields (Item Type / Status / Priority / Parent).
     # Goal Type option removed; Confidence + Success Signals fields removed.
     # Iteration stays user-managed.
     if [ "$sp41a_proj_create" -ge 1 ] && [ "$sp41a_creates" = 4 ]; then
@@ -3549,9 +3549,9 @@ else
     # Status pre-seeded with GitHub-default options (Todo, In Progress, Done);
     # declared v3 set is (Proposed, Active, Blocked, Completed). Expect: one
     # `gh api graphql` mutation whose payload UNIONS the 3 defaults with the
-    # 4 v3 declared options = 7 total names. (Type field carries the legacy
-    # Goal,Directive,Execution from a v0 substrate — v3 declares only
-    # Directive,Execution, which is a subset; no Type reconcile fires.)
+    # 4 v3 declared options = 7 total names. (Item Type field carries the
+    # legacy Goal,Directive,Execution from a v0 substrate — v3 declares only
+    # Directive,Execution, which is a subset; no Item Type reconcile fires.)
     SP_DIR2=$(mktemp -d)
     SP_TARGET2="$SP_DIR2/target"
     mkdir -p "$SP_TARGET2"
@@ -3564,9 +3564,10 @@ else
     # Success_Signals) so we cover the v0→v3 migration case where they exist
     # but are no longer declared. setup_project.sh skips fields it doesn't
     # declare (no destructive delete; cluster I's migration handles deletion).
-    for f in Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR2/fields/$f"; done
-    # Pre-seed v0 Type option set; v3 declared is subset — no Type reconcile.
-    printf 'Goal,Directive,Execution\n' > "$SP_DIR2/options/Type"
+    for f in Item_Type Status Priority Parent Confidence Success_Signals; do touch "$SP_DIR2/fields/$f"; done
+    # Pre-seed v0 Item Type option set; v3 declared is subset — no reconcile.
+    # (Mock encodes the spaced name "Item Type" as the basename "Item_Type".)
+    printf 'Goal,Directive,Execution\n' > "$SP_DIR2/options/Item_Type"
     printf 'Todo,In Progress,Done\n'    > "$SP_DIR2/options/Status"
     printf 'P0,P1,P2,P3\n'              > "$SP_DIR2/options/Priority"
     (
@@ -3619,8 +3620,8 @@ else
     printf '%s\n' "$SP_TARGET3" >> "$SP_REGISTRY"
     mkdir -p "$SP_DIR3/fields" "$SP_DIR3/options"
     touch "$SP_DIR3/project-created"
-    for f in Type Status Priority Parent; do touch "$SP_DIR3/fields/$f"; done
-    printf 'Directive,Execution\n'                        > "$SP_DIR3/options/Type"
+    for f in Item_Type Status Priority Parent; do touch "$SP_DIR3/fields/$f"; done
+    printf 'Directive,Execution\n'                        > "$SP_DIR3/options/Item_Type"
     printf 'Proposed,Active,Blocked,Completed\n'          > "$SP_DIR3/options/Status"
     printf 'P0,P1,P2,P3\n'                                > "$SP_DIR3/options/Priority"
     (
