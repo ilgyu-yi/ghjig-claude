@@ -8493,7 +8493,11 @@ rm -rf "$S90G_DIR"
 S91_FAIL=""
 for d in "$SHELL_ROOT"/docs/*.md; do
   [ -f "$d" ] || continue
-  if grep -v '^[[:space:]]*$' "$d" | head -2 | grep -q 'SPEC'; then
+  # First two non-empty lines (title + lead-in). awk reads the file directly and
+  # exits after 2 — no `... | head` pipe (which would SIGPIPE the upstream under
+  # `set -o pipefail` and fail nondeterministically by file size, GNU vs BSD).
+  s91_lead=$(awk 'NF{n++; print; if(n==2) exit}' "$d")
+  if [[ "$s91_lead" == *SPEC* ]]; then
     : # leads with a SPEC reference — compliant
   else
     S91_FAIL="$S91_FAIL ${d##*/}"
