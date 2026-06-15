@@ -8354,6 +8354,60 @@ else
   rm -f "$SHELL_ROOT/.claude/state/registry.txt"
 fi
 
+# ---------- §89 (#346): /changelog skill + /ship changelog gate + §18.5 distinction ----------
+S89_SKILL="$SHELL_ROOT/.claude/commands/changelog.md"
+S89_SHIP="$SHELL_ROOT/.claude/commands/ship.md"
+S89_SPEC="$SHELL_ROOT/SPEC.md"
+
+# 89a: the /changelog skill file exists with a `description:` front-matter line.
+if [ -f "$S89_SKILL" ] && grep -qE '^description:' "$S89_SKILL"; then
+  ok "89a: .claude/commands/changelog.md exists with description front matter (#346)"
+else
+  ng "89a: .claude/commands/changelog.md missing or lacks description front matter (#346)"
+fi
+
+# 89b: the skill carries a Work-language note (it authors a durable artifact — the fragment).
+grep -qi 'work language' "$S89_SKILL" 2>/dev/null \
+  && ok "89b: changelog.md carries the Work-language note (#346)" \
+  || ng "89b: changelog.md lacks the Work-language note (#346)"
+
+# 89c: the skill states validation-delegation — authoring, not a re-validating lint surface (§18.5).
+grep -qiE 'delegat.*validation|does not re-?implement|not a .*lint|not a .*check surface' "$S89_SKILL" 2>/dev/null \
+  && ok "89c: changelog.md states it delegates validation (authoring, not lint) (#346)" \
+  || ng "89c: changelog.md must state it delegates validation to CI, not re-validate (#346)"
+
+# 89d: the skill names BOTH outcomes — write a fragment XOR apply skip-changelog.
+if grep -q 'changelog_unreleased' "$S89_SKILL" 2>/dev/null && grep -q 'skip-changelog' "$S89_SKILL" 2>/dev/null; then
+  ok "89d: changelog.md offers both fragment-write and skip-changelog outcomes (#346)"
+else
+  ng "89d: changelog.md must offer fragment-write XOR skip-changelog (#346)"
+fi
+
+# 89e: /ship carries the pre-ready changelog gate, ordered BEFORE `gh pr ready`.
+if grep -q 'skip-changelog' "$S89_SHIP" 2>/dev/null && grep -q 'gh pr ready' "$S89_SHIP" 2>/dev/null; then
+  s89_gate=$(grep -nE 'skip-changelog' "$S89_SHIP" | head -1 | cut -d: -f1)
+  s89_ready=$(grep -nE 'gh pr ready' "$S89_SHIP" | tail -1 | cut -d: -f1)
+  if [ -n "$s89_gate" ] && [ -n "$s89_ready" ] && [ "$s89_gate" -lt "$s89_ready" ]; then
+    ok "89e: ship.md changelog gate precedes gh pr ready (#346)"
+  else
+    ng "89e: ship.md changelog gate must precede gh pr ready (#346)"
+  fi
+else
+  ng "89e: ship.md lacks the pre-ready changelog gate (skip-changelog) (#346)"
+fi
+
+# 89f: SPEC §18.5 distinguishes the forbidden lint skill from the sanctioned authoring affordance.
+if grep -qE 'changelog-check.*lint' "$S89_SPEC" && grep -q 'authoring affordance' "$S89_SPEC"; then
+  ok "89f: SPEC §18.5 distinguishes lint vs authoring (#346)"
+else
+  ng "89f: SPEC §18.5 must distinguish the forbidden lint skill from the authoring affordance (#346)"
+fi
+
+# 89g: SPEC §18.7 skip-criterion clause exists as the SSOT.
+grep -q '18.7 Skip criterion' "$S89_SPEC" \
+  && ok "89g: SPEC §18.7 skip-criterion clause present (#346)" \
+  || ng "89g: SPEC §18.7 skip-criterion clause missing (#346)"
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
