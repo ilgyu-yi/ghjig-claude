@@ -10,6 +10,7 @@ Report in order:
 2. **Permission check**: `gh repo view --json viewerPermission`. If push permission (`ADMIN`/`MAINTAIN`/`WRITE`) is missing, advise and stop.
 3. **Target SSOT check**: one line per file:
    - `MISSION.md` (absent → strong warning + draft proposal based on `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/mission.md`)
+   - `SPEC.md` — the project's behavioural contract (SPEC §1.3, the frequently-consulted pair with MISSION). Required **once the project has an external contract** (CLI/API/schema/protocol); a project with no external surface yet legitimately has none. Absent **and** the project has an external contract → warn + draft proposal based on `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/spec.md` (a lightweight scaffold — the shell never authors the contract content). The ToC-freshness CI gate (`check-toc.yml`) ships with the tier-3 dir-mode substrate (`/onboard-dir-mode`).
    - `README.md`
    - `CLAUDE.md`
    - `docs/ARCHITECTURE.md`
