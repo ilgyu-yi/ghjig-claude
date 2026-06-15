@@ -36,9 +36,11 @@ That is the entire contract. No YAML frontmatter. No multi-paragraph prose. No n
 
 ## Skipping
 
-A PR with no observable end-user behavior change — pure docs-fix typo, dependency-only chore, internal refactor — may apply the `skip-changelog` label to the PR instead of adding a fragment. PRs that take this path produce no fragment and do not appear in the eventual `CHANGELOG.md` section.
+A PR with no user- or adopter-observable change — an internal refactor with unchanged behavior, test-only, a `chore`/`build`/`ci` change, `style`, or a docs-internal edit that changes no contract — applies the `skip-changelog` label to the PR instead of adding a fragment. When in doubt, write the fragment: a redundant one-line entry is cheaper than a silently missing one. PRs that take the skip path produce no fragment and do not appear in the eventual `CHANGELOG.md` section.
+
+The fragment-or-skip decision can be made in-flow by the `/changelog` skill; the authoritative criterion is the skip-criterion clause of this project's SPEC ("Release backbone").
 
 ## See also
 
-- The release-backbone contract in this project's SPEC, section "Release backbone".
+- The release-backbone contract in this project's SPEC, section "Release backbone" (fragment contract + skip criterion).
 - `CHANGELOG.md` at the repo root for the consolidated history.
