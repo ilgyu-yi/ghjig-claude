@@ -1,5 +1,7 @@
 # Configuration toggles
 
+Full details in [SPEC.md](../SPEC.md) — the per-knob behavior is specified in the SPEC sections linked from the table below (e.g. mode in SPEC §5.7.1, per-project state in SPEC §3.2). This page is the user-facing catalog, not a second source.
+
 All optional. Per-target state files live under `.claude/state/` (gitignored); env vars take priority when set.
 
 This table is the user-facing catalog for the shell's environment-variable and state-file knobs, kept in sync with the implementation under the Active SSOT-maintenance principle (SPEC §1.3): every env var documented elsewhere in the shell also appears here.

@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Full details in [SPEC.md §6](../SPEC.md) (hook enforcement) and [SPEC.md §7](../SPEC.md) (escape hatch); see also [ESCAPE_HATCH.md](ESCAPE_HATCH.md). This page is a symptom→fix index, not a second source.
+
 Common blocks and how to resolve them.
 
 > **Escaping in-harness:** inside the Claude Code Bash tool, use the **trailing sentinel** — `<command>  # claude-eng:skip=<category> reason=<why>` — not the leading `SKIP_HOOKS=… SKIP_REASON=… <command>` form shown in the Fix column below. The harness consumes a leading `VAR=val` as the subprocess's environment, so it never reaches the hook (#206); the leading form works only in a real shell or the smoke harness. The leading form wins if both are present. See [ESCAPE_HATCH.md](ESCAPE_HATCH.md) / SPEC §7.
