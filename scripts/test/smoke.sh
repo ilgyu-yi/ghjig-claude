@@ -5338,6 +5338,15 @@ else
   ng "54f: ensure_v3_labels.sh label set wrong (need execution + awaiting-author + P0-P3, no needs-triage) (#93/#172/#179/#185/#186)"
 fi
 
+# 54k (#359): ensure_v3_labels.sh creates the two initiative-feedback projection
+# labels the initiative-feedback-label workflow applies.
+if grep -q "ensure_label \"initiative:challenged\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh" \
+   && grep -q "ensure_label \"initiative:completion-requested\"" "$SHELL_ROOT/scripts/ensure_v3_labels.sh"; then
+  ok "54k: ensure_v3_labels.sh creates initiative:challenged + initiative:completion-requested (#359)"
+else
+  ng "54k: ensure_v3_labels.sh missing the initiative-feedback projection labels (#359)"
+fi
+
 # 54h: auto-clear-awaiting-author workflow (#180) — fires on issues.edited, removes
 # awaiting-author, gh-CLI-only (no third-party Actions), both copies byte-identical.
 ACA_WF="$SHELL_ROOT/.github/workflows/auto-clear-awaiting-author.yml"
@@ -6351,15 +6360,16 @@ for f in ISSUE_TEMPLATE/config.yml ISSUE_TEMPLATE/directive-proposal.yml \
          workflows/issues-to-project-mirror.yml \
          workflows/dir-mode-post-merge.yml workflows/check-changelog.yml \
          workflows/check-toc.yml \
+         workflows/initiative-feedback-label.yml \
          workflows/resolve_parent_directive.sh \
          workflows/detect_bare_refs_directive.sh \
          workflows/build_toc.sh; do
   [ -f "$S63_SUB/$f" ] && s63a_count=$((s63a_count + 1))
 done
-if [ "$s63a_count" = 15 ]; then
-  ok "63a: target-substrate canonical-source has 15 files (6 ISSUE_TEMPLATE + 6 workflows + 3 sourced helpers) (#118 + #133 + #180 + #335 + #337 + #347)"
+if [ "$s63a_count" = 16 ]; then
+  ok "63a: target-substrate canonical-source has 16 files (6 ISSUE_TEMPLATE + 7 workflows + 3 sourced helpers) (#118 + #133 + #180 + #335 + #337 + #347 + #359)"
 else
-  ng "63a: target-substrate canonical-source missing files: expected 15, found $s63a_count (#118 + #133 + #180 + #335 + #337 + #347)"
+  ng "63a: target-substrate canonical-source missing files: expected 16, found $s63a_count (#118 + #133 + #180 + #335 + #337 + #347 + #359)"
 fi
 
 # §63b: /onboard-dir-mode skill file exists with tiered procedure.
@@ -6444,14 +6454,14 @@ fi
 # exercise label parsing; §63g closes the gap.
 s63g_out=$("$SHELL_ROOT/scripts/onboard_target.sh" --tier 2 --dry-run 2>&1 || true)
 s63g_ok=1
-for required in "status:proposed" "status:blocked" "awaiting-author" "execution" "discussion" "task" "skip-changelog" "P0" "P1" "P2" "P3" "directive" "initiative"; do
+for required in "status:proposed" "status:blocked" "awaiting-author" "execution" "discussion" "task" "skip-changelog" "P0" "P1" "P2" "P3" "initiative:challenged" "initiative:completion-requested" "directive" "initiative"; do
   if ! printf '%s' "$s63g_out" | grep -qE "gh label create '$required'"; then
     s63g_ok=0
     break
   fi
 done
 if [ "$s63g_ok" = 1 ]; then
-  ok "63g: onboard_target --tier 2 --dry-run emits gh label create for all 13 dir-mode labels incl. the inline directive + initiative type-keys (#118 + #133 + #249)"
+  ok "63g: onboard_target --tier 2 --dry-run emits gh label create for all 15 dir-mode labels incl. the inline directive + initiative type-keys and the #359 initiative-feedback projection labels (#118 + #133 + #249 + #359)"
 else
   ng "63g: onboard_target --tier 2 --dry-run missing one or more required labels (regression-guard for label-parser drift) (#118 + #133)"
 fi
@@ -6489,6 +6499,27 @@ if grep -qE 'auto-status-proposed.*check-changelog' "$SHELL_ROOT/SPEC.md" 2>/dev
   ok "63i: SPEC §1.7 tier-3 workflow brace-list includes check-changelog (5 workflows) (#190)"
 else
   ng "63i: SPEC §1.7 tier-3 workflow brace-list omits check-changelog (doc-vs-shipped drift) (#190)"
+fi
+
+# §63k (#359): the initiative-feedback-label workflow template has the required
+# shape — fires on issue_comment(created), has issues:write, and carries both
+# Initiative markers + both projection labels so the marker→label mapping is
+# present. Shape-only (an Action's runtime is not reproducible locally; the
+# mapping itself is an AC-documented check). Template-only — no dogfood copy in
+# the shell's own .github/workflows/ (the §48f cmp-lock is dir-mode-post-merge
+# scoped; the shell has no Initiatives to label).
+IFL_WF="$SHELL_ROOT/.claude/templates/target-substrate/workflows/initiative-feedback-label.yml"
+if [ -f "$IFL_WF" ] \
+   && grep -q 'issue_comment' "$IFL_WF" \
+   && grep -qE 'types:.*created' "$IFL_WF" \
+   && grep -qE 'issues:[[:space:]]*write' "$IFL_WF" \
+   && grep -qF '## Initiative challenge' "$IFL_WF" \
+   && grep -qF '## Initiative completion' "$IFL_WF" \
+   && grep -qF 'initiative:challenged' "$IFL_WF" \
+   && grep -qF 'initiative:completion-requested' "$IFL_WF"; then
+  ok "63k: initiative-feedback-label.yml has issue_comment(created) + issues:write + both markers + both projection labels (#359)"
+else
+  ng "63k: initiative-feedback-label.yml missing required shape (event/perms/markers/labels) (#359)"
 fi
 
 # §63j: tier-3 onboard change-detection must see UNTRACKED .github (#343). On a
