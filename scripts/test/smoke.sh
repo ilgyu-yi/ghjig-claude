@@ -8750,6 +8750,92 @@ else
     || ng "93f: skills missing reject-audit wiring:$s93f_fail (#361)"
 fi
 
+# ---------- §94 (#363): audit-log consumers — narrowing detector + promotion report (Directive #356 signals 2/4/5) ----------
+# Read-only reporters run against a SYNTHETIC fixture audit.jsonl (mktemp, passed
+# as the path arg) — never the live/$SMOKE log — so the assertions don't couple
+# to real escape history and cannot pollute the live sinks (§357 AC1 stays green).
+
+# 94a: SPEC §6.0 P3 references the audit log as a P3 consumer surface, names both
+# scripts, and states the dual-positive-channel concept (signal 5). (Doc-phase; green early.)
+if grep -q 'narrowing_candidates.sh' "$SHELL_ROOT/SPEC.md" \
+   && grep -q 'promotion_candidates.sh' "$SHELL_ROOT/SPEC.md" \
+   && grep -q 'dual-positive' "$SHELL_ROOT/SPEC.md"; then
+  ok "94a: SPEC §6.0 P3 names both consumers + the dual-positive-channel concept (#363)"
+else
+  ng "94a: SPEC §6.0 P3 must name the two consumer scripts + the dual-positive channel (#363)"
+fi
+
+S94_NARROW="$SHELL_ROOT/scripts/narrowing_candidates.sh"
+S94_PROMO="$SHELL_ROOT/scripts/promotion_candidates.sh"
+if [ ! -f "$S94_NARROW" ] || [ ! -f "$S94_PROMO" ]; then
+  ng "94b: scripts/narrowing_candidates.sh / promotion_candidates.sh missing — Code not yet landed (#363)"
+  ng "94c: narrowing below-threshold/test-exclusion — scripts missing (#363)"
+  ng "94d: promotion surfaced above threshold — scripts missing (#363)"
+  ng "94e: promotion below-threshold + legacy-skip — scripts missing (#363)"
+  ng "94f: empty/absent-log graceful exit 0 — scripts missing (#363)"
+elif ! command -v jq >/dev/null 2>&1; then
+  ng "94b: jq not installed — cannot run consumer-script smoke (#363)"
+else
+  S94_DIR=$(mktemp -d)
+  # Narrowing fixture: force-push has 2 distinct LIVE days (→ surfaced, threshold 2);
+  # merge-strategy 1 day (below); secret has 2 TEST-source days (excluded → not
+  # surfaced); out-of-scope is a legacy line with no source field (→ treated live,
+  # must not crash).
+  cat > "$S94_DIR/narrow.jsonl" <<'S94FIX'
+{"ts":"2026-06-01T10:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+{"ts":"2026-06-02T11:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+{"ts":"2026-06-03T12:00:00Z","event":"escape","category":"merge-strategy","decision":"skip","reason":"one off","cwd":"/x","source":"live"}
+{"ts":"2026-06-01T08:00:00Z","event":"escape","category":"secret","decision":"skip","reason":"test fixture","cwd":"/x","source":"test"}
+{"ts":"2026-06-02T08:00:00Z","event":"escape","category":"secret","decision":"skip","reason":"test fixture","cwd":"/x","source":"test"}
+{"ts":"2026-06-04T09:00:00Z","event":"escape","category":"out-of-scope","decision":"skip","reason":"legacy no source"}
+S94FIX
+  s94_n_out=$(bash "$S94_NARROW" "$S94_DIR/narrow.jsonl" 2>/dev/null); s94_n_rc=$?
+  if [ "$s94_n_rc" = 0 ] && printf '%s\n' "$s94_n_out" | grep -q 'force-push'; then
+    ok "94b: narrowing surfaces the 2-distinct-day force-push escape cluster (#363)"
+  else
+    ng "94b: narrowing did not surface the 2-day force-push cluster (rc=$s94_n_rc) (#363)"
+  fi
+  if printf '%s\n' "$s94_n_out" | grep -q 'merge-strategy' || printf '%s\n' "$s94_n_out" | grep -q 'secret'; then
+    ng "94c: narrowing wrongly surfaced a below-threshold (merge-strategy) or test-source (secret) cluster (#363)"
+  else
+    ok "94c: narrowing omits single-day + test-source clusters (LIVE-only, threshold) (#363)"
+  fi
+
+  # Promotion fixture: issue-review×scope-bleed has 3 rejects (→ surfaced, threshold 3);
+  # plan-review×conflict 2 (below); a legacy warn/reject reason with no class= (→ skipped).
+  cat > "$S94_DIR/promo.jsonl" <<'S94FIX'
+{"ts":"2026-06-01T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#10","cwd":"/x","source":"live"}
+{"ts":"2026-06-01T11:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#11","cwd":"/x","source":"live"}
+{"ts":"2026-06-02T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#12","cwd":"/x","source":"live"}
+{"ts":"2026-06-02T11:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=conflict issue=#13","cwd":"/x","source":"live"}
+{"ts":"2026-06-03T10:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=conflict issue=#14","cwd":"/x","source":"live"}
+{"ts":"2026-06-03T11:00:00Z","event":"warn","category":"legacy-cat","decision":"reject","reason":"no class token here","cwd":"/x"}
+S94FIX
+  s94_p_out=$(bash "$S94_PROMO" "$S94_DIR/promo.jsonl" 2>/dev/null); s94_p_rc=$?
+  if [ "$s94_p_rc" = 0 ] && printf '%s\n' "$s94_p_out" | grep -q 'issue-review' && printf '%s\n' "$s94_p_out" | grep -q 'scope-bleed'; then
+    ok "94d: promotion surfaces issue-review×scope-bleed above the reject threshold (#363)"
+  else
+    ng "94d: promotion did not surface the 3-reject issue-review/scope-bleed group (rc=$s94_p_rc) (#363)"
+  fi
+  if printf '%s\n' "$s94_p_out" | grep -q 'conflict'; then
+    ng "94e: promotion wrongly surfaced the below-threshold plan-review/conflict group (#363)"
+  else
+    ok "94e: promotion omits below-threshold group + skips the legacy no-class line (#363)"
+  fi
+
+  # 94f: empty + absent log → graceful, exit 0 (no crash, fail-open).
+  : > "$S94_DIR/empty.jsonl"
+  bash "$S94_NARROW" "$S94_DIR/empty.jsonl" >/dev/null 2>&1; s94_e1=$?
+  bash "$S94_PROMO" "$S94_DIR/empty.jsonl" >/dev/null 2>&1; s94_e2=$?
+  bash "$S94_NARROW" "$S94_DIR/does-not-exist.jsonl" >/dev/null 2>&1; s94_e3=$?
+  if [ "$s94_e1" = 0 ] && [ "$s94_e2" = 0 ] && [ "$s94_e3" = 0 ]; then
+    ok "94f: both consumers degrade gracefully (exit 0) on empty + absent log (#363)"
+  else
+    ng "94f: a consumer crashed on empty/absent log (narrow-empty=$s94_e1 promo-empty=$s94_e2 narrow-absent=$s94_e3) (#363)"
+  fi
+  rm -rf "$S94_DIR"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
