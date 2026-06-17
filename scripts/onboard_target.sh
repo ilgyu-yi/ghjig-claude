@@ -142,10 +142,20 @@ fi
 
 # Copy canonical files into target's .github/.
 TARGET_GITHUB="$(pwd)/.github"
+# The release-backbone authoring substrate installs into the target REPO ROOT
+# (not .github/): changelog_unreleased/TEMPLATE.md + the six Keep-a-Changelog
+# category subdirs each with a .gitkeep (SPEC §18.1/§18.6). It is the authoring
+# affordance the check-changelog.yml gate enforces against — shipping the gate
+# without it leaves the adopter self-contradictory (#374).
+SUBSTRATE_CL="$SUBSTRATE_ROOT/changelog_unreleased"
+TARGET_CL="$(pwd)/changelog_unreleased"
+CL_CATEGORIES="added changed deprecated removed fixed security"
 mkdir -p "$TARGET_GITHUB/ISSUE_TEMPLATE" "$TARGET_GITHUB/workflows"
 if [ -n "$DRY_RUN" ]; then
   echo "  [dry-run] would copy:"
   ls "$SUBSTRATE_ROOT/ISSUE_TEMPLATE/" "$SUBSTRATE_ROOT/workflows/" 2>/dev/null
+  echo "  [dry-run] would install changelog_unreleased/ substrate (TEMPLATE.md + 6 .gitkeep category dirs):"
+  ls "$SUBSTRATE_CL/" 2>/dev/null
 else
   cp "$SUBSTRATE_ROOT/ISSUE_TEMPLATE/"*.yml "$TARGET_GITHUB/ISSUE_TEMPLATE/"
   cp "$SUBSTRATE_ROOT/workflows/"*.yml "$TARGET_GITHUB/workflows/"
@@ -156,7 +166,16 @@ else
     [ -e "$sh" ] || break
     cp "$sh" "$TARGET_GITHUB/workflows/"
   done
+  # Release-backbone authoring substrate into the repo root (#374, SPEC §18.6).
+  cp "$SUBSTRATE_CL/TEMPLATE.md" "$TARGET_CL/TEMPLATE.md" 2>/dev/null || {
+    mkdir -p "$TARGET_CL" && cp "$SUBSTRATE_CL/TEMPLATE.md" "$TARGET_CL/TEMPLATE.md"
+  }
+  for cat in $CL_CATEGORIES; do
+    mkdir -p "$TARGET_CL/$cat"
+    cp "$SUBSTRATE_CL/$cat/.gitkeep" "$TARGET_CL/$cat/.gitkeep"
+  done
   echo "  copied ISSUE_TEMPLATE + workflow files (incl. resolver helper) into $TARGET_GITHUB/"
+  echo "  installed changelog_unreleased/ substrate (TEMPLATE.md + 6 category dirs) into $TARGET_CL/"
 fi
 
 # Open a PR if there are changes. Idempotent: skip if nothing to install.
@@ -166,20 +185,25 @@ fi
 # substrate (#343). `status --porcelain` sees untracked + modified + staged and
 # is read-only on the index. Empty output => genuinely nothing to install.
 if [ -z "$DRY_RUN" ]; then
-  if [ -z "$(git -C "$(pwd)" status --porcelain -- .github/)" ]; then
+  # Pathspec covers BOTH install targets — .github/ AND the repo-root
+  # changelog_unreleased/ substrate (#374). Omitting the latter would let a target
+  # that only needs the substrate (gate already present) report "nothing to install"
+  # and skip the PR, re-creating the gate-without-substrate gap this fix closes.
+  if [ -z "$(git -C "$(pwd)" status --porcelain -- .github/ changelog_unreleased/)" ]; then
     echo "onboard_target: tier 3 files already match canonical-source (no PR needed; idempotent)"
   else
     BRANCH="onboard-dir-mode-substrate"
     git -C "$(pwd)" checkout -b "$BRANCH" 2>/dev/null || git -C "$(pwd)" checkout "$BRANCH"
-    git -C "$(pwd)" add .github/
+    git -C "$(pwd)" add .github/ changelog_unreleased/
     git -C "$(pwd)" commit -m "chore: onboard claude-eng-shell dir-mode v3 substrate
 
-Installs ISSUE_TEMPLATE files + dir-mode workflows (SPEC §1.7 Substrate-in-target contract).
-Reversibility: git rm .github/ISSUE_TEMPLATE/<file>
-or .github/workflows/<file> removes any installed file via a normal PR."
+Installs ISSUE_TEMPLATE files + dir-mode workflows + the changelog_unreleased/
+authoring substrate (SPEC §1.7 Substrate-in-target contract; §18.6 release backbone).
+Reversibility: git rm .github/ISSUE_TEMPLATE/<file>, .github/workflows/<file>,
+or changelog_unreleased/<...> removes any installed file via a normal PR."
     git -C "$(pwd)" push -u origin "$BRANCH"
     gh pr create --title "chore: onboard claude-eng-shell dir-mode v3 substrate" \
-      --body "Installs ISSUE_TEMPLATE files + dir-mode workflows (SPEC §1.7 Substrate-in-target contract). Reversibility: git rm any installed file via a normal PR; gh label delete any installed label; gh project delete the Project out-of-band."
+      --body "Installs ISSUE_TEMPLATE files + dir-mode workflows + the changelog_unreleased/ authoring substrate (SPEC §1.7 Substrate-in-target contract; §18.6 release backbone). Reversibility: git rm any installed file via a normal PR; gh label delete any installed label; gh project delete the Project out-of-band."
   fi
 fi
 
