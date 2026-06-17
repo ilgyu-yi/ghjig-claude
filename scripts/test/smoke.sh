@@ -7757,6 +7757,56 @@ fi
   && ok "78l: short -s (squash) → default branch blocked (#290 C)" \
   || ng "78l: short -s squash not blocked (#290 C)"
 
+# 78m (#340): command-word merge detection. `gh pr merge` appearing only as
+# DATA — a quoted argument, a heredoc body, a here-string, a commit message —
+# must NOT trigger the gate (reuses the PT78 shim: default=main, base=main, so
+# pre-#340 the coarse substring would block these). Reproduce-first: each rc=0
+# assertion FAILS today (substring → block rc=2) and passes after is_pr_merge_command.
+
+# 78m-1: `gh pr merge` inside a quoted echo argument → not a command → allow.
+[ "$(pt78_run 'echo "run gh pr merge 200 --squash later"')" = 0 ] \
+  && ok "78m-1: gh pr merge in a quoted arg not treated as a merge (#340)" \
+  || ng "78m-1: quoted-arg gh-pr-merge text wrongly gated (#340)"
+
+# 78m-2: `gh pr merge` inside a quoted --body value of a different gh command.
+[ "$(pt78_run 'gh issue comment 200 --body "later we gh pr merge 200 --squash"')" = 0 ] \
+  && ok "78m-2: gh pr merge in a quoted --body not treated as a merge (#340)" \
+  || ng "78m-2: quoted --body gh-pr-merge text wrongly gated (#340)"
+
+# 78m-3: `gh pr merge` inside an unquoted heredoc body (<<EOF) → data → allow.
+s78m3=$(printf 'cat <<EOF\ndiscuss gh pr merge 200 --squash here\nEOF\n')
+[ "$(pt78_run "$s78m3")" = 0 ] \
+  && ok "78m-3: gh pr merge in a <<EOF heredoc body not gated (#340)" \
+  || ng "78m-3: heredoc-body gh-pr-merge text wrongly gated (#340)"
+
+# 78m-4: quoted-delimiter heredoc (<<'EOF') body → data → allow.
+s78m4=$(printf "cat <<'EOF'\ngh pr merge 200 --squash\nEOF\n")
+[ "$(pt78_run "$s78m4")" = 0 ] \
+  && ok "78m-4: gh pr merge in a <<'EOF' heredoc body not gated (#340)" \
+  || ng "78m-4: quoted-delimiter heredoc body wrongly gated (#340)"
+
+# 78m-5: here-string (<<<) carrying the text → data, NOT a heredoc → allow.
+[ "$(pt78_run 'cat <<<"gh pr merge 200 --squash"')" = 0 ] \
+  && ok "78m-5: gh pr merge in a <<< here-string not gated (#340)" \
+  || ng "78m-5: here-string gh-pr-merge text wrongly gated (#340)"
+
+# --- zero-false-negative guard: real merges MUST still be gated post-#340 ---
+
+# 78m-6: a genuine squash → default branch still BLOCKS (the load-bearing invariant).
+[ "$(pt78_run 'gh pr merge 200 --squash --delete-branch')" = 2 ] \
+  && ok "78m-6: real squash merge still blocked after #340 (#340)" \
+  || ng "78m-6: real merge slipped the gate — false-negative regression (#340)"
+
+# 78m-7: env-prefixed real merge (GH_TOKEN=x gh pr merge … --squash) still BLOCKS.
+[ "$(pt78_run 'GH_TOKEN=x gh pr merge 200 --squash')" = 2 ] \
+  && ok "78m-7: env-prefixed real merge still blocked (#340)" \
+  || ng "78m-7: env-prefixed real merge slipped the gate (#340)"
+
+# 78m-8: `&&`-chained real merge still BLOCKS.
+[ "$(pt78_run 'true && gh pr merge 200 --squash')" = 2 ] \
+  && ok "78m-8: &&-chained real merge still blocked (#340)" \
+  || ng "78m-8: &&-chained real merge slipped the gate (#340)"
+
 rm -rf "$PT78_DIR"
 
 # ---------- 79. /file-issue priority capture (#291) ----------

@@ -230,46 +230,58 @@ case "$tool" in
         # at file top. If safe_source returns 1 (helper missing) it has
         # already emitted the helper-missing warn — short-circuit out.
         if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" ac-closeout; then
-          ac_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
-          if [ -z "$ac_pr" ] && command -v gh >/dev/null 2>&1; then
-            ac_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
-          fi
-          if [ -n "$ac_pr" ]; then
-            pr_needs_closeout "$ac_pr"
-            ac_rc=$?
-            case "$ac_rc" in
-              0)
-                # Type-awareness (SPEC §1.7, §6.1) — if the linked closing issue
-                # is a Directive, the AC-closeout gate doesn't apply (Directives
-                # close via /complete-directive + activation-reviewer, not by AC
-                # checkboxes). Skip the block, info-log, and let merge proceed.
-                ac_directive_skip=
-                if command -v is_directive_issue >/dev/null 2>&1; then
-                  ac_closing=$(gh pr view "$ac_pr" --json closingIssuesReferences \
-                    -q '[.closingIssuesReferences[].number] | join(" ")' 2>/dev/null || true)
-                  if [ -n "$ac_closing" ]; then
-                    ac_all_directive=1
-                    for ac_iss in $ac_closing; do
-                      if ! is_directive_issue "$ac_iss"; then
-                        ac_all_directive=0
-                        break
+          # #340: refine the coarse substring grep — `gh pr merge` appearing only
+          # as DATA (a heredoc body, a quoted `--body`/`-m` value, a commit
+          # message) is not a merge command, so the gate must not engage. raw_cmd
+          # (pre-normalization) keeps the heredoc newlines that line ~125's
+          # `tr '\n' ' '` would erase. Fail-closed: is_pr_merge_command returns
+          # is-merge on python3 absence / parse uncertainty, so a real merge is
+          # never let by; the executed-quoted-string form is a documented residual.
+          if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
+            mark_allow ac-closeout
+            decided=1
+          else
+            ac_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+            if [ -z "$ac_pr" ] && command -v gh >/dev/null 2>&1; then
+              ac_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+            fi
+            if [ -n "$ac_pr" ]; then
+              pr_needs_closeout "$ac_pr"
+              ac_rc=$?
+              case "$ac_rc" in
+                0)
+                  # Type-awareness (SPEC §1.7, §6.1) — if the linked closing issue
+                  # is a Directive, the AC-closeout gate doesn't apply (Directives
+                  # close via /complete-directive + activation-reviewer, not by AC
+                  # checkboxes). Skip the block, info-log, and let merge proceed.
+                  ac_directive_skip=
+                  if command -v is_directive_issue >/dev/null 2>&1; then
+                    ac_closing=$(gh pr view "$ac_pr" --json closingIssuesReferences \
+                      -q '[.closingIssuesReferences[].number] | join(" ")' 2>/dev/null || true)
+                    if [ -n "$ac_closing" ]; then
+                      ac_all_directive=1
+                      for ac_iss in $ac_closing; do
+                        if ! is_directive_issue "$ac_iss"; then
+                          ac_all_directive=0
+                          break
+                        fi
+                      done
+                      if [ "$ac_all_directive" = 1 ]; then
+                        audit_log info ac-closeout notice "all closing issues are Type=Directive; skipping AC-closeout per §1.7 Type-awareness"
+                        ac_directive_skip=1
+                        decided=1
                       fi
-                    done
-                    if [ "$ac_all_directive" = 1 ]; then
-                      audit_log info ac-closeout notice "all closing issues are Type=Directive; skipping AC-closeout per §1.7 Type-awareness"
-                      ac_directive_skip=1
-                      decided=1
                     fi
                   fi
-                fi
-                [ -z "$ac_directive_skip" ] && block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases."
-                ;;
-              1) mark_allow ac-closeout; decided=1 ;;
-              2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open"; decided=1 ;;
-            esac
-          else
-            audit_log warn ac-closeout notice "could not resolve PR number from cmd or current branch; merge allowed per fail-open"
-            decided=1
+                  [ -z "$ac_directive_skip" ] && block ac-closeout "linked issue has unchecked AC and no '## AC closeout' marker comment. Run: scripts/ac_closeout.sh $ac_pr (idempotent). Or SKIP_HOOKS=ac-closeout SKIP_REASON='<why>' for legitimate edge cases."
+                  ;;
+                1) mark_allow ac-closeout; decided=1 ;;
+                2) audit_log warn ac-closeout notice "indeterminate (gh timeout / missing / malformed); merge allowed per fail-open"; decided=1 ;;
+              esac
+            else
+              audit_log warn ac-closeout notice "could not resolve PR number from cmd or current branch; merge allowed per fail-open"
+              decided=1
+            fi
           fi
         else
           # safe_source emitted helper-missing warn already
@@ -293,13 +305,24 @@ case "$tool" in
       # first positional (or pull-URL), skipping value-flag values. Done up front
       # (not via an `if printf…grep` arm, which the §39b structural awk would
       # mis-read as a second matcher entry). safe_source-scoped, like ac-closeout.
-      ms_strategy=bare ; ms_pr=
+      ms_strategy=bare ; ms_pr= ; ms_is_merge=1
       if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-strategy; then
+        # #340: same command-word refinement as ac-closeout — `gh pr merge` text
+        # inside a heredoc body / quoted literal / commit message is data, not a
+        # merge. raw_cmd keeps heredoc newlines; fail-closed (is-merge) on any
+        # parse uncertainty, so a real merge is never let past this gate either.
+        if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
+          ms_is_merge=0
+        fi
         ms_parsed=$(parse_gh_merge_argv "$cmd")
         ms_strategy=${ms_parsed%%	*}
         ms_pr=${ms_parsed#*	}
       fi
       if should_skip merge-strategy; then
+        decided=1
+      elif [ "$ms_is_merge" = 0 ]; then
+        # #340: `gh pr merge` appears only as data — not a merge command.
+        mark_allow merge-strategy
         decided=1
       # An explicit `--merge` is allowed SILENTLY with no base resolution — keeps
       # the §39d "silent on --merge" invariant and skips gh calls on the happy path.

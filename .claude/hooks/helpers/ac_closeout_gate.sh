@@ -126,6 +126,111 @@ except ValueError:
   printf '%s\t%s' "$strategy" "$pr"
 }
 
+# is_pr_merge_command <cmd> — refine the coarse `gh pr merge` substring grep
+# (#340). Returns 0 when the `gh … pr … merge` command WORDS survive stripping
+# of heredoc bodies and quoted string literals from a copy of the command, i.e.
+# this really is a merge invocation. Returns 1 when the words appear only as
+# DATA — a heredoc body, a quoted `--body`/`-m` value, a commit message — so the
+# merge gates (ac-closeout / merge-strategy) must NOT engage.
+#   FAIL-CLOSED: python3 absent, a strip/parse error, or an unclosed quote →
+#   return 0 (treat as a merge), so a real merge is never let through by a
+#   stripping failure. Deliberate residuals (contrived, and the gate is escapable
+#   anyway): a merge wrapped in an executed quoted string (`bash -c "gh pr merge
+#   …"`) and a quote-concatenated form (`gh' 'pr' 'merge`) are both stripped and
+#   thus not detected — neither was caught by the pre-#340 coarse grep either.
+#   `<<<` here-strings are treated as data (a same-line operand), not heredocs.
+# Pass the RAW (pre-normalization) command so heredoc newlines are intact —
+# pre_tool_use.sh flattens `\n`→space before the matchers run.
+is_pr_merge_command() {
+  local cmd="$1" rc
+  command -v python3 >/dev/null 2>&1 || return 0   # fail-closed: no python3 → treat as merge
+  printf '%s' "$cmd" | python3 -c '
+import sys, re
+
+cmd = sys.stdin.read()
+
+# 1. Strip heredoc bodies. A heredoc opener is `<<` or `<<-` followed by an
+#    optionally-quoted delimiter word; `<<<` is a here-string (same-line
+#    operand) and is NOT a heredoc, so it is skipped here and handled as a
+#    quoted/plain word by step 2.
+lines = cmd.split("\n")
+delim_re = re.compile(r"<<-?\s*([\"\x27]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+out = []
+i, n = 0, len(lines)
+while i < n:
+    line = lines[i]
+    delim = None
+    for mm in re.finditer(r"<<", line):
+        p = mm.start()
+        if line[p:p+3] == "<<<":          # here-string, not a heredoc
+            continue
+        dm = delim_re.match(line[p:])
+        if dm:
+            delim = dm.group(2)
+            break
+    out.append(line)
+    if delim is not None:
+        i += 1
+        # `.strip()` is more lenient than bash (bash wants an exact match for
+        # `<<`, tabs-only stripping for `<<-`). The divergence is deliberately on
+        # the SAFE side: a lenient terminator closes the heredoc earlier-or-equal
+        # to bash, so a line bash would execute is never dropped → no MERGE→DATA
+        # leak via heredocs.
+        while i < n and lines[i].strip() != delim:
+            i += 1                         # drop body line (data, not command)
+        # keep the terminator line if present — it carries no command words
+    i += 1
+stripped = "\n".join(out)
+
+# 2. Remove quoted string literals; their interior can never be command words.
+def strip_quotes(s):
+    res = []
+    j, m = 0, len(s)
+    while j < m:
+        c = s[j]
+        if c == "\x27":                    # single quote: literal to next quote
+            k = s.find("\x27", j + 1)
+            if k == -1:
+                return None                # unclosed → ambiguous
+            j = k + 1
+            continue
+        if c == "\"":                      # double quote: honor backslash-escapes
+            k = j + 1
+            while k < m:
+                if s[k] == "\\":
+                    k += 2
+                    continue
+                if s[k] == "\"":
+                    break
+                k += 1
+            if k >= m:
+                return None                # unclosed → ambiguous
+            j = k + 1
+            continue
+        res.append(c)
+        j += 1
+    return "".join(res)
+
+residue = strip_quotes(stripped)
+if residue is None:
+    sys.exit(2)                            # ambiguous → caller fail-closes to merge
+
+# 3. The command words must survive stripping. Mirror the coarse grep shape
+#    (\bgh\s+pr\s+merge followed by whitespace or end). Exit 7 (a reserved,
+#    distinguished value) is the ONLY signal for "pure data — not a merge"; the
+#    word-match case exits 0. This keeps the caller fail-closed: an unhandled
+#    exception / syntax error exits 1 (NOT 7), and ambiguity exits 2 — both fall
+#    through to "treat as merge" rather than being misread as data.
+sys.exit(0 if re.search(r"\bgh\s+pr\s+merge(\s|$)", residue, re.M) else 7)
+' >/dev/null 2>&1
+  rc=$?
+  # Exit 7 is the sole "pure data" signal. Everything else — 0 (words survived),
+  # 2 (ambiguous), 1 (python crash / syntax error), or any other code — maps to
+  # "is a merge" so a stripping failure can never let a real merge through.
+  [ "$rc" = 7 ] && return 1                # python3 exit 7 = pure data → not a merge
+  return 0                                 # fail-closed: merge on 0 / 2 / crash / other
+}
+
 pr_needs_closeout() {
   local pr="$1"
   [ -z "$pr" ] && return 2
