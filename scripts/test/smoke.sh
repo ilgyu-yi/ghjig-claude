@@ -9062,6 +9062,24 @@ else
   ng "98d: /onboard-dir-mode tier-3 file set omits changelog_unreleased (#374)"
 fi
 
+# ---------- §99 (#376): SPEC names the lint-timeout-absent audit category ----------
+# detect_stack.sh:66 emits `audit_log warn lint-timeout-absent notice ...` when
+# neither timeout(1) nor gtimeout(1) is on PATH, but pre-#376 the category was
+# named in no SPEC enumeration. Bridge pin until #377's generative
+# audit-category↔SPEC guard subsumes it. FAILS on the pre-#376 SPEC.
+S99_SPEC="$SHELL_ROOT/SPEC.md"
+if grep -q 'lint-timeout-absent' "$S99_SPEC"; then
+  ok "99a: SPEC §6.1 names the lint-timeout-absent audit category (#376)"
+else
+  ng "99a: SPEC omits the lint-timeout-absent audit category emitted by detect_stack.sh (#376)"
+fi
+# §99b: the category is emitted by the code it documents (anchors the doc to reality).
+if grep -q 'lint-timeout-absent' "$SHELL_ROOT/.claude/hooks/helpers/detect_stack.sh"; then
+  ok "99b: detect_stack.sh emits lint-timeout-absent (SPEC §6.1 doc has a real referent) (#376)"
+else
+  ng "99b: detect_stack.sh no longer emits lint-timeout-absent — SPEC §6.1 doc is now stale (#376)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
