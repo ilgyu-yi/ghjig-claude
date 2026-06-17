@@ -9014,6 +9014,54 @@ else
   ok "97d: SPEC reflects the landed per-command substrate preflight (#368)"
 fi
 
+# ---------- §98 (#374): /onboard-dir-mode installs the changelog_unreleased substrate (SPEC §18.6) ----------
+# SPEC §18.1/§18.6 mandate that tier-3 onboarding install the release-backbone
+# authoring substrate — changelog_unreleased/TEMPLATE.md + the six Keep-a-Changelog
+# category subdirs each with a .gitkeep — alongside the check-changelog.yml gate.
+# Pre-#374: the canonical source tree does not exist under target-substrate/ and
+# onboard_target.sh copies none of it, so every assertion below FAILS on the
+# pre-#374 tree (reproduce-first). Each is a pure file/grep check (no live-sink write).
+S98_SUB="$SHELL_ROOT/.claude/templates/target-substrate/changelog_unreleased"
+# §98a: canonical source carries TEMPLATE.md.
+if [ -f "$S98_SUB/TEMPLATE.md" ]; then
+  ok "98a: target-substrate/changelog_unreleased/TEMPLATE.md present (#374, SPEC §18.6)"
+else
+  ng "98a: target-substrate/changelog_unreleased/TEMPLATE.md missing (#374, SPEC §18.6)"
+fi
+# §98b: each of the six Keep-a-Changelog category subdirs carries a .gitkeep
+# (empty dirs do not survive git; the placeholder is load-bearing for both the
+# source tree and the installed target).
+s98b_missing=""
+for cat in added changed deprecated removed fixed security; do
+  [ -f "$S98_SUB/$cat/.gitkeep" ] || s98b_missing="$s98b_missing $cat"
+done
+if [ -z "$s98b_missing" ]; then
+  ok "98b: all six changelog_unreleased category dirs carry .gitkeep (#374, SPEC §18.6)"
+else
+  ng "98b: changelog_unreleased category dirs missing .gitkeep:$s98b_missing (#374, SPEC §18.6)"
+fi
+# §98b2: the canonical source carries ONLY placeholders, not the shell's own
+# accumulated <N>.md fragments (adopters start empty).
+if ls "$S98_SUB"/*/[0-9]*.md >/dev/null 2>&1; then
+  ng "98b2: target-substrate substrate leaked accumulated <N>.md fragments (adopters must start empty) (#374)"
+else
+  ok "98b2: target-substrate substrate carries only placeholders, no <N>.md fragments (#374)"
+fi
+# §98c: onboard_target.sh tier-3 actually installs the substrate (references the
+# changelog_unreleased path in its copy logic — guards against shipping the source
+# tree but never copying it).
+if grep -q 'changelog_unreleased' "$SHELL_ROOT/scripts/onboard_target.sh"; then
+  ok "98c: onboard_target.sh tier-3 install path references changelog_unreleased (#374)"
+else
+  ng "98c: onboard_target.sh never copies changelog_unreleased — source tree would ship uninstalled (#374)"
+fi
+# §98d: the /onboard-dir-mode skill doc lists the substrate in its tier-3 file set.
+if grep -q 'changelog_unreleased' "$SHELL_ROOT/.claude/commands/onboard-dir-mode.md"; then
+  ok "98d: /onboard-dir-mode tier-3 file set lists changelog_unreleased (#374)"
+else
+  ng "98d: /onboard-dir-mode tier-3 file set omits changelog_unreleased (#374)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
