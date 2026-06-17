@@ -8836,6 +8836,34 @@ S94FIX
   rm -rf "$S94_DIR"
 fi
 
+# ---------- §95 (#365): audit record-shape SPEC examples carry source; info event documented (G1+G4) ----------
+# The §6.1 helper-missing example and the §7 escape example are the canonical
+# record-shape contract a consumer copies from; they must include every field
+# audit_log's printf emits (hookrt.sh now appends "source" last on EVERY record,
+# #361). And the info event kind, emitted by audit_log info (pre_tool_use.sh +
+# dir-mode flows), must be documented as a valid event. Reproduce-first: these
+# fail on the pre-#365 SPEC (examples omit source; info undocumented).
+S95_SPEC="$SHELL_ROOT/SPEC.md"
+# 95a: §6.1 helper-missing example carries the source field (G1).
+if grep -E '"decision":"helper-missing"' "$S95_SPEC" | grep -q '"source"'; then
+  ok "95a: SPEC helper-missing example includes the source field (#365)"
+else
+  ng "95a: SPEC helper-missing example omits source — drifted from hookrt.sh printf (#365)"
+fi
+# 95b: §7 escape-skip example carries the source field (G1).
+if grep -E '"event":"escape"' "$S95_SPEC" | grep -q '"source"'; then
+  ok "95b: SPEC §7 escape example includes the source field (#365)"
+else
+  ng "95b: SPEC §7 escape example omits source — drifted from hookrt.sh printf (#365)"
+fi
+# 95c: the info event kind is documented as a valid event (G4) — reconciles the
+# "not new event-type kinds" line with the info record audit_log actually emits.
+if grep -q 'Event-kind set' "$S95_SPEC" && grep -qE 'event.*\binfo\b|\binfo\b.*informational' "$S95_SPEC"; then
+  ok "95c: SPEC documents the info event kind in the event-kind set (#365)"
+else
+  ng "95c: SPEC does not document the info event kind audit_log emits (#365)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
