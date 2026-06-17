@@ -8985,6 +8985,35 @@ s96c=$(printf 'cat <<EOF\nrun git clean -fd to reset\nEOF\n')
   && ok "96k: real git clean -fd still blocked (#366)" \
   || ng "96k: real git clean slipped (#366)"
 
+# ---------- §97 (#368): SPEC↔code accuracy sweep (G5–G11) ----------
+# Doc-only SSOT-accuracy pins: each asserts SPEC now matches implemented behavior.
+# Reproduce-first: each FAILS on the pre-#368 SPEC (verified against origin/main).
+S97_SPEC="$SHELL_ROOT/SPEC.md"
+# 97a (G6): the stale `/onboard-dir-mode (deferred)` marker is gone.
+if grep -q 'onboard-dir-mode` (deferred)' "$S97_SPEC"; then
+  ng "97a: SPEC still carries the stale /onboard-dir-mode (deferred) marker (#368)"
+else
+  ok "97a: /onboard-dir-mode (deferred) marker removed (#368)"
+fi
+# 97b (G7): §3.3 states the scope-guard fail-open contract.
+if awk '/^### 3.3/{f=1} f&&/^### 3.4/{exit} f' "$S97_SPEC" | grep -q 'Fail-open contract'; then
+  ok "97b: SPEC §3.3 states the scope-guard fail-open contract (#368)"
+else
+  ng "97b: SPEC §3.3 omits the scope-guard fail-open contract (#368)"
+fi
+# 97c (G9b): the §6.1 sensitive-file row lists id_rsa* / id_ed25519* (parity with §14 + code).
+if grep -qE 'Edit/Write on `\.env`.*id_rsa.*id_ed25519' "$S97_SPEC"; then
+  ok "97c: SPEC §6.1 sensitive-file row lists id_rsa*/id_ed25519* (#368)"
+else
+  ng "97c: SPEC §6.1 sensitive-file row omits id_rsa*/id_ed25519* (drifted from the code) (#368)"
+fi
+# 97d (G11): the #107 reversibility-preflight marker reflects that the preflight landed (not deferred).
+if grep -q 'Per-command preflight implementation is deferred' "$S97_SPEC"; then
+  ng "97d: SPEC still says the per-command preflight is deferred (#107 is closed) (#368)"
+else
+  ok "97d: SPEC reflects the landed per-command substrate preflight (#368)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
