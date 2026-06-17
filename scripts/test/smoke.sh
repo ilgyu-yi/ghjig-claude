@@ -1123,7 +1123,109 @@ else
   ng "hook: single-line force-push regression (#17)"
 fi
 
+# 15f-15j (#375): bypass-suspect heredoc warn is scoped to *shell-spawning*
+# heredocs (SPEC §6.1, "heredoc-spawned shells (bash <<EOF)"). Pre-#375 the
+# matcher warned on ANY heredoc opener; benign data heredocs (cat/wc, incl. a
+# `.sh` filename used as an OPERAND) must NOT trip it, while `bash <<EOF` and
+# `env bash <<EOF` still must. Helper: does running <cmd> add a bypass-suspect
+# audit line?
+bypass_warns() {
+  local cmd="$1" b a d
+  b=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$b" ] && b=0
+  hook_run "$cmd" >/dev/null
+  a=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$a" ] && a=0
+  d=$((a - b))
+  [ "$d" -ge 1 ] && tail -n "$d" "$REAL_AUDIT" 2>/dev/null | grep -q 'bypass-suspect'
+}
+# Benign data heredocs — must NOT warn (RED on the pre-#375 broad regex).
+if ! bypass_warns 'cat <<EOF
+hello
+EOF'; then
+  ok "15f: benign 'cat <<EOF' does not trip bypass-suspect (#375)"
+else
+  ng "15f: 'cat <<EOF' over-warns bypass-suspect (heredoc scope too broad) (#375)"
+fi
+if ! bypass_warns 'cat foo.sh <<EOF
+x
+EOF'; then
+  ok "15g: 'cat foo.sh <<EOF' (.sh operand) does not trip bypass-suspect (#375)"
+else
+  ng "15g: '.sh' filename operand false-trips bypass-suspect (#375)"
+fi
+if ! bypass_warns 'wc -l <<EOF
+x
+EOF'; then
+  ok "15h: benign 'wc -l <<EOF' does not trip bypass-suspect (#375)"
+else
+  ng "15h: 'wc -l <<EOF' over-warns bypass-suspect (#375)"
+fi
+# Shell-spawning heredocs — must STILL warn.
+if bypass_warns 'bash <<EOF
+echo hi
+EOF'; then
+  ok "15i: 'bash <<EOF' still warns bypass-suspect (shell-spawning) (#375)"
+else
+  ng "15i: 'bash <<EOF' no longer warns — under-warns shell-spawning heredoc (#375)"
+fi
+if bypass_warns 'env bash <<EOF
+echo hi
+EOF'; then
+  ok "15j: 'env bash <<EOF' still warns bypass-suspect (env-wrapped shell) (#375)"
+else
+  ng "15j: 'env bash <<EOF' no longer warns (#375)"
+fi
+
 rm -rf "$HOOK_TMP"
+
+# ---------- 15s (#375): /sync-pr Stop-arm detection (SPEC §6.3 second arm) ----------
+# The Stop hook's second arm nudges /sync-pr when HEAD advanced past the last
+# /sync-pr (cached last_synced_head != git rev-parse HEAD). The detection unit
+# is the new pr_cache_head reader + a head comparison; stop.sh wires it behind
+# current_pr_number + the modulo throttle (the gh/in_scope/throttle gating is
+# exercised structurally below, not end-to-end — it cannot fire in the unregistered
+# fake repo without gh). pr_cache_head does not exist pre-#375 → these go RED.
+S15S_DIR="$TMP/syncpr"
+mkdir -p "$S15S_DIR"
+(
+  cd "$S15S_DIR" || exit 1
+  git init -q . && git config user.email t@t && git config user.name t
+  git commit -q --allow-empty -m seed
+) >/dev/null 2>&1
+# shellcheck disable=SC1091
+. "$SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+export PR_CACHE_DIR="$S15S_DIR/cache" PR_CACHE_REPO="test/repo"
+old_head=$(cd "$S15S_DIR" && git rev-parse HEAD)
+pr_cache_write 7 deadbeefsha "$old_head"
+# §15s-a: pr_cache_head reads back the written head.
+if [ "$(pr_cache_head 7)" = "$old_head" ]; then
+  ok "15s-a: pr_cache_head returns the cached last_synced_head (#375)"
+else
+  ng "15s-a: pr_cache_head missing or wrong (got '$(pr_cache_head 7)') (#375)"
+fi
+# §15s-b: in-sync — cached head == current HEAD → NOT out of sync.
+cur_head=$(cd "$S15S_DIR" && git rev-parse HEAD)
+if [ "$(pr_cache_head 7)" = "$cur_head" ]; then
+  ok "15s-b: HEAD unchanged since sync → no /sync-pr nudge condition (#375)"
+else
+  ng "15s-b: in-sync HEAD wrongly differs from cached (#375)"
+fi
+# §15s-c: out-of-sync — advance HEAD, cached head now differs → nudge condition.
+(cd "$S15S_DIR" && git commit -q --allow-empty -m next) >/dev/null 2>&1
+new_head=$(cd "$S15S_DIR" && git rev-parse HEAD)
+if [ "$(pr_cache_head 7)" != "$new_head" ]; then
+  ok "15s-c: commit since last /sync-pr → out-of-sync condition holds (#375)"
+else
+  ng "15s-c: out-of-sync not detected after a new commit (#375)"
+fi
+unset PR_CACHE_DIR PR_CACHE_REPO
+# §15s-d: stop.sh wires the arm (current_pr_number + pr_cache_head + /sync-pr nudge).
+if grep -q 'pr_cache_head' "$SHELL_ROOT/.claude/hooks/stop.sh" \
+   && grep -q 'current_pr_number' "$SHELL_ROOT/.claude/hooks/stop.sh" \
+   && grep -q '/sync-pr' "$SHELL_ROOT/.claude/hooks/stop.sh"; then
+  ok "15s-d: stop.sh wires the /sync-pr arm (current_pr_number + pr_cache_head) (#375)"
+else
+  ng "15s-d: stop.sh missing the /sync-pr arm wiring (#375)"
+fi
 
 # ---------- 16. heredoc -m subject extraction (#28) ----------
 # pre_tool_use must accept the heredoc `-m "$(cat <<'TAG' ... TAG )"` form
