@@ -57,7 +57,7 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
    ```
    Filed Directive Issue #<N>: <Objective summary>
    Status: Proposed (label: status:proposed)
-   Next: /activate-directive <N> when ready (re-runs reviewer; removes status:proposed → Active).
+   Next: /activate <N> when ready (re-runs reviewer; removes status:proposed → Active).
    ```
 
 ## Operating mode

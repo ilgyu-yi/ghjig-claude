@@ -17,8 +17,8 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
    ```
    - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
    - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
-   - If `status:proposed` label present: error ("Directive is Proposed; revise the body via `gh issue edit` directly until activation") and stop. (Proposed Directives haven't been reviewer-vetted yet; activation is the first reviewer gate. Revising a Proposed Directive without re-activation is a contract gap — file a new `/activate-directive` invocation after the body edit instead.)
-   - If `status:blocked` label present: error ("Directive is Blocked; unblock via `/activate-directive` first — that command re-runs the reviewer on the current body") and stop.
+   - If `status:proposed` label present: error ("Directive is Proposed; revise the body via `gh issue edit` directly until activation") and stop. (Proposed Directives haven't been reviewer-vetted yet; activation is the first reviewer gate. Revising a Proposed Directive without re-activation is a contract gap — file a new `/activate` invocation after the body edit instead.)
+   - If `status:blocked` label present: error ("Directive is Blocked; unblock via `/activate` first — that command re-runs the reviewer on the current body") and stop.
 
 2. **Author the new body** — the user supplies the replacement body (full content per `.claude/templates/directive.md`: Objective / Success signals / Non-goals / Constraints / MISSION fit). Refuse to proceed if any required section is missing.
 

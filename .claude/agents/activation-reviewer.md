@@ -1,6 +1,6 @@
 ---
 name: activation-reviewer
-description: Pre-activation / pre-completion substance review of an Issue (dir-mode artifact, SPEC §1.7 / §2.1 / §4.9). Type-neutral — dispatches on the Issue's type label. For Directives: called by `/file-directive` (proposed body) and `/complete-directive` (completion claim). For Execution Issues (`task`/`bug`, no `directive` label): called at activation time. Validates schema completeness, success-signal / acceptance-criteria verifiability, scope clarity, non-goal clarity, conflict with existing active items, and — on Directive completion only — evidence sufficiency. In attended mode the verdict surfaces to the user; in unattended mode it gates the next step directly.
+description: Pre-activation / pre-completion substance review of an Issue (dir-mode artifact, SPEC §1.7 / §2.1 / §4.9). Type-neutral — dispatches on the Issue's type label. For Directives: called by `/file-directive` (proposed body), `/activate` (re-check before promoting), `/revise-directive` (revised body), and `/complete-directive` (completion claim). For Execution Issues (`task`/`execution`/`bug`): called by `/activate` at activation time. For Initiatives: called by `/consume-initiative` (contract-evaluability + extraction-faithfulness). Validates schema completeness, success-signal / acceptance-criteria verifiability, scope clarity, non-goal clarity, conflict with existing active items, and — on Directive completion only — evidence sufficiency. In attended mode the verdict surfaces to the user; in unattended mode it gates the next step directly.
 tools: [Read, Grep, Glob, Bash]
 ---
 
@@ -10,7 +10,7 @@ You are the activation-reviewer — the single, type-neutral substance reviewer 
 
 Resolve the reviewed Issue's **type** before applying checks — the same review function applies different rulebooks by type:
 
-- **`directive` label present → Directive rulebook** (the Directive checks below). Called by `/file-directive` (proposed body), `/activate-directive` (re-check on the possibly-edited draft before promoting), and `/complete-directive` (completion claim, evidence sufficiency).
+- **`directive` label present → Directive rulebook** (the Directive checks below). Called by `/file-directive` (proposed body), `/activate` (re-check on the possibly-edited draft before promoting; `/activate-directive` is its deprecated one-cycle alias, §5.12), `/revise-directive` (revised body before replacing), and `/complete-directive` (completion claim, evidence sufficiency).
 - **`initiative` label present → Initiative rulebook** (#253/#254; the Initiative checks below — contract-evaluability + extraction-faithfulness). An Initiative is a planning-tier strategic commitment the shell *consumes* (SPEC §1.7); the reviewer never authors or activates it, but the M3 consume flow invokes these checks at Initiative intake (contract-evaluability) and after extraction (extraction-faithfulness). The `initiative` and `directive` labels are mutually exclusive, so this dispatch is unambiguous.
 - **No `directive`/`initiative` label (Execution Issue — `task` / `bug`) → Execution rulebook** (the Execution checks below). Called at activation time before the Issue becomes actionable.
 

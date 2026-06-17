@@ -17,7 +17,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
    ```
    - If `state != OPEN`: error ("Directive is not open — current state `<X>`") and stop.
    - If `directive` label absent: error ("Issue #<N> is not a Directive (`directive` label missing)") and stop.
-   - If `status:proposed` label is present: error ("Directive is in Proposed state — activate first via /activate-directive") and stop.
+   - If `status:proposed` label is present: error ("Directive is in Proposed state — activate first via /activate") and stop.
 
 2. **Collect linked Execution Issues** — search for Issues whose body contains `^Parent Directive: #<issue-#>$`:
    ```bash
