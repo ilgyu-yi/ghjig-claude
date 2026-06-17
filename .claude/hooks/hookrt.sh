@@ -130,7 +130,7 @@ audit_log() {
   # `test`; anything else (unset/empty/smoke/garbage) → `live` (fail-safe-to-
   # live). The marker is set only by the session launcher (e.g. smoke.sh), never
   # reachable by a real Bash-tool action (SPEC §6.1 anti-reclassification / §7).
-  case "${CLAUDE_ENG_AUDIT_SOURCE:-}" in test) _src=test ;; *) _src=live ;; esac
+  case "${CLAUDE_ENG_AUDIT_SOURCE:-}" in test) _src="test" ;; *) _src="live" ;; esac
   # Per-project audit (#314) when in hook context; else legacy shared path.
   esd=$(eng_state_dir)
   if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$CLAUDE_ENG_SHELL_ROOT/.claude/audit/audit.jsonl"; fi
