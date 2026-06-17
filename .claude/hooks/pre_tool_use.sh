@@ -181,7 +181,18 @@ case "$tool" in
     fi
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}clean\s+-[A-Za-z]*f"; then
       decided=
-      should_skip destructive && decided=1 || block destructive "git clean -f blocked"
+      # #366: refine — heredoc-strip raw_cmd so a `git clean -f` mentioned only
+      # inside a heredoc body (data) doesn't false-trip; a real invocation still
+      # blocks. Heredoc-only (parity with the push arm): a real -f flag is never
+      # inside a heredoc body, so this can't under-block. The hit is computed into
+      # a var via grep-count (a refining conditional grep would be mis-read by the
+      # §39b matcher-entry awk). Fail-closed via strip_command_data (raw on fail).
+      gc_hit=$(printf '%s' "$(strip_command_data "$raw_cmd" heredoc)" | grep -cE "${GIT_PREFIX}clean\s+-[A-Za-z]*f")
+      if [ "${gc_hit:-0}" -gt 0 ]; then
+        should_skip destructive && decided=1 || block destructive "git clean -f blocked"
+      else
+        decided=1   # clean -f only inside heredoc data → allow (silent)
+      fi
       [ -z "$decided" ] && pass_through_trace destructive "$cmd"
     fi
 
@@ -812,10 +823,28 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace force-push "$cmd"
     fi
 
-    # Direct push to protected branch
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*\b(${PROTECTED_BRANCH_PATTERN})\b"; then
+    # Direct push to protected branch (#366: scan only the git-push command
+    # SEGMENT after heredoc-stripping, not a whole-command substring — so a
+    # protected token inside a heredoc body or in a sibling non-push segment
+    # (`git push origin feat && gh pr create --base main`) doesn't false-trip.
+    # Coarse `push` entry kept for the §39b matcher-entry check; refined below.
+    # Fail-closed: strip_command_data falls back to raw_cmd on failure, and
+    # push_segments only ever drops NON-push segments, so a genuine protected
+    # push (incl. a quoted target — quotes are NOT stripped on this arm) still
+    # matches. Heredoc-only strip: quote-stripping the push arm could drop a
+    # quoted protected target (`git push origin "main"`) — a false-negative.)
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b"; then
       decided=
-      should_skip branch && decided=1 || block branch "direct push to protected branch blocked"
+      # Refine: count push-bearing segments (heredoc-stripped) that carry a
+      # protected token. The hit is computed into a var via grep-count rather
+      # than a refining conditional grep, which the §39b structural awk would
+      # mis-read as a second matcher entry (the merge-strategy arm does the same).
+      pp_hit=$(push_segments "$(strip_command_data "$raw_cmd" heredoc)" | grep -cE "\b(${PROTECTED_BRANCH_PATTERN})\b")
+      if [ "${pp_hit:-0}" -gt 0 ]; then
+        should_skip branch && decided=1 || block branch "direct push to protected branch blocked"
+      else
+        decided=1   # git push present but no protected token in any push segment → allow (silent)
+      fi
       [ -z "$decided" ] && pass_through_trace branch "$cmd"
     fi
 

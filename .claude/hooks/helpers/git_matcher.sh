@@ -49,3 +49,107 @@ PROTECTED_BRANCH_PATTERN='main|master|release/\S+'
 #   --config-env=<name>=<envvar> — config from env
 # shellcheck disable=SC2034  # consumed via interpolation in pre_tool_use.sh
 GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|--work-tree=\S+|--bare|--namespace=\S+|--literal-pathspecs|--icase-pathspecs|--no-optional-locks|--no-replace-objects|--no-advice|--exec-path(=\S+)?|--config-env=\S+))*\s+'
+
+# strip_command_data <cmd> [mode] — print <cmd> with heredoc bodies removed
+# (and, in the default "full" mode, quoted string literals removed too) so a
+# subsequent token grep sees command words, not DATA. Factored from #340's
+# is_pr_merge_command stripper, shared by the protected-push and git-clean arms
+# (#366). Two modes:
+#   "heredoc" — strip ONLY heredoc bodies. For the protected-push / git-clean
+#     arms: the matched token (a branch positional, a -f flag) may be legitimately
+#     quoted, so quote-stripping could drop a genuine quoted target/flag and miss
+#     a real action (false-negative). Heredoc-only never removes a real command.
+#   "full" (default) — strip heredoc bodies AND quoted literals. For
+#     is_pr_merge_command (#340), which must see through a quoted
+#     `--body "…gh pr merge…"`; #340 already accepts the quote-obfuscation residual.
+# FAIL-CLOSED: python3 absent, an unclosed quote (full mode), or any parse error
+# prints the cmd UNCHANGED (return 0) — the caller's grep then runs against the
+# full command, so a token that should block is never stripped away by a failure.
+# Pass the RAW (pre-normalization) command so heredoc newlines are intact.
+strip_command_data() {
+  local cmd="$1" mode="${2:-full}" out
+  command -v python3 >/dev/null 2>&1 || { printf '%s' "$cmd"; return 0; }
+  if out=$(printf '%s' "$cmd" | python3 -c '
+import sys, re
+mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+cmd = sys.stdin.read()
+# 1. Strip heredoc bodies (always). Opener is << or <<- + optionally-quoted
+#    delimiter word; <<< is a here-string (same-line operand), not a heredoc.
+lines = cmd.split("\n")
+delim_re = re.compile(r"<<-?\s*([\"\x27]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+out = []
+i, n = 0, len(lines)
+while i < n:
+    line = lines[i]
+    delim = None
+    for mm in re.finditer(r"<<", line):
+        p = mm.start()
+        if line[p:p+3] == "<<<":
+            continue
+        dm = delim_re.match(line[p:])
+        if dm:
+            delim = dm.group(2)
+            break
+    out.append(line)
+    if delim is not None:
+        i += 1
+        while i < n and lines[i].strip() != delim:
+            i += 1
+    i += 1
+stripped = "\n".join(out)
+if mode != "full":
+    sys.stdout.write(stripped)
+    sys.exit(0)
+# 2. full mode: remove quoted string literals (interior can never be a command word).
+def strip_quotes(s):
+    res = []
+    j, m = 0, len(s)
+    while j < m:
+        c = s[j]
+        if c == "\x27":                    # single quote: literal to next quote
+            k = s.find("\x27", j + 1)
+            if k == -1:
+                return None
+            j = k + 1
+            continue
+        if c == "\"":                      # double quote: honor backslash-escapes
+            k = j + 1
+            while k < m:
+                if s[k] == "\\":
+                    k += 2
+                    continue
+                if s[k] == "\"":
+                    break
+                k += 1
+            if k >= m:
+                return None
+            j = k + 1
+            continue
+        res.append(c)
+        j += 1
+    return "".join(res)
+residue = strip_quotes(stripped)
+if residue is None:
+    sys.exit(2)                            # ambiguous → caller fail-closes (prints original)
+sys.stdout.write(residue)
+sys.exit(0)
+' "$mode" 2>/dev/null); then
+    printf '%s' "$out"
+  else
+    printf '%s' "$cmd"                     # fail-closed: parse error / ambiguity → original
+  fi
+}
+
+# push_segments <cmd> — split <cmd> on unquoted command separators
+# (&& || ; | and newline) and print each segment containing a `git push` token,
+# one per line (#366). The protected-push arm greps the protected-token pattern
+# per emitted segment, so a protected token in a SIBLING non-push segment
+# (`git push origin feat && gh pr create --base main`) is never matched against
+# the push command. Feed it a heredoc-stripped command so separators inside a
+# heredoc body are not split points. Emits nothing when no segment has a push.
+push_segments() {
+  printf '%s' "$1" | awk '
+    { nf = split($0, parts, /&&|\|\||;|\|/)
+      for (k = 1; k <= nf; k++) print parts[k] }
+  ' | grep -E "${GIT_PREFIX}push\b"
+}

@@ -8864,6 +8864,53 @@ else
   ng "95c: SPEC does not document the info event kind audit_log emits (#365)"
 fi
 
+# ---------- §96 (#366): protected-push / git-clean — token-as-data + sibling-segment FPs ----------
+# The protected-push arm scans only the git-push command SEGMENT after heredoc-
+# stripping (not a whole-command substring), and the git-clean arm heredoc-strips
+# too. So a protected token in a sibling non-push segment or inside a heredoc body
+# no longer false-blocks; genuine protected pushes still block (zero false-neg).
+# hook_run rc: 2=block, 0=allow. 96a-d are RED pre-fix (old substring blocks them);
+# 96e-k are zero-false-negative guards (BLOCK before and after).
+
+# --- false positives that must now ALLOW (rc 0) ---
+[ "$(hook_run 'git push origin feat && gh pr create --base main')" = 0 ] \
+  && ok "96a: push feat && gh pr create --base main → allow (sibling segment) (#366)" \
+  || ng "96a: chained --base main false-blocked the push (#366)"
+s96b=$(printf 'cat <<EOF\ndiscuss: git push origin main here\nEOF\n')
+[ "$(hook_run "$s96b")" = 0 ] \
+  && ok "96b: git push…main inside a heredoc body → allow (data) (#366)" \
+  || ng "96b: heredoc-body push text false-blocked (#366)"
+s96c=$(printf 'cat <<EOF\nrun git clean -fd to reset\nEOF\n')
+[ "$(hook_run "$s96c")" = 0 ] \
+  && ok "96c: git clean -f inside a heredoc body → allow (data) (#366)" \
+  || ng "96c: heredoc-body git-clean text false-blocked (#366)"
+[ "$(hook_run 'git push origin feat ; echo done with main')" = 0 ] \
+  && ok "96d: push feat ; echo …main → allow (sibling ; segment) (#366)" \
+  || ng "96d: ;-separated main mention false-blocked the push (#366)"
+
+# --- zero-false-negative: genuine protected pushes/cleans MUST still BLOCK (rc 2) ---
+[ "$(hook_run 'git push origin main')" = 2 ] \
+  && ok "96e: git push origin main still blocked (#366)" \
+  || ng "96e: real protected push slipped (#366)"
+[ "$(hook_run 'git push -u origin main')" = 2 ] \
+  && ok "96f: git push -u origin main still blocked (#366)" \
+  || ng "96f: real -u protected push slipped (#366)"
+[ "$(hook_run 'git push origin HEAD:main')" = 2 ] \
+  && ok "96g: git push origin HEAD:main still blocked (#366)" \
+  || ng "96g: HEAD:main refspec push slipped (#366)"
+[ "$(hook_run 'GH_TOKEN=x git push origin main')" = 2 ] \
+  && ok "96h: env-prefixed real protected push still blocked (#366)" \
+  || ng "96h: env-prefixed protected push slipped (#366)"
+[ "$(hook_run 'echo x && git push origin main')" = 2 ] \
+  && ok "96i: real protected push in a non-first && segment still blocked (#366)" \
+  || ng "96i: non-first-segment protected push slipped (#366)"
+[ "$(hook_run 'git push origin "main"')" = 2 ] \
+  && ok "96j: quoted protected target still blocked (heredoc-only strip keeps it) (#366)" \
+  || ng "96j: quoted protected target slipped — false-negative (#366)"
+[ "$(hook_run 'git clean -fd')" = 2 ] \
+  && ok "96k: real git clean -fd still blocked (#366)" \
+  || ng "96k: real git clean slipped (#366)"
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
