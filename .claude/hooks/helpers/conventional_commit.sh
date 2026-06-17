@@ -3,15 +3,85 @@
 # check_commit_subject <subject> → 0 ok, 1 bad (reason on stderr).
 # extract_commit_subject <raw_cmd> <normalized_cmd> → echoes subject (or empty).
 
-# Extract the commit subject from a `git commit` command. Supports two -m forms:
-#   1. plain quoted:        -m "subj"  /  -m 'subj'
-#   2. heredoc body:        -m "$(cat <<TAG ... TAG)"   (TAG may be 'EOF' / EOF / -EOF)
-# Heredoc handling walks the RAW (pre-whitespace-normalization) command to find
-# the first non-blank, non-closing-tag line of the heredoc body. Plain form
-# falls back to the existing single-line sed against the normalized command.
+# Extract the commit subject from a `git commit` command (SPEC §6.1.1). Handles:
+#   1. plain quoted:           -m "subj" / -m 'subj'  (first line of the value)
+#   2. embedded-newline -m:    -m "subj\n\nbody"      (first LINE only, #367 facet 1)
+#   3. multiple -m:            -m "subj" -m "body"     (the FIRST -m, #367 facet 2)
+#   4. heredoc message:        -m "$(cat <<TAG ... TAG)"  (first non-blank body line)
+#   5. -F <file> / no -m:      empty  → caller skips the format check (fail-open)
+# Extraction is BOUNDED to the `git commit` command (scans from the `commit`
+# token onward) and runs on the RAW command, so a sibling command's heredoc/-m
+# in a compound invocation (`cat > f <<EOF … EOF && git commit -F x`) is never
+# mistaken for the subject (#367 facet 3). python3 is the primary parser; the
+# legacy heredoc-walk + greedy sed is the fallback when python3 is absent
+# (degrading toward the prior over-extracting behavior — fails toward BLOCKING,
+# never toward letting a malformed subject through).
 extract_commit_subject() {
   local raw="$1" norm="$2"
   local subj=""
+  # Primary path: a bounded, raw-command parser. On success (even an empty
+  # result, e.g. -F-only → fail-open) its output is authoritative. Only a
+  # python3 crash (non-zero exit) falls through to the legacy logic below.
+  if command -v python3 >/dev/null 2>&1; then
+    if subj=$(printf '%s' "$raw" | python3 -c '
+import sys, re
+raw = sys.stdin.read()
+# Bound to the git commit command: scan from the commit token onward (stay
+# within the command segment — do not cross a separator into a sibling cmd).
+m = re.search(r"\bgit\b[^\n;&|]*?\bcommit\b", raw)
+if not m:
+    sys.exit(0)                       # no commit token → empty (fail-open)
+tail = raw[m.end():]
+# First -m / --message, value-separated by = or whitespace (a separator is
+# required, matching the prior contract; glued -mfoo is out of scope).
+flag = re.search(r"(?:(?<=\s)|^)(?:--message|-m)(?:=|\s)", tail)
+if not flag:
+    sys.exit(0)                       # no inline -m (e.g. -F only) → empty
+i, n = flag.end(), len(tail)
+while i < n and tail[i] in " \t":
+    i += 1
+val = ""
+if i < n and tail[i] == "\x27":       # single-quoted value
+    k = tail.find("\x27", i + 1)
+    val = tail[i+1:k] if k != -1 else tail[i+1:]
+elif i < n and tail[i] == "\"":       # double-quoted value (honor backslash)
+    k, buf = i + 1, []
+    while k < n:
+        if tail[k] == "\\" and k + 1 < n:
+            buf.append(tail[k+1]); k += 2; continue
+        if tail[k] == "\"":
+            break
+        buf.append(tail[k]); k += 1
+    val = "".join(buf)
+else:                                 # bareword value (to next whitespace)
+    bw = re.match(r"\S+", tail[i:])
+    val = bw.group(0) if bw else ""
+# Heredoc message form: the value embeds $(cat <<TAG ... TAG) → the subject is
+# the heredoc body first non-blank, non-tag line.
+hd = re.search(r"<<-?\s*([\x27\"]?)([A-Za-z_]\w*)\1", val)
+if hd:
+    tag = hd.group(2)
+    for ln in val[hd.end():].split("\n"):
+        s = ln.strip()
+        if s == tag:
+            break
+        if s == "":
+            continue
+        sys.stdout.write(s)
+        break
+    sys.exit(0)
+sys.stdout.write(val.split("\n", 1)[0])   # plain value → first line only
+sys.exit(0)
+' 2>/dev/null); then
+      printf '%s' "$subj"
+      return 0
+    fi
+    # python3 crashed → fall through to the legacy fallback (safe direction).
+    subj=""
+  fi
+  # ---- Legacy fallback (python3 absent / errored): prior heredoc-walk + greedy
+  # sed. Over-extracts on the #367 forms (fails toward blocking), never empties a
+  # real subject. ----
   # Heredoc form: detect `<<TAG` or `<<'TAG'` or `<<-TAG`. Extract the tag
   # name, then return the first body line that is neither blank nor the
   # closing tag. Strip leading whitespace from the returned line (so `<<-`
