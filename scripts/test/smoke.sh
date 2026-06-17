@@ -8503,26 +8503,26 @@ S89_SPEC="$SHELL_ROOT/SPEC.md"
 
 # 89a: the /changelog skill file exists with a `description:` front-matter line.
 if [ -f "$S89_SKILL" ] && grep -qE '^description:' "$S89_SKILL"; then
-  ok "89a: .claude/commands/changelog.md exists with description front matter (#346)"
+  ok "93a: .claude/commands/changelog.md exists with description front matter (#346)"
 else
-  ng "89a: .claude/commands/changelog.md missing or lacks description front matter (#346)"
+  ng "93a: .claude/commands/changelog.md missing or lacks description front matter (#346)"
 fi
 
 # 89b: the skill carries a Work-language note (it authors a durable artifact — the fragment).
 grep -qi 'work language' "$S89_SKILL" 2>/dev/null \
-  && ok "89b: changelog.md carries the Work-language note (#346)" \
-  || ng "89b: changelog.md lacks the Work-language note (#346)"
+  && ok "93b: changelog.md carries the Work-language note (#346)" \
+  || ng "93b: changelog.md lacks the Work-language note (#346)"
 
 # 89c: the skill states validation-delegation — authoring, not a re-validating lint surface (§18.5).
 grep -qiE 'delegat.*validation|does not re-?implement|not a .*lint|not a .*check surface' "$S89_SKILL" 2>/dev/null \
-  && ok "89c: changelog.md states it delegates validation (authoring, not lint) (#346)" \
-  || ng "89c: changelog.md must state it delegates validation to CI, not re-validate (#346)"
+  && ok "93c: changelog.md states it delegates validation (authoring, not lint) (#346)" \
+  || ng "93c: changelog.md must state it delegates validation to CI, not re-validate (#346)"
 
 # 89d: the skill names BOTH outcomes — write a fragment XOR apply skip-changelog.
 if grep -q 'changelog_unreleased' "$S89_SKILL" 2>/dev/null && grep -q 'skip-changelog' "$S89_SKILL" 2>/dev/null; then
-  ok "89d: changelog.md offers both fragment-write and skip-changelog outcomes (#346)"
+  ok "93d: changelog.md offers both fragment-write and skip-changelog outcomes (#346)"
 else
-  ng "89d: changelog.md must offer fragment-write XOR skip-changelog (#346)"
+  ng "93d: changelog.md must offer fragment-write XOR skip-changelog (#346)"
 fi
 
 # 89e: /ship carries the pre-ready changelog gate, ordered BEFORE `gh pr ready`.
@@ -8530,19 +8530,19 @@ if grep -q 'skip-changelog' "$S89_SHIP" 2>/dev/null && grep -q 'gh pr ready' "$S
   s89_gate=$(grep -nE 'skip-changelog' "$S89_SHIP" | head -1 | cut -d: -f1)
   s89_ready=$(grep -nE 'gh pr ready' "$S89_SHIP" | tail -1 | cut -d: -f1)
   if [ -n "$s89_gate" ] && [ -n "$s89_ready" ] && [ "$s89_gate" -lt "$s89_ready" ]; then
-    ok "89e: ship.md changelog gate precedes gh pr ready (#346)"
+    ok "93e: ship.md changelog gate precedes gh pr ready (#346)"
   else
-    ng "89e: ship.md changelog gate must precede gh pr ready (#346)"
+    ng "93e: ship.md changelog gate must precede gh pr ready (#346)"
   fi
 else
-  ng "89e: ship.md lacks the pre-ready changelog gate (skip-changelog) (#346)"
+  ng "93e: ship.md lacks the pre-ready changelog gate (skip-changelog) (#346)"
 fi
 
 # 89f: SPEC §18.5 distinguishes the forbidden lint skill from the sanctioned authoring affordance.
 if grep -qE 'changelog-check.*lint' "$S89_SPEC" && grep -q 'authoring affordance' "$S89_SPEC"; then
-  ok "89f: SPEC §18.5 distinguishes lint vs authoring (#346)"
+  ok "93f: SPEC §18.5 distinguishes lint vs authoring (#346)"
 else
-  ng "89f: SPEC §18.5 must distinguish the forbidden lint skill from the authoring affordance (#346)"
+  ng "93f: SPEC §18.5 must distinguish the forbidden lint skill from the authoring affordance (#346)"
 fi
 
 # 89g: SPEC §18.7 skip-criterion clause exists as the SSOT.
@@ -8666,6 +8666,82 @@ if [ -z "$S92_FAIL" ]; then
   ok "92: issue/plan/code-reviewer prompts reference SPEC §6.0 (enforcement-style lens) (#354)"
 else
   ng "92: reviewer prompts missing SPEC §6.0 reference:$S92_FAIL (#354)"
+fi
+
+# ---------- 93. audit source discriminator + reviewer-reject instrumentation (#361, Directive #356 signals 1+3) ----------
+# All fires here resolve to $SMOKE_AUDIT (the whole-run ENG_STATE_DIR_OVERRIDE),
+# so they do NOT touch the live sinks the §357 backstop (just below) measures.
+# hook_run inherits the process env (only CLAUDE_ENG_SHELL_ROOT is prefix-set),
+# so the global CLAUDE_ENG_AUDIT_SOURCE=test flows through; a subshell that
+# unsets / re-sets it exercises the default + forged-value branches.
+
+# Helper: emit one audit-producing fixture fire and echo the LAST record's
+# .source (eval "ls" → a bypass-suspect warn, a clean audit-emitting fire).
+s93_last_source() {  # echoes the .source of the newest $SMOKE_AUDIT record
+  hook_run 'eval "ls -la"' >/dev/null
+  tail -n 1 "$SMOKE_AUDIT" 2>/dev/null | jq -r '.source // "ABSENT"' 2>/dev/null
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  ng "89: jq not installed — cannot scan audit source field (#361)"
+else
+  # 89a — the source field is present and resolves `test` under the harness
+  # marker (exported globally at smoke start). RED pre-#361 (no field → ABSENT).
+  s93a=$(s93_last_source)
+  [ "$s93a" = "test" ] \
+    && ok "93a: audit record carries source=test under harness marker (#361)" \
+    || ng "93a: audit source not 'test' under harness marker (got '$s93a') (#361)"
+
+  # 89b (AC#2 default-live) — marker UNSET → source=live. A real session has no
+  # marker, so its records must be live. RED pre-#361.
+  s93b=$( unset CLAUDE_ENG_AUDIT_SOURCE; s93_last_source )
+  [ "$s93b" = "live" ] \
+    && ok "93b: marker unset → source=live (real-session default) (#361)" \
+    || ng "93b: marker unset did not resolve source=live (got '$s93b') (#361)"
+
+  # 89c (AC#2 anti-reclassification) — a FORGED non-`test` value (smoke) must
+  # still resolve `live`: only the exact token `test` flips the field, so a real
+  # action cannot reclassify itself to dodge a friction signal. RED pre-#361.
+  s93c=$( export CLAUDE_ENG_AUDIT_SOURCE=smoke; s93_last_source )
+  [ "$s93c" = "live" ] \
+    && ok "93c: forged CLAUDE_ENG_AUDIT_SOURCE=smoke still resolves source=live (#361)" \
+    || ng "93c: forged non-test marker leaked into source (got '$s93c') (#361)"
+
+  # 89d — jq still parses every line after the new field lands (shape integrity).
+  if jq -c '.' "$SMOKE_AUDIT" >/dev/null 2>&1; then
+    ok "93d: audit.jsonl still one-JSON-object-per-line with the source field (#361)"
+  else
+    ng "93d: audit.jsonl no longer fully jq-parseable after source field (#361)"
+  fi
+
+  # 89e — reviewer_reject_audit helper emits a categorized reject record. RED
+  # pre-#361 (helper absent → source fails → nothing emitted).
+  s93e_before=$(wc -l < "$SMOKE_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s93e_before" ] && s93e_before=0
+  (
+    # shellcheck disable=SC1091
+    . "$SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+    . "$SHELL_ROOT/.claude/hooks/helpers/reviewer_audit.sh" 2>/dev/null
+    reviewer_reject_audit issue-review scope-bleed 999 2>/dev/null
+  )
+  s93e_after=$(wc -l < "$SMOKE_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s93e_after" ] && s93e_after=0
+  if [ "$s93e_after" -gt "$s93e_before" ] \
+     && tail -n "$((s93e_after - s93e_before))" "$SMOKE_AUDIT" 2>/dev/null \
+        | jq -e 'select(.event=="warn" and .category=="issue-review" and .decision=="reject" and (.reason | test("class=scope-bleed issue=#999")))' >/dev/null 2>&1; then
+    ok "93e: reviewer_reject_audit emits warn/issue-review/reject with class+issue (#361)"
+  else
+    ng "93e: reviewer_reject_audit did not emit the expected reject record (#361)"
+  fi
+
+  # 89f — structural: each of the 4 reviewer-invoking skills references the
+  # reject-audit emission (reviewer_reject_audit or the reason-class token).
+  s93f_fail=
+  for f in file-issue work-on activate complete-directive; do
+    grep -q 'reviewer_reject_audit\|reason-class\|reason_class' "$SHELL_ROOT/.claude/commands/$f.md" 2>/dev/null \
+      || s93f_fail="$s93f_fail $f"
+  done
+  [ -z "$s93f_fail" ] \
+    && ok "93f: all 4 reviewer-invoking skills wire the reject-audit emission (#361)" \
+    || ng "93f: skills missing reject-audit wiring:$s93f_fail (#361)"
 fi
 
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
