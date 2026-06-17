@@ -29,6 +29,30 @@ set -uo pipefail
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"
 
+# §357 AC1 backstop (capture half) — snapshot the LIVE shared sinks' size BEFORE
+# any fixture fires. Reads the literal $SHELL_ROOT paths (NOT $SMOKE_*): a smoke
+# run must add ZERO lines to the shell's live audit log + scope registry (state
+# isolation, #357). The matching assertion sits just before the results block;
+# it fails LOUD if a future change reintroduces a live-sink write. Captured here,
+# before the §4 registry backup, so it reflects the truly untouched live state.
+S357_LIVE_AUDIT="$SHELL_ROOT/.claude/audit/audit.jsonl"
+S357_LIVE_REG="$SHELL_ROOT/.claude/state/registry.txt"
+s357_audit_before=$(wc -l < "$S357_LIVE_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s357_audit_before" ] && s357_audit_before=0
+s357_reg_before=$(wc -l < "$S357_LIVE_REG" 2>/dev/null | tr -d ' '); [ -z "$s357_reg_before" ] && s357_reg_before=0
+
+# §357 — pin ALL fixture hook fires to an isolated ephemeral state dir for the
+# whole run. eng_state_dir() honors ENG_STATE_DIR_OVERRIDE as top priority, so
+# every audit_log + argless eng_registry_file (in_scope) resolves here instead
+# of the shell's live shared sinks. Class A registry writes target $SMOKE_REG;
+# resolver-contract tests (§83/§84) and §20 locally `unset` this to exercise the
+# other branches; Class B guard tests (§41/§50) register on their target's own
+# per-project eng-state path. Cleaned on EXIT (see the §4 trap).
+SMOKE_STATE=$(mktemp -d)
+SMOKE_AUDIT="$SMOKE_STATE/audit/audit.jsonl"
+SMOKE_REG="$SMOKE_STATE/registry.txt"
+mkdir -p "$SMOKE_STATE/audit"
+export ENG_STATE_DIR_OVERRIDE="$SMOKE_STATE"
+
 PASS=0
 FAIL=0
 ok() { printf '✓ %s\n' "$1"; PASS=$((PASS+1)); }
@@ -97,18 +121,15 @@ check_commit_subject "feat(#1): $KOR" 2>/dev/null && ok "cc: 72-codepoint multib
 
 # ---------- 4. inject + registry ----------
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP" "$SMOKE_STATE"' EXIT
 # fake target git repo (init may default to main; immediately move to a feature branch)
 (cd "$TMP" && git init -q fake && cd fake && git checkout -b smoke/feat/1-test -q 2>/dev/null && git commit --allow-empty -q -m init 2>/dev/null) || true
 . "$SHELL_ROOT/scripts/lib/inject.sh"
 
-# Isolate registry for the test
-ORIG_REG="$SHELL_ROOT/.claude/state/registry.txt"
-ORIG_REG_BAK=""
-if [ -f "$ORIG_REG" ]; then
-  ORIG_REG_BAK="$ORIG_REG.smoke-bak"
-  mv "$ORIG_REG" "$ORIG_REG_BAK"
-fi
+# #357: no registry backup/restore needed — the whole-run ENG_STATE_DIR_OVERRIDE
+# pins all fixture in_scope reads/writes to $SMOKE_REG, and the Class B guard
+# tests (§41/§50) register on their target's own eng-state path, so the shell's
+# live shared $SHELL_ROOT/.claude/state/registry.txt is never written at all.
 
 inject_into "$TMP/fake" >/dev/null 2>&1 && ok "inject_into ok" || ng "inject_into failed"
 [ -L "$TMP/fake/.claude/settings.local.json" ] && ok "settings.local.json symlinked" || ng "settings.local.json missing"
@@ -116,17 +137,25 @@ inject_into "$TMP/fake" >/dev/null 2>&1 && ok "inject_into ok" || ng "inject_int
 grep -q "$TMP/fake" "$TMP/fake/.claude/eng-state/registry.txt" 2>/dev/null && ok "registry entry added (per-project, #316)" || ng "registry not updated"
 grep -q "^.claude/settings.local.json" "$TMP/fake/.git/info/exclude" 2>/dev/null && ok ".git/info/exclude updated" || ng "exclude not updated"
 
-# #316: inject now records the entry in the TARGET's per-project registry. The
+# #316/#357: inject records the entry in the TARGET's per-project registry. The
 # hook-integration tests (§7+) and hook_run drive the hook with CLAUDE_PROJECT_DIR
-# unset — so audit lands at the legacy REAL_AUDIT path AND in_scope resolves via
-# the legacy shared-registry fallback. Mirror the target into the shared registry
-# so those matcher tests reach the matchers (the per-project path is covered by §84).
-# Use the CANONICAL path (inject_into canonicalizes via `cd && pwd -P`; the hook's
-# in_scope compares against pwd -P), else macOS /var vs /private/var never matches.
+# unset, so audit and in_scope resolve through eng_state_dir() — which this harness
+# pins to an isolated $SMOKE_STATE for the WHOLE run (ENG_STATE_DIR_OVERRIDE,
+# exported near the top, #357). That keeps every fixture hook fire off the shell's
+# LIVE shared sinks ($SHELL_ROOT/.claude/audit/audit.jsonl + .../state/registry.txt),
+# restoring the MISSION "shared code, per-project state" isolation invariant for the
+# test path. So we mirror the target into $SMOKE_REG (the override's registry), NOT
+# the live shared registry, so those matcher tests still reach the matchers (the
+# per-project path is covered by §84). Use the CANONICAL path (inject_into
+# canonicalizes via `cd && pwd -P`; the hook's in_scope compares against pwd -P),
+# else macOS /var vs /private/var never matches. The resolver-contract tests
+# (§83/§84) and §20 locally `unset ENG_STATE_DIR_OVERRIDE` to exercise the other
+# branches; the Class B guard tests (§41/§50) register on the target's own
+# eng-state path so the live shared registry is never written at all.
 FAKE_CANON=$(cd "$TMP/fake" && pwd -P)
 mkdir -p "$SHELL_ROOT/.claude/state"
-grep -qxF "$FAKE_CANON" "$SHELL_ROOT/.claude/state/registry.txt" 2>/dev/null \
-  || printf '%s\n' "$FAKE_CANON" >> "$SHELL_ROOT/.claude/state/registry.txt"
+grep -qxF "$FAKE_CANON" "$SMOKE_REG" 2>/dev/null \
+  || printf '%s\n' "$FAKE_CANON" >> "$SMOKE_REG"
 
 # ---------- 5. cwd_guard ----------
 # hookrt.sh hosts eng_registry_file (#316); cwd_guard rides it. In a real hook
@@ -150,15 +179,15 @@ path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" && ok "path_in_scope: shell self a
 # dropped from scope (fail-open on the scope guard). Both loops normalize via
 # `${entry%/}` now.
 S5B_DIR=$(cd "$(mktemp -d)" && pwd -P)   # physical-resolved (path_in_scope resolves symlinks)
-printf '%s/\n' "$S5B_DIR" >> "$SHELL_ROOT/.claude/state/registry.txt"   # trailing slash entry
+printf '%s/\n' "$S5B_DIR" >> "$SMOKE_REG"   # trailing slash entry
 path_in_scope "$S5B_DIR/sub/file.txt" \
   && ok "5b: trailing-slash registry entry still scopes paths under it (#218)" \
   || ng "5b: trailing-slash registry entry dropped its path from scope (#218)"
 (cd "$S5B_DIR" && in_scope) \
   && ok "5b: in_scope true inside a trailing-slash registry entry (#218)" \
   || ng "5b: in_scope false inside a trailing-slash registry entry (#218)"
-s5b_tmp=$(mktemp); grep -vxF "$S5B_DIR/" "$SHELL_ROOT/.claude/state/registry.txt" > "$s5b_tmp" 2>/dev/null || true
-mv "$s5b_tmp" "$SHELL_ROOT/.claude/state/registry.txt"
+s5b_tmp=$(mktemp); grep -vxF "$S5B_DIR/" "$SMOKE_REG" > "$s5b_tmp" 2>/dev/null || true
+mv "$s5b_tmp" "$SMOKE_REG"
 rmdir "$S5B_DIR" 2>/dev/null || true
 
 # ---------- 6. secret_scan ----------
@@ -956,8 +985,8 @@ HOOK_TMP=$(cd "$(mktemp -d)" && pwd -P)
 # scope — so SHELL_ROOT must also be registered for those checks to
 # resolve correctly. The registry was backed up at smoke start and is
 # restored at the end; appending here is local to this run.
-grep -qxF "$SHELL_ROOT" "$SHELL_ROOT/.claude/state/registry.txt" 2>/dev/null \
-  || printf '%s\n' "$SHELL_ROOT" >> "$SHELL_ROOT/.claude/state/registry.txt"
+grep -qxF "$SHELL_ROOT" "$SMOKE_REG" 2>/dev/null \
+  || printf '%s\n' "$SHELL_ROOT" >> "$SMOKE_REG"
 
 # Drive the hook with a synthesized Bash PreToolUse payload.
 #
@@ -1052,7 +1081,7 @@ fi
 # NOT short-circuit downstream matchers, so we test with a clean inner
 # command. (`eval "git push --force"` should still BLOCK — covered by
 # the regression in 15d's spirit: downstream matchers stay active.)
-REAL_AUDIT="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT="$SMOKE_AUDIT"
 mkdir -p "$(dirname "$REAL_AUDIT")" 2>/dev/null
 before_count=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' ')
 [ -z "$before_count" ] && before_count=0
@@ -1593,7 +1622,7 @@ rm -rf "$DETACHED_DIR"
 AUDIT_TMP=$(mktemp -d)
 mkdir -p "$AUDIT_TMP/.claude/audit"
 (
-  export CLAUDE_ENG_SHELL_ROOT="$AUDIT_TMP"
+  export CLAUDE_ENG_SHELL_ROOT="$AUDIT_TMP"; unset ENG_STATE_DIR_OVERRIDE  # #357: §20 tests the CLAUDE_ENG_SHELL_ROOT legacy path
   # Source the helper fresh in the subshell so it picks up the override.
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   # 20a. multi-line reason → exactly one new line in audit.jsonl.
@@ -1616,7 +1645,7 @@ mkdir -p "$AUDIT_TMP/.claude/audit"
 AUDIT_QUOTED_DIR="$AUDIT_TMP/dir\"with-quote"
 mkdir -p "$AUDIT_QUOTED_DIR"
 (
-  export CLAUDE_ENG_SHELL_ROOT="$AUDIT_TMP"
+  export CLAUDE_ENG_SHELL_ROOT="$AUDIT_TMP"; unset ENG_STATE_DIR_OVERRIDE  # #357: §20 tests the CLAUDE_ENG_SHELL_ROOT legacy path
   cd "$AUDIT_QUOTED_DIR" || exit 1
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   audit_log block test deny "simple reason"
@@ -2064,7 +2093,7 @@ BACKMERGE_MAIN_DIR=$(mktemp -d)
   git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
   git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
 )
-printf '%s\n' "$BACKMERGE_MAIN_DIR" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$BACKMERGE_MAIN_DIR" >> "$SMOKE_REG"
 (
   cd "$BACKMERGE_MAIN_DIR"
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
@@ -2074,8 +2103,8 @@ printf '%s\n' "$BACKMERGE_MAIN_DIR" >> "$SHELL_ROOT/.claude/state/registry.txt"
   [ "$?" = "0" ]
 ) && ok "backmerge: on-main merge allowed (#61)" \
    || ng "backmerge: on-main merge should allow (#61)"
-grep -vxF "$BACKMERGE_MAIN_DIR" "$SHELL_ROOT/.claude/state/registry.txt" > "$SHELL_ROOT/.claude/state/registry.txt.tmp"
-mv "$SHELL_ROOT/.claude/state/registry.txt.tmp" "$SHELL_ROOT/.claude/state/registry.txt"
+grep -vxF "$BACKMERGE_MAIN_DIR" "$SMOKE_REG" > "$SMOKE_REG.tmp"
+mv "$SMOKE_REG.tmp" "$SMOKE_REG"
 rm -rf "$BACKMERGE_MAIN_DIR"
 
 # §32d: SKIP_HOOKS=backmerge git merge main → allow.
@@ -2656,7 +2685,7 @@ gh38_reset
 printf '100\n' > "$GH38_STATE/pr_issues"
 printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
 : > "$GH38_STATE/issue_comments"
-REAL_AUDIT="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT="$SMOKE_AUDIT"
 audit_before=$(wc -l < "$REAL_AUDIT" 2>/dev/null | tr -d ' ' || echo 0)
 gh38_run "SKIP_HOOKS=ac-closeout SKIP_REASON='emergency' gh pr merge 200 --merge" >/dev/null
 rc38d=$?
@@ -2756,7 +2785,7 @@ fi
 #   - helpers/log.sh is a compatibility shim after #34; no hook
 #     safe-sources it (audit_log comes from hookrt.sh directly).
 
-REAL_AUDIT_38H="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT_38H="$SMOKE_AUDIT"
 
 # (helper-basename, expected category, hook-script, stdin-cmd-or-prompt)
 # Tuples are colon-separated. For pre_tool_use the 4th field is the
@@ -2949,7 +2978,7 @@ fi
 # warn); branch_guard.sh's plain `.` failed silently. Post-#36, both
 # fire and the count is 2.
 
-REAL_AUDIT_38J="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT_38J="$SMOKE_AUDIT"
 SS38J_PATH="$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
 SS38J_BAK="$GH38_DIR/git_matcher.sh.bak.38j"
 
@@ -3028,7 +3057,7 @@ rm -rf "$GH38_DIR"
 # asserts the negative: a cmd that enters no matcher produces zero
 # new audit records.
 
-REAL_AUDIT_39="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT_39="$SMOKE_AUDIT"
 
 # §39 test harness — invoke pre_tool_use.sh with a synthesized Bash
 # tool_input.command, captured the way §38 does. The gh shim is needed
@@ -3310,10 +3339,13 @@ mkdir -p "$SP_TARGET" "$SP_BIN"
 SP_TARGET=$(cd "$SP_TARGET" && pwd -P)
 (cd "$SP_TARGET" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
 
-# Register $SP_TARGET so the registry guard accepts it. Save and restore the
-# real registry (already swapped to a temp $REG by the §4 setup at the top of
-# this file).
-SP_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+# Register $SP_TARGET so the registry guard accepts it. #357 (Class B): the
+# code under test (setup_project.sh → dr_check_registry_guard) reads the
+# target's OWN per-project eng-state registry as its first, override-immune
+# read-arm — so register there, NOT the shell's live shared registry. Keeps the
+# guard green while writing nothing to $SHELL_ROOT/.claude/state/registry.txt.
+SP_REGISTRY="$SP_TARGET/.claude/eng-state/registry.txt"
+mkdir -p "$(dirname "$SP_REGISTRY")"
 printf '%s\n' "$SP_TARGET" >> "$SP_REGISTRY"
 
 # Mock gh — dispatches by subcommand; logs full argv. Tracks per-field creation
@@ -3557,7 +3589,10 @@ else
     mkdir -p "$SP_TARGET2"
     SP_TARGET2=$(cd "$SP_TARGET2" && pwd -P)
     (cd "$SP_TARGET2" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
-    printf '%s\n' "$SP_TARGET2" >> "$SP_REGISTRY"
+    # #357 Class B: register on THIS target's own per-project registry (the guard
+    # reads it with cwd=$SP_TARGET2), not the live shared one.
+    mkdir -p "$SP_TARGET2/.claude/eng-state"
+    printf '%s\n' "$SP_TARGET2" >> "$SP_TARGET2/.claude/eng-state/registry.txt"
     mkdir -p "$SP_DIR2/fields" "$SP_DIR2/options"
     touch "$SP_DIR2/project-created"
     # v3 script declares 4 fields; pre-seed extra legacy fields (Confidence,
@@ -3617,7 +3652,9 @@ else
     mkdir -p "$SP_TARGET3"
     SP_TARGET3=$(cd "$SP_TARGET3" && pwd -P)
     (cd "$SP_TARGET3" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
-    printf '%s\n' "$SP_TARGET3" >> "$SP_REGISTRY"
+    # #357 Class B: register on THIS target's own per-project registry.
+    mkdir -p "$SP_TARGET3/.claude/eng-state"
+    printf '%s\n' "$SP_TARGET3" >> "$SP_TARGET3/.claude/eng-state/registry.txt"
     mkdir -p "$SP_DIR3/fields" "$SP_DIR3/options"
     touch "$SP_DIR3/project-created"
     for f in Item_Type Status Priority Parent; do touch "$SP_DIR3/fields/$f"; done
@@ -4010,14 +4047,16 @@ fi
 DP_DIR=$(mktemp -d)
 DP_BIN="$DP_DIR/bin"
 DP_TARGET="$DP_DIR/target"
-DP_CACHE="$SHELL_ROOT/.claude/state/issue-type-cache"
+# #357: dp_run's hook fires under the whole-run override (CLAUDE_PROJECT_DIR
+# unset), so is_directive_issue caches to $SMOKE_STATE, not the legacy path.
+DP_CACHE="$SMOKE_STATE/issue-type-cache"
 mkdir -p "$DP_BIN" "$DP_TARGET"
 DP_TARGET=$(cd "$DP_TARGET" && pwd -P)
 (cd "$DP_TARGET" && git init -q) || true
 DP_AUDIT="$DP_DIR/audit.jsonl"
 
 # Register DP_TARGET so cwd_guard accepts it (matches the §41 pattern).
-DP_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+DP_REGISTRY="$SMOKE_REG"
 printf '%s\n' "$DP_TARGET" >> "$DP_REGISTRY"
 
 cat > "$DP_BIN/gh" <<'MOCK'
@@ -4174,6 +4213,7 @@ fi
 s212_isdir() {  # $1=labels → echoes directive|execution
   (
     export CLAUDE_ENG_SHELL_ROOT="$TMP/s212root"
+    unset ENG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own CLAUDE_ENG_SHELL_ROOT, not $SMOKE_STATE
     rm -rf "$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache" 2>/dev/null
     mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"
     s212_lbl="$1"
@@ -4207,6 +4247,7 @@ s212_isdir() {  # $1=labels → echoes directive|execution
 m1_pred() {  # $1=labels $2=predicate-fn → echoes YES|NO
   (
     export CLAUDE_ENG_SHELL_ROOT="$TMP/m1root"
+    unset ENG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own CLAUDE_ENG_SHELL_ROOT, not $SMOKE_STATE
     rm -rf "$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-type-cache" 2>/dev/null
     mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"
     m1_lbl="$1"
@@ -4924,7 +4965,7 @@ DIRECTIVE_FILE_AUDIT_CUTOFF="2026-05-28T02:00:00Z"
 # forward by #135's /file-directive Priority capture + step-4 emission;
 # the historical entry is immutable per the audit-log append-only
 # contract. New entries past the cutoff remain gated.
-AUDIT_FILE="$SHELL_ROOT/.claude/audit/audit.jsonl"
+AUDIT_FILE="$SMOKE_AUDIT"
 
 # 50a — audit-format guard
 if [ ! -f "$AUDIT_FILE" ]; then
@@ -4967,7 +5008,11 @@ else
   DR50_TARGET=$(cd "$DR50_TARGET" && pwd -P)
   (cd "$DR50_TARGET" && git init -q && git remote add origin https://github.com/smoke-owner/smoke-repo.git 2>/dev/null) || true
 
-  DR50_REGISTRY="$SHELL_ROOT/.claude/state/registry.txt"
+  # #357 (Class B): register on the target's own per-project eng-state registry
+  # (dr_check_registry_guard's override-immune first read-arm), not the live
+  # shared registry — guard stays green, live sinks stay untouched.
+  DR50_REGISTRY="$DR50_TARGET/.claude/eng-state/registry.txt"
+  mkdir -p "$(dirname "$DR50_REGISTRY")"
   printf '%s\n' "$DR50_TARGET" >> "$DR50_REGISTRY"
 
   # Minimal gh mock — just `gh auth status` + `gh repo view` + `gh project list`.
@@ -5127,7 +5172,7 @@ mkdir -p "$(dirname "$S53_LOG")"
 
 # §53a: well-formed directive-file/created → written verbatim, rc=0.
 (
-  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"; unset ENG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: smoke test issue=#123 priority=P2 confidence=50"
@@ -5146,7 +5191,7 @@ fi
 # line written, original record NOT written, rc=1.
 s53b_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"; unset ENG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: bad issue= priority=P2 confidence=50"
@@ -5169,7 +5214,7 @@ fi
 # issue=#2" if mis-applied to it.
 s53c_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"
+  CLAUDE_ENG_SHELL_ROOT="$S53_DIR"; unset ENG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-link created "directive=#75 issue=#80"
@@ -6009,7 +6054,7 @@ mkdir -p "$S60_TARGET"
 S60_TARGET=$(cd "$S60_TARGET" && pwd -P)
 (cd "$S60_TARGET" && git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
  git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
-printf '%s\n' "$S60_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$S60_TARGET" >> "$SMOKE_REG"
 
 # Helper: invoke pre_tool_use.sh with a synthesized Edit input from $S60_TARGET.
 s60_edit_run() {
@@ -6097,8 +6142,8 @@ else
 fi
 
 # Cleanup §60.
-sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$sp_tmp_reg" 2>/dev/null || true
-mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
+sp_tmp_reg=$(mktemp); grep -vxF "$S60_TARGET" "$SMOKE_REG" > "$sp_tmp_reg" 2>/dev/null || true
+mv "$sp_tmp_reg" "$SMOKE_REG"
 rm -rf "$S60_DIR"
 
 # ---------- 61. target-substrate foundation: SPEC §1.7 Substrate-in-target contract (#114) ----------
@@ -6168,7 +6213,7 @@ mkdir -p "$S62_DIR/bin" "$S62_DIR/target"
 S62_TARGET=$(cd "$S62_DIR/target" && pwd -P)
 (cd "$S62_TARGET" && git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
  git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
-printf '%s\n' "$S62_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$S62_TARGET" >> "$SMOKE_REG"
 
 # Mock gh: returns labels including "discussion" for issue view + --jq-aware
 # output (the hook calls `gh issue view N --json labels --jq '.labels[].name'`
@@ -6278,8 +6323,8 @@ case $? in
 esac
 
 # Cleanup §62.
-sp_tmp_reg=$(mktemp); grep -vxF "$S62_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$sp_tmp_reg" 2>/dev/null || true
-mv "$sp_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
+sp_tmp_reg=$(mktemp); grep -vxF "$S62_TARGET" "$SMOKE_REG" > "$sp_tmp_reg" 2>/dev/null || true
+mv "$sp_tmp_reg" "$SMOKE_REG"
 rm -rf "$S62_DIR"
 
 # §62f: stale-discussion surface lives in /activate batch mode (relocated from
@@ -6971,7 +7016,7 @@ mkdir -p "$S69_DIR/bin" "$S69_DIR/target"
 S69_TARGET=$(cd "$S69_DIR/target" && pwd -P)
 (cd "$S69_TARGET" && git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }
  git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
-printf '%s\n' "$S69_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$S69_TARGET" >> "$SMOKE_REG"
 
 # Mock gh: issue 777 is parented (line-1 marker), 888 is standalone (no marker),
 # 555 simulates gh failure (fail-open path). The matcher calls
@@ -7143,8 +7188,8 @@ case $? in
 esac
 
 # Cleanup §69.
-s69_tmp_reg=$(mktemp); grep -vxF "$S69_TARGET" "$SHELL_ROOT/.claude/state/registry.txt" > "$s69_tmp_reg" 2>/dev/null || true
-mv "$s69_tmp_reg" "$SHELL_ROOT/.claude/state/registry.txt"
+s69_tmp_reg=$(mktemp); grep -vxF "$S69_TARGET" "$SMOKE_REG" > "$s69_tmp_reg" 2>/dev/null || true
+mv "$s69_tmp_reg" "$SMOKE_REG"
 rm -rf "$S69_DIR"
 
 # ---------- 70. force-push scoping: explicit non-protected target only (#204) ----------
@@ -7312,7 +7357,7 @@ mkdir -p "$S73_DIR/bin" "$S73_DIR/target"
 S73_TARGET=$(cd "$S73_DIR/target" && pwd -P)
 (cd "$S73_TARGET" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; })
  git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
-printf '%s\n' "$S73_TARGET" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$S73_TARGET" >> "$SMOKE_REG"
 cat > "$S73_DIR/bin/gh" <<'GHEOF'
 #!/bin/sh
 n=$(printf '%s\n' "$*" | sed -nE 's/.*issue (view|edit|close|reopen|comment) #?([0-9]+).*/\2/p' | head -1)
@@ -7718,7 +7763,7 @@ printf 'main\n' > "$PT78_STATE/default_branch"  # restore
 
 # 78h: escape — SKIP_HOOKS=merge-strategy bypasses the squash→default block
 # (rc=0) AND emits an escape audit record.
-REAL_AUDIT_78="$SHELL_ROOT/.claude/audit/audit.jsonl"
+REAL_AUDIT_78="$SMOKE_AUDIT"
 s78_before=$(wc -l < "$REAL_AUDIT_78" 2>/dev/null | tr -d ' '); [ -z "$s78_before" ] && s78_before=0
 s78_rc=$(pt78_run "SKIP_HOOKS=merge-strategy SKIP_REASON=consolidator gh pr merge 200 --squash")
 s78_after=$(wc -l < "$REAL_AUDIT_78" 2>/dev/null | tr -d ' '); [ -z "$s78_after" ] && s78_after=0
@@ -7861,7 +7906,7 @@ s80_hook() {
 # inside the registry, exactly as /bootstrap-repo encounters it.
 S80_REPO=$(cd "$(mktemp -d)" && pwd -P)
 ( cd "$S80_REPO" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }) ) || true
-printf '%s\n' "$S80_REPO" >> "$SHELL_ROOT/.claude/state/registry.txt"
+printf '%s\n' "$S80_REPO" >> "$SMOKE_REG"
 s80_branch=$(cd "$S80_REPO" && git symbolic-ref --short HEAD 2>/dev/null)
 s80_unborn=$(cd "$S80_REPO" && git rev-parse --verify HEAD 2>/dev/null || printf 'unborn')
 
@@ -7889,8 +7934,8 @@ else
 fi
 
 # Unregister the fixture and remove it.
-s80_tmp=$(mktemp); grep -vxF "$S80_REPO" "$SHELL_ROOT/.claude/state/registry.txt" > "$s80_tmp" 2>/dev/null || true
-mv "$s80_tmp" "$SHELL_ROOT/.claude/state/registry.txt"
+s80_tmp=$(mktemp); grep -vxF "$S80_REPO" "$SMOKE_REG" > "$s80_tmp" 2>/dev/null || true
+mv "$s80_tmp" "$SMOKE_REG"
 rm -rf "$S80_REPO"
 
 # 80d: the command file exists with the skill contract AND carries the EXACT
@@ -7998,7 +8043,7 @@ S82_PROJ=$(cd "$(mktemp -d)" && pwd -P)
     && git commit -q --allow-empty -m init 2>/dev/null ) || true
 mkdir -p "$S82_PROJ/.claude"
 ln -sfn "$SHELL_ROOT" "$S82_PROJ/.claude/eng-shell-root"
-printf '%s\n' "$S82_PROJ" >> "$SHELL_ROOT/.claude/state/registry.txt"   # in_scope needs it registered
+printf '%s\n' "$S82_PROJ" >> "$SMOKE_REG"   # in_scope needs it registered
 
 s82_hook_noenv() {
   # $1 = project cwd, $2 = hook path (via the symlink), $3 = command ; echoes rc
@@ -8016,8 +8061,8 @@ else
 fi
 
 # unregister + remove the fixture
-s82_tmp=$(mktemp); grep -vxF "$S82_PROJ" "$SHELL_ROOT/.claude/state/registry.txt" > "$s82_tmp" 2>/dev/null || true
-mv "$s82_tmp" "$SHELL_ROOT/.claude/state/registry.txt"
+s82_tmp=$(mktemp); grep -vxF "$S82_PROJ" "$SMOKE_REG" > "$s82_tmp" 2>/dev/null || true
+mv "$s82_tmp" "$SMOKE_REG"
 rm -rf "$S82_PROJ"
 
 # 82b: inject_into creates `.claude/eng-shell-root` resolving to the canonical
@@ -8070,8 +8115,10 @@ fi
 # registry is NOT moved here (deferred to EI-2b).
 
 # 83a: resolver — set → per-project; unset → empty; override wins. (#314)
-s83_set=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; CLAUDE_PROJECT_DIR=/tmp/projX eng_state_dir )
-s83_unset=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset CLAUDE_PROJECT_DIR 2>/dev/null; eng_state_dir )
+# #357: locally unset the whole-run override so each case exercises the branch
+# it asserts (per-project / empty); s83_ovr keeps its own inline override.
+s83_set=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset ENG_STATE_DIR_OVERRIDE; CLAUDE_PROJECT_DIR=/tmp/projX eng_state_dir )
+s83_unset=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset ENG_STATE_DIR_OVERRIDE CLAUDE_PROJECT_DIR 2>/dev/null; eng_state_dir )
 s83_ovr=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; ENG_STATE_DIR_OVERRIDE=/tmp/ovr CLAUDE_PROJECT_DIR=/tmp/projX eng_state_dir )
 if [ "$s83_set" = "/tmp/projX/.claude/eng-state" ] && [ -z "$s83_unset" ] && [ "$s83_ovr" = "/tmp/ovr" ]; then
   ok "83a: eng_state_dir resolves per-project / empty / override (#314)"
@@ -8082,8 +8129,9 @@ fi
 # 83b: audit logs are mutually invisible across two CLAUDE_PROJECT_DIR projects.
 S83_A=$(cd "$(mktemp -d)" && pwd -P)
 S83_B=$(cd "$(mktemp -d)" && pwd -P)
-( export CLAUDE_PROJECT_DIR="$S83_A"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-A" ) >/dev/null 2>&1
-( export CLAUDE_PROJECT_DIR="$S83_B"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-B" ) >/dev/null 2>&1
+# #357: unset the override so audit resolves per-project (CLAUDE_PROJECT_DIR), not $SMOKE_STATE.
+( export CLAUDE_PROJECT_DIR="$S83_A"; unset ENG_STATE_DIR_OVERRIDE; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-A" ) >/dev/null 2>&1
+( export CLAUDE_PROJECT_DIR="$S83_B"; unset ENG_STATE_DIR_OVERRIDE; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-mark-B" ) >/dev/null 2>&1
 s83a_log="$S83_A/.claude/eng-state/audit/audit.jsonl"
 s83b_log="$S83_B/.claude/eng-state/audit/audit.jsonl"
 if grep -q 'ei2a-mark-A' "$s83a_log" 2>/dev/null && ! grep -q 'ei2a-mark-B' "$s83a_log" 2>/dev/null \
@@ -8097,7 +8145,7 @@ rm -rf "$S83_A" "$S83_B"
 # 83c: legacy fallback — CLAUDE_PROJECT_DIR unset → audit lands at the legacy
 # $CLAUDE_ENG_SHELL_ROOT/.claude/audit path (existing behavior preserved).
 S83_LEG=$(cd "$(mktemp -d)" && pwd -P)
-( export CLAUDE_ENG_SHELL_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+( export CLAUDE_ENG_SHELL_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR ENG_STATE_DIR_OVERRIDE 2>/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-legacy" ) >/dev/null 2>&1
 if grep -q 'ei2a-legacy' "$S83_LEG/.claude/audit/audit.jsonl" 2>/dev/null \
    && [ ! -d "$S83_LEG/.claude/eng-state" ]; then
@@ -8127,9 +8175,12 @@ rm -rf "$S83_INJ"
 
 # 84a: resolver resolution — explicit arg / hook (CLAUDE_PROJECT_DIR) / override / legacy.
 s84_arg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; eng_registry_file /tmp/projA )
-s84_hook=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; CLAUDE_PROJECT_DIR=/tmp/projX eng_registry_file )
+# #357: unset the whole-run override on the override-sensitive (argless) cases —
+# s84_hook (rides eng_state_dir via CLAUDE_PROJECT_DIR) and s84_leg (legacy
+# fallback); s84_arg is explicit-arg (override-immune) and s84_ovr sets its own.
+s84_hook=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset ENG_STATE_DIR_OVERRIDE; CLAUDE_PROJECT_DIR=/tmp/projX eng_registry_file )
 s84_ovr=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; ENG_STATE_DIR_OVERRIDE=/tmp/ovr eng_registry_file )
-s84_leg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; export CLAUDE_ENG_SHELL_ROOT=/tmp/legroot; unset CLAUDE_PROJECT_DIR 2>/dev/null; eng_registry_file )
+s84_leg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; export CLAUDE_ENG_SHELL_ROOT=/tmp/legroot; unset CLAUDE_PROJECT_DIR ENG_STATE_DIR_OVERRIDE 2>/dev/null; eng_registry_file )
 if [ "$s84_arg" = "/tmp/projA/.claude/eng-state/registry.txt" ] \
    && [ "$s84_hook" = "/tmp/projX/.claude/eng-state/registry.txt" ] \
    && [ "$s84_ovr" = "/tmp/ovr/registry.txt" ] \
@@ -8161,7 +8212,7 @@ rm -rf "$S84_A" "$S84_B"
 S84_LEG=$(cd "$(mktemp -d)" && pwd -P)
 mkdir -p "$S84_LEG/.claude/state"
 printf '%s\n' "$S84_LEG" > "$S84_LEG/.claude/state/registry.txt"
-if ( cd "$S84_LEG"; export CLAUDE_ENG_SHELL_ROOT="$S84_LEG"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+if ( cd "$S84_LEG"; export CLAUDE_ENG_SHELL_ROOT="$S84_LEG"; unset CLAUDE_PROJECT_DIR ENG_STATE_DIR_OVERRIDE 2>/dev/null
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"; in_scope ); then
   ok "84c: argless in_scope falls back to legacy shared registry, no project context (#316)"
 else
@@ -8171,7 +8222,7 @@ rm -rf "$S84_LEG"
 
 # 84d: set -u safety — cwd_guard must not abort with CLAUDE_ENG_SHELL_ROOT unset
 # (the #312 self-located case); fail-open (return), never crash the guard.
-s84d=$( set -u; unset CLAUDE_ENG_SHELL_ROOT 2>/dev/null; unset CLAUDE_PROJECT_DIR 2>/dev/null
+s84d=$( set -u; unset CLAUDE_ENG_SHELL_ROOT ENG_STATE_DIR_OVERRIDE 2>/dev/null; unset CLAUDE_PROJECT_DIR 2>/dev/null
         . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
         . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
         in_scope; printf 'ic=%s ' "$?"; path_in_scope /tmp/x; printf 'pis=%s' "$?" )
@@ -8186,13 +8237,15 @@ fi
 S84_DOG=$(cd "$(mktemp -d)" && pwd -P)
 ( export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"; . "$SHELL_ROOT/scripts/lib/self_register.sh"; ensure_self_registered "$S84_DOG" >/dev/null 2>&1 )
 s84e_written="$S84_DOG/.claude/eng-state/registry.txt"
-s84e_read=$( export CLAUDE_PROJECT_DIR="$S84_DOG"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; eng_registry_file )
+# #357: s84e_read is ARGLESS (rides eng_state_dir → CLAUDE_PROJECT_DIR); unset the
+# whole-run override so it resolves the per-project path it compares against.
+s84e_read=$( export CLAUDE_PROJECT_DIR="$S84_DOG"; unset ENG_STATE_DIR_OVERRIDE; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; eng_registry_file )
 if [ "$s84e_read" = "$s84e_written" ] && grep -qxF "$S84_DOG" "$s84e_written" 2>/dev/null; then
   ok "84e: self-register write-target == cwd_guard read-target (dogfood coherence) (#316)"
 else
   ng "84e: dogfood write/read mismatch (read='$s84e_read' written='$s84e_written') (#316)"
 fi
-if ( export CLAUDE_PROJECT_DIR="$S84_DOG"; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
+if ( export CLAUDE_PROJECT_DIR="$S84_DOG"; unset ENG_STATE_DIR_OVERRIDE; . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
      . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"; path_in_scope "$SHELL_ROOT/.claude/CLAUDE.md" ); then
   ok "84e: shell-root carve-out independent of registry location (#316)"
 else
@@ -8205,6 +8258,9 @@ rm -rf "$S84_DOG"
 S84_CLI=$(cd "$(mktemp -d)" && pwd -P)
 mkdir -p "$S84_CLI/.claude/eng-state"
 printf '%s\n' "$S84_CLI" > "$S84_CLI/.claude/eng-state/registry.txt"
+# #357: keep the whole-run override ACTIVE here — dr_check_registry_guard reads
+# the registry via explicit-arg (override-immune), so the read is correct either
+# way, and the override keeps its project-resolve audit write off the live log.
 if ( cd "$S84_CLI"; export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
      dr_check_registry_guard >/dev/null 2>&1 ); then
@@ -8230,7 +8286,9 @@ S84_BC=$(cd "$(mktemp -d)" && pwd -P)
 S84_BC_ROOT=$(cd "$(mktemp -d)" && pwd -P)
 mkdir -p "$S84_BC_ROOT/.claude/state"
 printf '%s\n' "$S84_BC" > "$S84_BC_ROOT/.claude/state/registry.txt"   # legacy shared only
-if ( cd "$S84_BC"; export CLAUDE_ENG_SHELL_ROOT="$S84_BC_ROOT"; export CLAUDE_PROJECT_DIR="$S84_BC"
+# #357: keep CLAUDE_PROJECT_DIR set (hook context) but unset the whole-run
+# override so in_scope hits the per-project-absent → legacy back-compat floor.
+if ( cd "$S84_BC"; export CLAUDE_ENG_SHELL_ROOT="$S84_BC_ROOT"; export CLAUDE_PROJECT_DIR="$S84_BC"; unset ENG_STATE_DIR_OVERRIDE
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
      [ ! -f "$S84_BC/.claude/eng-state/registry.txt" ] && in_scope ); then
   ok "84g: hook-context back-compat — pre-#316 target enforces via legacy floor (#316)"
@@ -8401,12 +8459,11 @@ printf '%s' "$(s88_run "$S88_D")" | grep -q 'WARN binding-health' \
 
 rm -rf "$S88_FAKE" "$S88_STUB" "$S88_VALIDROOT" "$S88_A" "$S88_B" "$S88_C" "$S88_D"
 
-# ---------- restore registry ----------
-if [ -n "$ORIG_REG_BAK" ]; then
-  mv "$ORIG_REG_BAK" "$ORIG_REG"
-else
-  rm -f "$SHELL_ROOT/.claude/state/registry.txt"
-fi
+# ---------- registry (#357) ----------
+# No restore needed: the live shared registry was never written this run (the
+# whole-run ENG_STATE_DIR_OVERRIDE + §41/§50 per-project registration keep every
+# write off $SHELL_ROOT/.claude/state/registry.txt). The §357 AC1 assertion at
+# the end verifies the live audit log + scope registry are byte-for-byte untouched.
 
 # ---------- §89 (#346): /changelog skill + /ship changelog gate + §18.5 distinction ----------
 S89_SKILL="$SHELL_ROOT/.claude/commands/changelog.md"
@@ -8578,6 +8635,21 @@ if [ -z "$S92_FAIL" ]; then
   ok "92: issue/plan/code-reviewer prompts reference SPEC §6.0 (enforcement-style lens) (#354)"
 else
   ng "92: reviewer prompts missing SPEC §6.0 reference:$S92_FAIL (#354)"
+fi
+
+# ---------- §357 AC1: live shared sinks untouched by the run ----------
+# A smoke run must add ZERO lines to the live audit log and ZERO entries to the
+# live scope registry (MISSION "shared code, per-project state" isolation, #357).
+# Reads the same LIVE $SHELL_ROOT paths snapshotted at startup — NOT $SMOKE_*,
+# else the assertion would be vacuous (it would compare the isolated dir to
+# itself). On pre-#357 code this FAILS (fixture fires append to the live audit);
+# after the whole-run override it passes (every fire resolves to $SMOKE_STATE).
+s357_audit_after=$(wc -l < "$S357_LIVE_AUDIT" 2>/dev/null | tr -d ' '); [ -z "$s357_audit_after" ] && s357_audit_after=0
+s357_reg_after=$(wc -l < "$S357_LIVE_REG" 2>/dev/null | tr -d ' '); [ -z "$s357_reg_after" ] && s357_reg_after=0
+if [ "$s357_audit_after" = "$s357_audit_before" ] && [ "$s357_reg_after" = "$s357_reg_before" ]; then
+  ok "357: smoke run left the live audit log + scope registry untouched (#357)"
+else
+  ng "357: smoke polluted live sinks — audit Δ=$((s357_audit_after - s357_audit_before)) registry Δ=$((s357_reg_after - s357_reg_before)) (#357)"
 fi
 
 # ---------- results ----------
