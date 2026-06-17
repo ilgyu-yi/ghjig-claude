@@ -1180,6 +1180,80 @@ else
   ng "plain -m: malformed should still block, exit=$exit_code (#28)"
 fi
 
+# 16e (#367): single -m with embedded newlines — extract the FIRST LINE only,
+# from the raw command (normalization flattens newlines, so the old whole-blob
+# parse over-length-blocked). Valid first line + long body → ALLOW. (RED pre-fix.)
+ml_valid=$(printf '%s\n' \
+  'git commit -m "feat(#1): valid first line' \
+  '' \
+  'this is a very long body paragraph that exceeds seventy-two codepoints so the old whole-blob extraction would have wrongly length-blocked this commit"')
+exit_code=$(hook_run "$ml_valid")
+if [ "$exit_code" = "0" ]; then
+  ok "16e: single -m embedded-newline — first line extracted, not blocked (#367)"
+else
+  ng "16e: single -m embedded-newline wrongly blocked (whole-blob), exit=$exit_code (#367)"
+fi
+
+# 16f (#367): single -m embedded newlines, MALFORMED first line → still BLOCK.
+# Safety guard: the fix must extract+reject a bad first line, never false-empty.
+ml_bad=$(printf '%s\n' \
+  'git commit -m "broken first line not a conventional commit' \
+  '' \
+  'body"')
+exit_code=$(hook_run "$ml_bad")
+if [ "$exit_code" = "2" ]; then
+  ok "16f: single -m embedded-newline malformed first line still blocks (#367)"
+else
+  ng "16f: malformed first line slipped (false-empty?), exit=$exit_code (#367)"
+fi
+
+# 16g (#367): multiple -m — take the FIRST value, not the greedy last. First
+# valid + long non-CC second body → ALLOW. (RED pre-fix: greedy-last grabbed the
+# long body → length/format block.)
+mm_valid='git commit -m "feat(#1): first wins" -m "this is a long second paragraph body that is not a conventional commit subject and would exceed the limit"'
+exit_code=$(hook_run "$mm_valid")
+if [ "$exit_code" = "0" ]; then
+  ok "16g: multiple -m — first value extracted, not blocked (#367)"
+else
+  ng "16g: multiple -m wrongly blocked (greedy-last), exit=$exit_code (#367)"
+fi
+
+# 16h (#367): multiple -m, MALFORMED first → BLOCK. (RED pre-fix: greedy-last
+# grabbed the valid-looking SECOND -m → wrongly ALLOWED a malformed-first commit
+# — a false-negative the first-value fix closes.)
+mm_bad='git commit -m "not a conventional first subject" -m "feat(#1): valid-looking second"'
+exit_code=$(hook_run "$mm_bad")
+if [ "$exit_code" = "2" ]; then
+  ok "16h: multiple -m — malformed first value blocks, not the valid second (#367)"
+else
+  ng "16h: multiple -m malformed first slipped via greedy-last, exit=$exit_code (#367)"
+fi
+
+# 16i (#367): sibling heredoc in a compound command — a `cat > file <<EOF` redirect
+# preceding the commit must NOT be read as the subject. The commit uses -F → empty
+# → fail-open → ALLOW. (RED pre-fix: the heredoc walk grabbed the changelog bullet.)
+sib=$(printf '%s\n' \
+  "cat > changelog.md <<'EOF'" \
+  "- a changelog bullet that is not a conventional commit subject" \
+  "EOF" \
+  "git commit -F /tmp/msg.txt")
+exit_code=$(hook_run "$sib")
+if [ "$exit_code" = "0" ]; then
+  ok "16i: sibling heredoc not mistaken for the commit subject (#367)"
+else
+  ng "16i: sibling heredoc grabbed as subject, exit=$exit_code (#367)"
+fi
+
+# 16j (#367): `git commit -F <file>` standalone — no inline message → empty
+# extraction → format check skipped (fail-open) → ALLOW.
+fonly='git commit -F /tmp/msg.txt'
+exit_code=$(hook_run "$fonly")
+if [ "$exit_code" = "0" ]; then
+  ok "16j: -F-only commit extracts empty, format check skipped (fail-open) (#367)"
+else
+  ng "16j: -F-only commit wrongly blocked, exit=$exit_code (#367)"
+fi
+
 # ---------- 22. git option-prefix matcher tolerance (#37) ----------
 # Every `git <subcommand>` matcher must accept the `git -c <opt>=<val>`,
 # `git -C <path>`, and `git --no-pager` prefixes between `git` and the
