@@ -34,7 +34,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
    Parse the verdict per `/file-directive` step 2 dispatch.
 
-   On `reject` (evidence insufficient): stop. Issue stays open. Audit `directive-complete blocked "<reason>"`. Surface the verdict reason to the user.
+   On `reject` (evidence insufficient): stop. Issue stays open. Audit `directive-complete blocked "<reason>"`. Surface the verdict reason to the user. **Reject-audit emission** (SPEC §6.1, Directive #356 signal 3) — also emit one categorized reject record: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then `reviewer_reject_audit activation <reason-class> <issue-#>`, mapping the reviewer's reason to the nearest **reason-class** token (`schema-incomplete` / `unverifiable-ac` / `scope-bleed` / `mission-misfit` / `conflict` / `evidence-insufficient`). Observability only.
 
 5. **Post the closing comment** with per-signal evidence:
    ```markdown

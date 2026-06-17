@@ -52,6 +52,12 @@ SMOKE_AUDIT="$SMOKE_STATE/audit/audit.jsonl"
 SMOKE_REG="$SMOKE_STATE/registry.txt"
 mkdir -p "$SMOKE_STATE/audit"
 export ENG_STATE_DIR_OVERRIDE="$SMOKE_STATE"
+# §361 — mark every fixture-fire audit record as test-origin (Directive #356
+# signal 1). Only the exact token `test` flips audit_log's `source` field; a
+# real Bash-tool action cannot inject this into the hook subprocess (SPEC §7),
+# so `source=live` stays the trustworthy default for real sessions. §93's
+# default/forged-value sub-tests locally unset / re-set this.
+export CLAUDE_ENG_AUDIT_SOURCE=test
 
 PASS=0
 FAIL=0

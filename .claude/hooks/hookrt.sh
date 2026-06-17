@@ -122,9 +122,15 @@ eng_registry_file() {
 # requested record is NOT written.
 audit_log() {
   local event="$1" category="$2" decision="$3" reason="$4"
-  local ts cwd log esd
+  local ts cwd log esd _src
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   cwd=$(pwd -P 2>/dev/null || pwd)
+  # Live/test origin discriminator (#361, Directive #356 signal 1). Additive,
+  # last field. `test` ONLY when the harness-owned marker is exactly the token
+  # `test`; anything else (unset/empty/smoke/garbage) → `live` (fail-safe-to-
+  # live). The marker is set only by the session launcher (e.g. smoke.sh), never
+  # reachable by a real Bash-tool action (SPEC §6.1 anti-reclassification / §7).
+  case "${CLAUDE_ENG_AUDIT_SOURCE:-}" in test) _src=test ;; *) _src=live ;; esac
   # Per-project audit (#314) when in hook context; else legacy shared path.
   esd=$(eng_state_dir)
   if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$CLAUDE_ENG_SHELL_ROOT/.claude/audit/audit.jsonl"; fi
@@ -135,13 +141,13 @@ audit_log() {
     local err_reason
     err_reason="audit-format-error: rejected ${category}/${decision} — original-reason=${reason}"
     r_reason=$(_audit_json_string "$err_reason")
-    printf '{"ts":"%s","event":"warn","category":"%s","decision":"format-error","reason":%s,"cwd":%s}\n' \
-      "$ts" "$category" "$r_reason" "$r_cwd" >> "$log"
+    printf '{"ts":"%s","event":"warn","category":"%s","decision":"format-error","reason":%s,"cwd":%s,"source":"%s"}\n' \
+      "$ts" "$category" "$r_reason" "$r_cwd" "$_src" >> "$log"
     return 1
   fi
   r_reason=$(_audit_json_string "$reason")
-  printf '{"ts":"%s","event":"%s","category":"%s","decision":"%s","reason":%s,"cwd":%s}\n' \
-    "$ts" "$event" "$category" "$decision" "$r_reason" "$r_cwd" >> "$log"
+  printf '{"ts":"%s","event":"%s","category":"%s","decision":"%s","reason":%s,"cwd":%s,"source":"%s"}\n' \
+    "$ts" "$event" "$category" "$decision" "$r_reason" "$r_cwd" "$_src" >> "$log"
 }
 
 # safe_source <helper-path> <audit-category> — presence-check + source.

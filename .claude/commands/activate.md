@@ -23,6 +23,8 @@ Status is encoded as labels on the Issue (Issues are SSOT). The Project Status f
 
 3. **Reviewer gate** — invoke the `activation-reviewer` subagent (SPEC §4.9) on the current body, passing the resolved type, and — for Directives — the active-Directive list, or — for Execution Issues — the parent-Directive state + the open-Issues snapshot. Parse the verdict line (`^VERDICT: (pass|revise|reject)`).
 
+   **Reject-audit emission** (SPEC §6.1, Directive #356 signal 3) — on a non-pass verdict (`revise` or `reject`), in addition to the lifecycle audit lines in step 4, emit one categorized reject record: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then `reviewer_reject_audit activation <reason-class> <N>`, mapping the reviewer's reason to the nearest **reason-class** token (`schema-incomplete` / `unverifiable-ac` / `scope-bleed` / `mission-misfit` / `conflict` / `evidence-insufficient`). Observability only — it never changes the verdict's effect (the filer matrix in step 4 is unchanged).
+
    > Reviewer invocation is robust to the SPEC §4.9.3 session-restart caveat: if `subagent_type: activation-reviewer` falls back to `general-purpose` mid-session, the agent file's self-describing prompt makes the fallback functionally complete. Do not depend on a fresh session.
 
 4. **Apply the verdict:**

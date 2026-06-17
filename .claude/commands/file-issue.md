@@ -45,6 +45,7 @@ Create an issue.
    - **`ship`**: proceed to step 5.
    - **`refine: <feedback>`**: revise the body per the one-line feedback. Re-invoke `issue-reviewer` on the revised body. After two consecutive `refine` verdicts on the latest body, escalate to the user (or, in unattended mode, treat as `block`).
    - **`block: <reason>`**: do NOT call `gh issue create`. In attended mode: report the reason to the user and stop. In unattended mode: append one line to `$CLAUDE_ENG_SHELL_ROOT/.claude/state/issue-block.log` naming the rejected title and reason, then stop.
+   - **Reject-audit emission** (SPEC §6.1, Directive #356 signal 3) — on **any** non-pass verdict (`refine` or `block`), emit one categorized audit record: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then `reviewer_reject_audit issue-review <reason-class> <issue-or-draft-id>`, mapping the reviewer's reason to the nearest **reason-class** token (`schema-incomplete` / `unverifiable-ac` / `scope-bleed` / `mission-misfit` / `conflict` / `evidence-insufficient`). This is observability only — it never changes the verdict's effect.
 5. **Derive the type label deterministically** (SPEC §1.7 line 309 — the label *is* the type; never agent discretion):
    - `--quick` → **`bug`** (from step 1).
    - a parent Directive was selected in step 1.5 (via `--parent` or the prompt) → **`execution`** (a unit of work parented under a Directive).
