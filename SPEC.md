@@ -519,7 +519,7 @@ A Directive moves through **four states** (Proposed / Active / Blocked / Complet
 claude-eng-shell/                      ← Process SSOT (single git)
 ├── .claude/
 │   ├── settings.json                  ← hook / permission definitions
-│   ├── CLAUDE.md                      ← shell norms (summarized into context each turn via UserPromptSubmit)
+│   ├── CLAUDE.md                      ← shell norms (natively loaded whole each session by Claude Code; thin-pointer + size budget §9)
 │   ├── agents/                        ← subagent definitions (9)
 │   ├── commands/                      ← slash command definitions
 │   ├── hooks/                         ← hook scripts
@@ -591,7 +591,7 @@ done
 Rules:
 - If the target has a same-named asset, the shell's version is not injected (conflict avoidance). If you want to use both, rename or move your own asset.
 - Post-hoc registration of a directory the user already cloned: `scripts/register.sh <path>` runs the same inject logic.
-- The target's `CLAUDE.md`, `MISSION.md`, `docs/` are **not touched**. The shell's CLAUDE.md (process norms) is combined into context via the UserPromptSubmit hook.
+- The target's `CLAUDE.md`, `MISSION.md`, `docs/` are **not touched**. The shell's CLAUDE.md (process norms) is loaded whole by Claude Code as project instructions each session — not hook-injected; UserPromptSubmit injects only `status_compact` (§6.4). As an always-on surface CLAUDE.md is held to the §9 thin-pointer + size budget.
 
 #### 3.2.1 Hook command path resolution
 
@@ -732,7 +732,7 @@ A context **clear** is the bluntest narrowing tool: it discards the entire worki
 
 2. **Clear** — the working context is discarded. The shell does **not** and **cannot** intercept Claude Code's native `/clear` (it is outside the shell boundary, §3.4); `/flush` therefore *precedes* a clear and makes it safe, rather than replacing or wrapping it. The clear-trigger contract is **explicit only** in this revision: the operator (or a skill) decides when to clear. **Threshold-based / automatic triggering is deferred** (§0.4) — both because the shell cannot hook the native clear, and because a wrong automatic clear has a high cost-asymmetry (§6.0): a clear is irreversible within the session.
 
-3. **Reconstruct** — on the next session, **SessionStart session restore (§6.5(b))** re-injects the durable memory: the current branch's full PR body, the referenced issue body, the MISSION/CLAUDE.md summary, and one `/status` snapshot; §6.4 then keeps the per-turn surface narrow. This is the *already-built* inbound half — this section adds no new reconstruct path, deliberately, to avoid a parallel injection surface that could drift from §6.5(b).
+3. **Reconstruct** — on the next session, **SessionStart session restore (§6.5(b))** re-injects the durable memory: the current branch's full PR body, the referenced issue body, the MISSION summary, and one `/status` snapshot (CLAUDE.md is natively loaded whole, not re-injected here); §6.4 then keeps the per-turn surface narrow. This is the *already-built* inbound half — this section adds no new reconstruct path, deliberately, to avoid a parallel injection surface that could drift from §6.5(b).
 
 **Known gap (noted, not closed here):** §6.5(b) restore re-injects the PR body, the issue body, and a `/status` snapshot — it does **not** currently read the `.claude/state/` flush record written in step 1. So when a PR exists, reconstruct is complete; on a branch with no PR yet, the `.claude/state/` record is written (the archive exists) but is not auto-re-injected at SessionStart. Closing that gap — teaching §6.5(b) restore to read the flush record — is a follow-up, kept out of this revision to hold the change to one section + one affordance.
 
@@ -1534,7 +1534,7 @@ Session-level cleanup (branch tidy, temp files) belongs to a separate `SessionEn
 
 Before each user message, inject the **compact status** as system context — `status_compact` (`helpers/status.sh`, the same projection §5.5 describes): current branch, the issue / PR one-liners, phase, `next:` hint, mode, shell-root, state, and work-lang. This is a small per-turn refresh, not a full context reload.
 
-The heavier one-time injection — the full current-PR body, the referenced-issue body, and MISSION/CLAUDE.md context — is **SessionStart's** job (§6.5(b) Session restore), loaded once when a session resumes in-scope, not re-injected every turn. Keeping the per-turn surface to `status_compact` is the narrowing half of the MISSION mechanism (§1, "as small and relevant as possible"); SessionStart selective-injection is the dual.
+The heavier one-time injection — the full current-PR body, the referenced-issue body, and the MISSION summary — is **SessionStart's** job (§6.5(b) Session restore), loaded once when a session resumes in-scope, not re-injected every turn (CLAUDE.md is loaded whole natively by Claude Code, not part of this injection). Keeping the per-turn surface to `status_compact` is the narrowing half of the MISSION mechanism (§1, "as small and relevant as possible"); SessionStart selective-injection is the dual.
 
 ### 6.5 SessionStart — shell sync check + session restore + SessionStart banner
 
