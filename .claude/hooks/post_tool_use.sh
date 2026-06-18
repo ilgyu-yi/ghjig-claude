@@ -51,6 +51,25 @@ case "$tool" in
       fi
     fi
     ;;
+  Read)
+    # Positive narrowing affordance (SPEC §1.8 / §6.2): when a Read loads a
+    # WHOLE file (neither offset nor limit set) above the line threshold, nudge
+    # toward a targeted read or explorer delegation. Warn-only — always exit 0;
+    # a missed narrowing nudge is ignorable at no cost (§6.0 P1 cost-asymmetry).
+    target=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty')
+    [ -z "$target" ] && exit 0
+    off=$(printf '%s' "$input" | jq -r '.tool_input.offset // empty')
+    lim=$(printf '%s' "$input" | jq -r '.tool_input.limit // empty')
+    if [ -z "$off" ] && [ -z "$lim" ]; then
+      thr="${CLAUDE_ENG_READ_NUDGE_THRESHOLD:-200}"
+      lines=$(wc -l < "$target" 2>/dev/null | tr -d ' ')
+      # Fire when the file is large, OR when its size can't be determined (a
+      # whole-file load is the worst case, so fail toward nudging).
+      if [ -z "$lines" ] || { [ "$lines" -gt "$thr" ]; } 2>/dev/null; then
+        printf '[claude-eng-shell] narrowing: whole-file Read of %s — prefer a targeted `Read --offset/--limit`, or delegate the search to `explorer` (SPEC §1.8).\n' "$target" >&2
+      fi
+    fi
+    ;;
 esac
 
 exit 0

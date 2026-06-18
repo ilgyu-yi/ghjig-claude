@@ -9380,6 +9380,53 @@ else
   ng "101c: SPEC TOC out of sync — rerun scripts/build_toc.sh (#387)"
 fi
 
+# ---------- 102. in-session narrowing levers: SPEC §1.8 + PostToolUse Read nudge (#389, Directive #386) ----------
+# Doc→Test→Code: authored in the Test phase; §102b FAILS until the Code phase
+# adds the Read arm to post_tool_use.sh. Anti-vacuity (smoke.sh header): §102a
+# heading greps are caret-anchored; §102b/c drive the real hook and assert the
+# nudge text on stderr (102b) AND its absence under offset/limit (102c) — a
+# falsifiable pair, not a one-sided presence check.
+
+# §102a: SPEC §1.8 narrowing-levers section + §6.2 Read-nudge row present, TOC in sync.
+if grep -qE '^### 1\.8 In-session narrowing levers' "$SHELL_ROOT/SPEC.md" \
+   && grep -qF '§1.8 | In-session narrowing levers' "$SHELL_ROOT/SPEC.md" \
+   && grep -qE '\| `Read` of a whole file' "$SHELL_ROOT/SPEC.md" \
+   && bash "$SHELL_ROOT/scripts/build_toc.sh" --check >/dev/null 2>&1; then
+  ok "102a: SPEC §1.8 levers inventory + §6.2 Read-nudge row present, TOC in sync (#389)"
+else
+  ng "102a: SPEC §1.8 / §6.2 Read-nudge row missing or TOC out of sync (#389)"
+fi
+
+# Driver: pipe a synthetic Read tool_input through post_tool_use.sh from an
+# in-scope cwd ($SHELL_ROOT), capturing stderr (the nudge surface) like post_run.
+read_nudge_run() {
+  local json_input="$1"
+  (
+    cd "$SHELL_ROOT" || exit 1
+    # shellcheck disable=SC2069
+    printf '{"tool_name":"Read","tool_input":%s}' "$json_input" \
+      | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/post_tool_use.sh" 2>&1 >/dev/null
+  )
+}
+# SPEC.md is a large (>200-line) in-scope file — the whole-file-load case.
+S102_BIGFILE="$SHELL_ROOT/SPEC.md"
+
+# §102b: whole-file Read (no offset/limit) on a large file → nudge fires, rc==0 (positive, non-blocking).
+b_out=$(read_nudge_run "{\"file_path\":\"$S102_BIGFILE\"}"); b_rc=$?
+if printf '%s' "$b_out" | grep -q 'Read --offset' && [ "$b_rc" = 0 ]; then
+  ok "102b: whole-file Read nudges toward a targeted read, non-blocking (rc=0) (#389)"
+else
+  ng "102b: whole-file Read did not emit the targeted-read nudge at rc=0 (rc=$b_rc) (#389)"
+fi
+
+# §102c: falsifiability — the SAME large file Read WITH offset+limit must NOT nudge.
+c_out=$(read_nudge_run "{\"file_path\":\"$S102_BIGFILE\",\"offset\":1,\"limit\":40}"); c_rc=$?
+if ! printf '%s' "$c_out" | grep -q 'Read --offset' && [ "$c_rc" = 0 ]; then
+  ok "102c: targeted Read (offset+limit) suppresses the nudge — guard is falsifiable (#389)"
+else
+  ng "102c: targeted Read still nudged (or non-zero rc=$c_rc) — guard not offset-aware (#389)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
