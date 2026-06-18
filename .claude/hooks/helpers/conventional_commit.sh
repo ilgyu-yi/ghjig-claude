@@ -56,6 +56,22 @@ elif i < n and tail[i] == "\"":       # double-quoted value (honor backslash)
 else:                                 # bareword value (to next whitespace)
     bw = re.match(r"\S+", tail[i:])
     val = bw.group(0) if bw else ""
+# Line-1 precedence (#383): if the value first non-blank line is already a valid
+# Conventional Commit subject, return it and skip the heredoc walk — a normal -m
+# body that merely mentions a heredoc-opener token must not be mis-read as a
+# heredoc message. The genuine command-substitution form has the substitution
+# opener as its first line (not a valid subject), so it falls through. Patterns
+# mirror check_commit_subject (re_required / re_optional).
+_req = r"^(feat|fix|docs|refactor|perf)\(#[0-9]+\)!?: .+$"
+_opt = r"^(test|style|build|ci|chore|revert)(\(#[0-9]+\))?!?: .+$"
+for _ln in val.split("\n"):
+    _s = _ln.strip()
+    if not _s:
+        continue
+    if re.match(_req, _s) or re.match(_opt, _s):
+        sys.stdout.write(_s)
+        sys.exit(0)
+    break                              # first non-blank line is not a CC subject
 # Heredoc message form: the value embeds $(cat <<TAG ... TAG) → the subject is
 # the heredoc body first non-blank, non-tag line.
 hd = re.search(r"<<-?\s*([\x27\"]?)([A-Za-z_]\w*)\1", val)
@@ -82,6 +98,18 @@ sys.exit(0)
   # ---- Legacy fallback (python3 absent / errored): prior heredoc-walk + greedy
   # sed. Over-extracts on the #367 forms (fails toward blocking), never empties a
   # real subject. ----
+  # Line-1 precedence (#383): mirror the python primary — if the -m value first
+  # non-blank line is already a valid CC subject, return it and skip the heredoc
+  # walk (a normal body mentioning a heredoc-opener token must not be mis-read as
+  # a heredoc message). Extract the first physical line carrying the -m value
+  # from the raw command; the genuine `$(cat <<TAG` opener fails the check and
+  # falls through, so this never short-circuits a real heredoc message.
+  local cand
+  cand=$(printf '%s\n' "$raw" | sed -nE "s/.*(-m|--message)[[:space:]=]+[\"']?(.*)/\2/p" | head -n1)
+  if [ -n "$cand" ] && check_commit_subject "$cand" >/dev/null 2>&1; then
+    printf '%s\n' "$cand"
+    return 0
+  fi
   # Heredoc form: detect `<<TAG` or `<<'TAG'` or `<<-TAG`. Extract the tag
   # name, then return the first body line that is neither blank nor the
   # closing tag. Strip leading whitespace from the returned line (so `<<-`
