@@ -9740,6 +9740,20 @@ else
   rm -rf "$S105E_DIR"
 fi
 
+# ---------- §106 (#393): SPEC §9 specs exist for every referenced template ----------
+# Contract-hygiene: directive.md / spec.md / readme_for_target.md are referenced
+# in prose but historically lacked §9.x body-specs. Guard the three §9.6-9.8
+# headings (presence only — cheap, stable) so they cannot silently regress, and
+# confirm the TOC stays in sync after the heading additions.
+if grep -qE '^### 9\.6 `directive\.md`'          "$SHELL_ROOT/SPEC.md" \
+   && grep -qE '^### 9\.7 `spec\.md`'            "$SHELL_ROOT/SPEC.md" \
+   && grep -qE '^### 9\.8 `readme_for_target\.md`' "$SHELL_ROOT/SPEC.md" \
+   && bash "$SHELL_ROOT/scripts/build_toc.sh" --check >/dev/null 2>&1; then
+  ok "106: SPEC §9.6/§9.7/§9.8 specs present for directive/spec/readme_for_target templates, TOC in sync (#393)"
+else
+  ng "106: SPEC §9 spec missing for a referenced template (directive/spec/readme_for_target) or TOC out of sync (#393)"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
