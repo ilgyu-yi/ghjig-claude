@@ -38,6 +38,9 @@ fi
 
 safe_source "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"     out-of-scope || true
 safe_source "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"  branch       || true
+# resolve_audit_log — read the SAME aggregate the §6.0 P3 readers consume so the
+# §6.5(d) friction advisory below stays consistent with them.
+safe_source "$SHELL_ROOT/scripts/lib/audit_log_path.sh"          friction-advisory || true
 
 # 1) Shell self-sync check — always runs regardless of target cwd.
 # Gated by .claude/state/last-shell-fetched stamp (SESSION_START_FETCH_TTL
@@ -89,6 +92,74 @@ if command -v git >/dev/null 2>&1; then
     fi
   fi
 fi
+
+# 1.5) Friction-candidate advisory (SPEC §6.5(d), #398, Directive #391).
+# Once-per-session, non-blocking, fail-open, TTL-gated trigger that surfaces
+# accumulated friction (escape/promotion clusters + unattended-park frequency)
+# as ONE advisory line, so the §6.0 P3 / MISSION:16 "deferred positive face" is
+# consumed without a human running a script. Runs cwd-independently like the
+# sync check (reads the per-project audit aggregate via resolve_audit_log).
+_session_friction_advisory() {
+  command -v jq >/dev/null 2>&1 || return 0          # readers need jq; fail-open
+  command -v resolve_audit_log >/dev/null 2>&1 || return 0
+
+  local esd stamp ttl
+  esd=$(eng_state_dir 2>/dev/null || true)
+  stamp="${esd:+$esd/last-friction-surfaced}"
+  [ -n "$stamp" ] || stamp="$SHELL_ROOT/.claude/state/last-friction-surfaced"
+  ttl="${SESSION_START_FRICTION_TTL:-21600}"
+  case "$ttl" in ""|*[!0-9]*) ttl=21600 ;; esac
+
+  # TTL gate — skip the compute when the stamp is fresh.
+  if [ -f "$stamp" ]; then
+    local mtime now
+    if mtime=$(stat -c %Y "$stamp" 2>/dev/null) || mtime=$(stat -f %m "$stamp" 2>/dev/null); then
+      now=$(date +%s)
+      [ "$((now - mtime))" -ge "$ttl" ] || return 0
+    fi
+  fi
+
+  # Bounded compute (parity with the §6.5(a) fetch: timeout/gtimeout, else unbounded).
+  local secs timeout_bin="" run="$SHELL_ROOT/scripts"
+  secs="${SESSION_START_FRICTION_TIMEOUT:-3}"
+  case "$secs" in ""|*[!0-9]*) secs=3 ;; esac
+  if command -v timeout  >/dev/null 2>&1; then timeout_bin=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then timeout_bin=gtimeout; fi
+
+  local nc pc hits=0 log parks=0
+  if [ -n "$timeout_bin" ]; then
+    nc=$("$timeout_bin" "$secs" bash "$run/narrowing_candidates.sh" 2>/dev/null || true)
+    pc=$("$timeout_bin" "$secs" bash "$run/promotion_candidates.sh" 2>/dev/null || true)
+  else
+    nc=$(bash "$run/narrowing_candidates.sh" 2>/dev/null || true)
+    pc=$(bash "$run/promotion_candidates.sh" 2>/dev/null || true)
+  fi
+  # Candidate cluster lines are indented and carry " | … =" (escapes=/days=/etc.);
+  # the "(none above threshold)"/"no records" sentinels and headers do not.
+  printf '%s\n%s\n' "$nc" "$pc" | grep -qE '^[[:space:]]+.+\|.+=' && hits=1
+
+  # Park-frequency signal — read the same aggregate directly (neither candidate
+  # script matches a warn/parked record). SPEC §5.7.1 / §6.5(d).
+  log=$(resolve_audit_log "" 2>/dev/null || true)
+  if [ -n "$log" ] && [ -s "$log" ]; then
+    parks=$(grep -v '^[[:space:]]*$' "$log" \
+      | jq -rs '[.[] | select(.category == "unattended-park")] | length' 2>/dev/null || echo 0)
+  fi
+  case "$parks" in ""|*[!0-9]*) parks=0 ;; esac
+
+  if [ "$hits" -eq 1 ] || [ "$parks" -gt 0 ]; then
+    local msg="[claude-eng-shell] friction advisory: accumulated friction detected"
+    [ "$parks" -gt 0 ] && msg="$msg (${parks} unattended park record(s))"
+    msg="$msg — review via /audit or scripts/narrowing_candidates.sh + scripts/promotion_candidates.sh"
+    printf '%s\n' "$msg"
+  fi
+
+  # Touch the stamp only after a successful compute (whether or not a line fired),
+  # so the next session within the TTL window skips the recompute.
+  mkdir -p "$(dirname "$stamp")" 2>/dev/null || true
+  touch "$stamp" 2>/dev/null || true
+}
+_session_friction_advisory 2>/dev/null || true
 
 # 2) Session restore — only when target cwd is in the registry.
 in_scope || exit 0

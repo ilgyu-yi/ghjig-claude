@@ -148,6 +148,13 @@ ship_park_pr() {
 
   printf '%s parked reason=%s\n' "$ts" "$reason" >> "$log_path"
 
+  # Additive park→audit bridge (#398, Directive #391, SPEC §5.7.1): also emit one
+  # audit record so park frequency — the highest-value unattended friction signal
+  # — enters audit.jsonl, the aggregate the SessionStart §6.5(d) friction advisory
+  # reads. The park-log write above stays unconditional; this is best-effort, so a
+  # standalone ship_park_pr call without the runtime still parks correctly.
+  command -v audit_log >/dev/null 2>&1 && audit_log warn unattended-park parked "reason=$reason"
+
   printf 'unattended-parked\n'
   printf 'reason: %s\n' "$reason"
   printf 'time: %s\n' "$ts"
