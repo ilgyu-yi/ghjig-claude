@@ -2,7 +2,7 @@
 
 **English** | [한국어](README.ko.md)
 
-**An opinionated workflow shell for [Claude Code](https://docs.claude.com/claude-code).** It wraps a Claude Code session in the engineering discipline a senior human would apply on a GitHub repo — issue → branch → draft PR → reviewed commits → ready merge — rendered as hooks, slash commands, subagents, and an audit trail. The point: let an AI drive end-to-end engineering work without drifting past the checks a careful human would not skip.
+**An opinionated workflow shell for [Claude Code](https://docs.claude.com/claude-code).** It wraps a Claude Code session in the engineering discipline a senior human would apply on a GitHub repo — issue → branch → draft PR → reviewed commits → ready merge — rendered as hooks, slash commands, subagents, and an audit trail. The point: let an AI drive end-to-end engineering work without drifting past the checks a careful human would not skip. In **`unattended`** mode it goes further — file → branch → Doc/Test/Code → review → merge with no human in the loop: reviewer subagents stand in for human approval at each gate, and a hard blocker parks with an audit trail instead of merging blind.
 
 - **[MISSION.md](MISSION.md)** — what success looks like twelve months out, who this is for, and what is explicitly *not* a goal.
 - **[SPEC.md](SPEC.md)** — the single self-contained specification (~2,000 lines). Start from its **Table of contents**; read individual sections with `Read --offset --limit` rather than loading the whole file.
@@ -62,7 +62,14 @@ Two operating layers, both following the same **generate → review → gated ap
 - **eng-mode** — engineering execution. `/file-issue` → `/activate` → `/work-on` (branch + draft PR) → Doc → Test → Code commits → `/ship` (runs reviewers, ticks AC, marks ready) → merge.
 - **dir-mode** — setting direction. A Directive scopes several Execution Issues under one coherent "why" — a feature with subsystems, a refactor, a migration alike — without being directly executable itself. `/file-directive` → `/activate` → `/file-issue --parent <N>` to spin out Execution Issues → `/complete-directive` once the Directive's success signals are met. An optional **Initiative** tier sits above Directives — a planning artifact the shell *consumes, not authors* (`/consume-initiative`, `/initiative-feedback`). The full flow and substrate install (`/onboard-dir-mode`) are in **[docs/DIR_MODE_FLOW.md](docs/DIR_MODE_FLOW.md)**; topic-branch isolation for multi-PR Directives is SPEC §10.5.
 
-In **`attended`** mode (default) the agent stops at PR-ready and waits for a human to review + merge. In **`unattended`** mode the reviewer subagents substitute for the human approvals, and `/ship` continues to merge (clean PR) or park (hard blocker). Set per-target with `echo unattended > .claude/state/mode`, or override per-run with `/ship --mode=unattended`. Full resolution priority + blocker rules: SPEC §5.7.1.
+### Attended vs unattended
+
+Both run the *same* gated loop; they differ only in **who signs off**.
+
+- **`attended`** (default) — the agent stops at **PR-ready** and hands a clean, reviewed draft to a human for the final read + merge. The autonomy ceiling is PR-ready.
+- **`unattended`** — the five reviewer subagents (`code-`, `security-`, `issue-`, `plan-`, `activation-`) **substitute for the human approvals** at their checkpoints, and `/ship` carries past PR-ready to the terminal step: **merge a clean PR, or park a hard blocker** (incompatible plan, secret detected, AC unticked) as an audit-logged `parked` state. The intended use is the overnight one — **point it at well-scoped issues and wake up to quality-controlled merged PRs or audit-logged parks, not silent half-finished work.**
+
+This is review *substituted*, not *skipped*: every verdict is a reviewer artifact a human can override, every block is escapable and audit-logged, and the directing layer never autonomously decides direction (SPEC §1.7). Set per-target with `echo unattended > .claude/state/mode`, or override per-run with `/ship --mode=unattended`. Full resolution priority + blocker rules: SPEC §5.7.1.
 
 ## Why this shape
 
