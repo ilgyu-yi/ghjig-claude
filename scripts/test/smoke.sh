@@ -2323,6 +2323,43 @@ else
   ng "readme: missing python3 in install deps (#65)"
 fi
 
+# §34 (cont., #409): the README must work as an adoption runbook, not just a
+# landing page. Presence-grep the five first-contact orientation areas so a
+# future edit that drops one fails fast (same fail-fast intent as the agent /
+# --base / mode checks above). Contract authored in README.md:"Adopting it on
+# your repo".
+if grep -q 'Adopting it on your repo' "$README_MD" 2>/dev/null; then
+  ok "readme: has the 'Adopting it on your repo' runbook section (#409)"
+else
+  ng "readme: missing the 'Adopting it on your repo' runbook section (#409)"
+fi
+if grep -q 'eng-shell-root' "$README_MD" 2>/dev/null; then
+  ok "readme: Footprint names the eng-shell-root binding symlink (#409)"
+else
+  ng "readme: Footprint must name the eng-shell-root binding symlink (#409)"
+fi
+if grep -qi 'gh auth' "$README_MD" 2>/dev/null && grep -q 'project' "$README_MD" 2>/dev/null; then
+  ok "readme: Prerequisites name gh auth + the dir-mode project scope (#409)"
+else
+  ng "readme: Prerequisites must name gh auth + the dir-mode project scope (#409)"
+fi
+if grep -qi 'no automatic changes' "$README_MD" 2>/dev/null; then
+  ok "readme: previews /onboard ('no automatic changes') (#409)"
+else
+  ng "readme: must preview /onboard ('no automatic changes') (#409)"
+fi
+if grep -qi 'PR into your repo' "$README_MD" 2>/dev/null; then
+  ok "readme: flags that dir-mode mutates the target via a PR (#409)"
+else
+  ng "readme: must flag that dir-mode mutates the target via a PR (#409)"
+fi
+# AC#7 — the Korean README must mirror the section (a stale mirror is a new drift).
+if grep -q 'Adopting it on your repo' "$SHELL_ROOT/README.ko.md" 2>/dev/null; then
+  ok "readme.ko: mirrors the 'Adopting it on your repo' section (#409)"
+else
+  ng "readme.ko: must mirror the 'Adopting it on your repo' section (#409)"
+fi
+
 # ---------- 32. backmerge block (#61) ----------
 # `git merge <protected>` on a feature branch is a backmerge; pre_tool_use
 # blocks. Allowed: target is non-protected; or current branch IS the
@@ -10024,6 +10061,23 @@ if [ "$s357_audit_after" = "$s357_audit_before" ] && [ "$s357_reg_after" = "$s35
   ok "357: smoke run left the live audit log + scope registry untouched (#357)"
 else
   ng "357: smoke polluted live sinks — audit Δ=$((s357_audit_after - s357_audit_before)) registry Δ=$((s357_reg_after - s357_reg_before)) (#357)"
+fi
+
+# ---------- §110: README assertion-count floor (#409) ----------
+# README's "Verify" block advertises an assertion count as "<N>+". A count that
+# OVERSTATES coverage (claims more than the suite runs) is the misleading
+# direction; understatement after new assertions land is the benign,
+# self-correcting one. So this is a FLOOR guard, not an exact pin — an exact pin
+# would be a SPEC §6.0 cost-asymmetry mismatch, tripping CI on every benign
+# assertion addition. <N> is parsed from the README, never hardcoded here (a
+# hardcoded copy would be a third number to hand-sync). Runs last, so $PASS is
+# the full suite total (minus this guard's own pending increment) — the floor
+# tolerates that off-by-one by construction.
+readme_floor=$(grep -oE '#[[:space:]]*[0-9]+\+?[[:space:]]+assertions' "$README_MD" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+if [ -n "$readme_floor" ] && [ "$readme_floor" -le "$PASS" ] 2>/dev/null; then
+  ok "110: README assertion floor ($readme_floor) does not overstate live PASS ($PASS) (#409)"
+else
+  ng "110: README assertion floor (${readme_floor:-unparsed}) overstates live PASS ($PASS) or is unparseable (#409)"
 fi
 
 # ---------- results ----------

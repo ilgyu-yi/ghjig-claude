@@ -113,6 +113,6 @@ The shell version is a single [semver](https://semver.org) 0.x line in the top-l
 ## Verify
 
 ```bash
-./scripts/test/smoke.sh           # 733 assertions across hooks, helpers, slash commands
+./scripts/test/smoke.sh           # 733+ assertions across hooks, helpers, slash commands
 ./scripts/build_toc.sh --check    # SPEC.md TOC freshness
 ```

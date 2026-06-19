@@ -113,6 +113,6 @@ claude-eng
 ## Verify
 
 ```bash
-./scripts/test/smoke.sh           # 733 assertions across hooks, helpers, slash commands
+./scripts/test/smoke.sh           # 733+ assertions across hooks, helpers, slash commands
 ./scripts/build_toc.sh --check    # SPEC.md TOC freshness
 ```
