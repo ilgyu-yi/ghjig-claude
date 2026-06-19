@@ -2360,6 +2360,22 @@ else
   ng "readme.ko: must mirror the 'Adopting it on your repo' section (#409)"
 fi
 
+# §34 (cont., #413): unattended is the MISSION line-24 headline capability, so
+# the README must advertise it in a dedicated subsection — not bury it. Guard
+# the subsection heading + that the honest park framing is present, so the
+# advertising cannot silently rot. Mirror-presence on README.ko too.
+if grep -q 'Attended vs unattended' "$README_MD" 2>/dev/null \
+   && grep -qi 'park' "$README_MD" 2>/dev/null; then
+  ok "readme: advertises unattended in an 'Attended vs unattended' subsection with park framing (#413)"
+else
+  ng "readme: missing the 'Attended vs unattended' subsection or its park framing (#413)"
+fi
+if grep -q 'Attended vs unattended' "$SHELL_ROOT/README.ko.md" 2>/dev/null; then
+  ok "readme.ko: mirrors the 'Attended vs unattended' subsection (#413)"
+else
+  ng "readme.ko: must mirror the 'Attended vs unattended' subsection (#413)"
+fi
+
 # ---------- 32. backmerge block (#61) ----------
 # `git merge <protected>` on a feature branch is a backmerge; pre_tool_use
 # blocks. Allowed: target is non-protected; or current branch IS the
