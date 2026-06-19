@@ -9586,6 +9586,7 @@ done
 # Carry the candidate readers + their path lib so the advisory can invoke them in-root.
 cp "$SHELL_ROOT/scripts/narrowing_candidates.sh" "$S105_FAKE_ROOT/scripts/" 2>/dev/null
 cp "$SHELL_ROOT/scripts/promotion_candidates.sh" "$S105_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/ceremony_candidates.sh" "$S105_FAKE_ROOT/scripts/" 2>/dev/null
 cp "$SHELL_ROOT/scripts/lib/audit_log_path.sh" "$S105_FAKE_ROOT/scripts/lib/" 2>/dev/null
 : > "$S105_FAKE_ROOT/.claude/state/registry.txt"
 (
@@ -9613,6 +9614,9 @@ run_friction_session() {
   (
     export CLAUDE_ENG_SHELL_ROOT="$S105_FAKE_ROOT"
     export PATH="$S105_GIT_SHIM:$PATH"
+    # Point the ceremony reader (#401) at the fixture repo (only an empty init commit,
+    # no ceremony groups) so it stays silent and does not scan the real repo's history.
+    export CLAUDE_PROJECT_DIR="$S105_FAKE_ROOT"
     export ENG_STATE_DIR_OVERRIDE="$1"
     export SESSION_START_FRICTION_TTL="${2:-21600}"
     # keep the self-sync stamp fresh so only the friction path varies
