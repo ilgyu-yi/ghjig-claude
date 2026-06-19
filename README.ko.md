@@ -21,24 +21,24 @@ export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-
 ## Quick start
 
 ```bash
-# Clone a target repo into the shell's workspace/ (or register an external path — see below).
-./scripts/clone-into.sh https://github.com/<owner>/<repo>.git
-cd workspace/<repo>
-claude-eng
+# 전제조건: gh auth login (PR을 열고 issue를 다룰 수 있는 토큰).
+# 주입되는 것과 claude-eng vs claude 선택은 아래 "Adopting it on your repo"에
+# 한 곳에 정리돼 있습니다 — 실제 첫 실행 전에 읽어 두세요.
+
+# 기존 로컬 레포에 셸을 붙입니다(흔한 경로):
+./scripts/register.sh ~/code/<repo>
+cd ~/code/<repo>
+claude                          # 그냥 `claude`가 셸을 스스로 찾습니다; 아래 Invocation 참고
+#   …또는 새 레포를 workspace/로 clone하려면:
+#   ./scripts/clone-into.sh https://github.com/<owner>/<repo>.git && cd workspace/<repo>
 
 # Inside the session — the engineering loop:
-> /onboard                      # one-time: check upstream, permissions, SSOT, CI
+> /onboard                      # one-time, read-only: upstream, permissions, SSOT, CI
 > /file-issue <description>     # files the Issue as status:proposed
 > /activate <issue#>            # Proposed → Active (reviewer-gated; required before /work-on)
 > /work-on <issue#>             # branch + draft PR + planner
                                 #   …or  /work-on <issue#> --base experiment/foo  (topic-branch flow, SPEC §10.5)
 > /ship                         # review, tick AC, mark ready (→ merge in unattended mode)
-```
-
-`workspace/`로 clone하는 대신 외부 경로를 등록해도 됩니다.
-
-```bash
-./scripts/register.sh ~/code/<repo>     # or: claude-eng ~/code/<repo> — an unregistered path prompts to register
 ```
 
 ## Adopting it on your repo

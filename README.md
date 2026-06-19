@@ -21,24 +21,24 @@ export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-
 ## Quick start
 
 ```bash
-# Clone a target repo into the shell's workspace/ (or register an external path — see below).
-./scripts/clone-into.sh https://github.com/<owner>/<repo>.git
-cd workspace/<repo>
-claude-eng
+# Prerequisites: gh auth login (a token that can open PRs + manage issues).
+# What this puts in your repo, and the claude-eng-vs-claude choice, are under
+# "Adopting it on your repo" below — read it before the first real run.
+
+# Point the shell at an existing local repo (the common path):
+./scripts/register.sh ~/code/<repo>
+cd ~/code/<repo>
+claude                          # plain `claude` self-locates the shell; see Invocation below
+#   …or clone a fresh target into workspace/ instead:
+#   ./scripts/clone-into.sh https://github.com/<owner>/<repo>.git && cd workspace/<repo>
 
 # Inside the session — the engineering loop:
-> /onboard                      # one-time: check upstream, permissions, SSOT, CI
+> /onboard                      # one-time, read-only: upstream, permissions, SSOT, CI
 > /file-issue <description>     # files the Issue as status:proposed
 > /activate <issue#>            # Proposed → Active (reviewer-gated; required before /work-on)
 > /work-on <issue#>             # branch + draft PR + planner
                                 #   …or  /work-on <issue#> --base experiment/foo  (topic-branch flow, SPEC §10.5)
 > /ship                         # review, tick AC, mark ready (→ merge in unattended mode)
-```
-
-Register an external repo instead of cloning into `workspace/`:
-
-```bash
-./scripts/register.sh ~/code/<repo>     # or: claude-eng ~/code/<repo> — an unregistered path prompts to register
 ```
 
 ## Adopting it on your repo
