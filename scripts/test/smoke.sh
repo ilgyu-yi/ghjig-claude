@@ -5692,6 +5692,21 @@ case "$args" in
       cat "$key"
     fi
     exit 0 ;;
+  *"api repos/"*"/issues/"*)
+    # #404: is_trusted_filer now resolves author_association via the issues REST
+    # endpoint (gh api repos/<owner>/<name>/issues/<n>) instead of the unsupported
+    # `gh issue view --json authorAssociation`. Parse owner/name/n and key on the
+    # repo-scoped fixture (filer_<owner>_<name>_<n>), falling back to the bare-number
+    # fixture (filer_<n>) for the current repo (mock/repo, whose §55 fixtures are
+    # number-only). Mirrors the authorAssociation case's keying.
+    on=$(printf '%s\n' "$args" | sed -nE 's#.*api repos/([^/]+)/([^/]+)/issues/([0-9]+).*#\1_\2_\3#p')
+    n=$(printf '%s\n' "$args" | sed -nE 's#.*/issues/([0-9]+).*#\1#p')
+    key="$GH_SHIM_STATE/filer_$on"
+    [ -f "$key" ] || key="$GH_SHIM_STATE/filer_$n"
+    if [ -n "$on" ] && [ -f "$key" ]; then
+      cat "$key"
+    fi
+    exit 0 ;;
 esac
 exit 0
 SHIM
@@ -9915,6 +9930,85 @@ EOF
     ng "108c: commit in double-quoted \$() slipped past the protected-branch gate (rc=$s108c_rc, want 2) (#403)"
   fi
   rm -rf "$S108_DIR"
+fi
+
+# ---------- §109 (#404): is_trusted_filer resolves trust portably across gh --json support ----------
+# Reproduce-first: on a gh version that REJECTS `gh issue view --json authorAssociation`
+# (Unknown JSON field) but serves `gh api .../issues/N -q .author_association`, the helper
+# must still resolve trust. 109a is RED until the helper switches to the gh api form.
+# 109b is the park guard: a genuinely unresolvable gh (both forms fail) returns non-zero.
+if ! command -v jq >/dev/null 2>&1; then
+  ng "109a: jq missing — cannot run the trust-portability check (#404)"
+  ng "109b: jq missing (#404)"
+else
+  S109_DIR=$(mktemp -d)
+  S109_SHIM="$S109_DIR/bin"; mkdir -p "$S109_SHIM"
+  S109_STATE="$S109_DIR/state"; mkdir -p "$S109_STATE"
+  printf 'OWNER\n' > "$S109_STATE/aa_100"   # #100 → OWNER via the api form
+  # Stub gh: repo view resolves owner/name; `issue view --json authorAssociation` is
+  # REJECTED (the unsupported-field gh version); `api .../issues/N` serves author_association.
+  cat > "$S109_SHIM/gh" <<'SHIM'
+#!/bin/sh
+args="$*"
+case "$args" in
+  *"--json owner"*) printf 'mock\n'; exit 0 ;;
+  *"--json name"*)  printf 'repo\n'; exit 0 ;;
+  *"issue view"*"--json authorAssociation"*)
+    echo 'Unknown JSON field: "authorAssociation"' >&2; exit 1 ;;
+  *"api "*"/issues/"*)
+    n=$(printf '%s\n' "$args" | sed -nE 's#.*/issues/([0-9]+).*#\1#p')
+    [ -n "$n" ] && [ -f "$GH109_STATE/aa_$n" ] && cat "$GH109_STATE/aa_$n"
+    exit 0 ;;
+esac
+exit 0
+SHIM
+  chmod +x "$S109_SHIM/gh"
+  # Cache isolation: is_trusted_filer caches via eng_state_dir; pin it to a FRESH
+  # per-call dir so a §55-seeded fixture can't satisfy the lookup without a gh query.
+  S109_ES="$S109_DIR/es"
+
+  # 109a: OWNER resolves trusted (rc=0) even though `issue view --json authorAssociation`
+  #       is rejected — i.e. resolution goes through the portable api form. RED pre-fix.
+  rm -rf "$S109_ES"
+  s109a_rc=$(
+    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    ENG_STATE_DIR_OVERRIDE="$S109_ES" \
+    bash -c '. "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+             . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
+             is_trusted_filer 100; echo $?' | tail -1
+  )
+  if [ "$s109a_rc" = 0 ]; then
+    ok "109a: is_trusted_filer resolves OWNER via gh api despite --json authorAssociation being rejected (#404)"
+  else
+    ng "109a: trust unresolved (rc=$s109a_rc) — helper still depends on --json authorAssociation (#404)"
+  fi
+
+  # 109b (park guard): a gh where BOTH forms fail → is_trusted_filer returns non-zero
+  #      (so /activate's "unresolvable → park" guard holds; never a false "trusted").
+  cat > "$S109_SHIM/gh" <<'SHIM'
+#!/bin/sh
+args="$*"
+case "$args" in
+  *"--json owner"*) printf 'mock\n'; exit 0 ;;
+  *"--json name"*)  printf 'repo\n'; exit 0 ;;
+esac
+exit 1
+SHIM
+  chmod +x "$S109_SHIM/gh"
+  rm -rf "$S109_ES"
+  s109b_rc=$(
+    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    ENG_STATE_DIR_OVERRIDE="$S109_ES" \
+    bash -c '. "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+             . "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
+             is_trusted_filer 100; echo $?' | tail -1
+  )
+  if [ "$s109b_rc" != 0 ]; then
+    ok "109b: an unresolvable gh returns non-zero (park guard holds; no false trusted) (#404)"
+  else
+    ng "109b: unresolvable gh wrongly resolved trusted (rc=$s109b_rc) (#404)"
+  fi
+  rm -rf "$S109_DIR"
 fi
 
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
