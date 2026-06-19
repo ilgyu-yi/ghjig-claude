@@ -9541,6 +9541,205 @@ else
   ng "104b: CLAUDE.md over the always-on injection budget — ${S104_BYTES} > 12000 bytes (SPEC §9 re-bloat) (#396)"
 fi
 
+# ---------- §105 (#398): friction-observability loop closure — SessionStart §6.5(d) advisory + §5.7.1 park→audit bridge ----------
+# The §6.5(d) friction-candidate advisory is the consumer that completes §6.0 P3's
+# deferred-positive-face loop: a once-per-session, non-blocking, fail-open, TTL-gated
+# ONE-LINE pointer emitted by session_start.sh when the candidate readers surface a
+# cluster OR the audit aggregate carries `unattended-park` records; suppressed when
+# nothing clusters. §5.7.1 additionally bridges a fresh park into audit.jsonl via an
+# `audit_log warn unattended-park parked` emit. All fixtures live in mktemp dirs and
+# point the advisory's per-project audit read at a fixture via ENG_STATE_DIR_OVERRIDE
+# / an explicit log path — the live $SHELL_ROOT state + audit log are never touched
+# (§357 AC1 stays green). The advisory CODE is Phase C: 105b/d-advisory/e(ii,iii) are
+# intended-RED until it lands; 105a (Doc) + the fail-open/exit-0 arm of 105d are green.
+
+# §105a (Doc/TOC presence; green now — Phase A landed): SPEC §6.5(d) advisory contract
+# present with its key tokens, §5.7.1 documents the additive unattended-park emit, and
+# the TOC is fresh.
+S105_SPEC="$SHELL_ROOT/SPEC.md"
+if grep -q 'Friction-candidate advisory' "$S105_SPEC" \
+   && grep -q 'SESSION_START_FRICTION_TTL' "$S105_SPEC" \
+   && grep -q 'last-friction-surfaced' "$S105_SPEC" \
+   && grep -q 'unattended-park' "$S105_SPEC" \
+   && bash "$SHELL_ROOT/scripts/build_toc.sh" --check >/dev/null 2>&1; then
+  ok "105a: SPEC §6.5(d) advisory contract + §5.7.1 unattended-park emit present, TOC fresh (#398)"
+else
+  ng "105a: SPEC §6.5(d)/§5.7.1 friction-loop contract incomplete or TOC stale (#398)"
+fi
+
+# Shared fake-root driver for 105b/c/d (mirror §30): a self-contained shell copy with
+# its own git repo + registry, so session_start.sh reaches the §6.5(d) advisory block.
+# The advisory reads the per-project audit aggregate via eng_state_dir; we point that
+# at a per-call fixture state dir through ENG_STATE_DIR_OVERRIDE. A git shim no-ops the
+# self-sync fetch so the run stays offline and fast.
+S105_PROBE=$(mktemp -d)
+S105_FAKE_ROOT="$S105_PROBE/shell"
+mkdir -p "$S105_FAKE_ROOT/.claude/hooks/helpers" \
+         "$S105_FAKE_ROOT/.claude/state" \
+         "$S105_FAKE_ROOT/.claude/audit" \
+         "$S105_FAKE_ROOT/scripts/lib"
+cp "$SHELL_ROOT/.claude/hooks/session_start.sh" "$S105_FAKE_ROOT/.claude/hooks/"
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$S105_FAKE_ROOT/.claude/hooks/" 2>/dev/null
+for h in log escape cwd_guard branch_guard; do
+  cp "$SHELL_ROOT/.claude/hooks/helpers/$h.sh" "$S105_FAKE_ROOT/.claude/hooks/helpers/" 2>/dev/null
+done
+# Carry the candidate readers + their path lib so the advisory can invoke them in-root.
+cp "$SHELL_ROOT/scripts/narrowing_candidates.sh" "$S105_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/promotion_candidates.sh" "$S105_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/lib/audit_log_path.sh" "$S105_FAKE_ROOT/scripts/lib/" 2>/dev/null
+: > "$S105_FAKE_ROOT/.claude/state/registry.txt"
+(
+  cd "$S105_FAKE_ROOT" || exit 1
+  git init -q
+  git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
+)
+S105_GIT_SHIM="$S105_PROBE/bin"
+REAL_GIT_105=$(command -v git)
+mkdir -p "$S105_GIT_SHIM"
+cat > "$S105_GIT_SHIM/git" <<SHIM
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "fetch" ]; then exit 0; fi
+done
+exec '$REAL_GIT_105' "\$@"
+SHIM
+chmod +x "$S105_GIT_SHIM/git"
+
+# run_friction_session <state-dir> <ttl> — drive session_start.sh against a fixture
+# per-project state dir (its audit/audit.jsonl is the aggregate the advisory reads)
+# and capture stdout (the advisory surfaces at SessionStart). Returns the captured
+# text via stdout; exit status is the hook's.
+run_friction_session() {
+  (
+    export CLAUDE_ENG_SHELL_ROOT="$S105_FAKE_ROOT"
+    export PATH="$S105_GIT_SHIM:$PATH"
+    export ENG_STATE_DIR_OVERRIDE="$1"
+    export SESSION_START_FRICTION_TTL="${2:-21600}"
+    # keep the self-sync stamp fresh so only the friction path varies
+    touch "$S105_FAKE_ROOT/.claude/state/last-shell-fetched" 2>/dev/null
+    bash "$S105_FAKE_ROOT/.claude/hooks/session_start.sh" 2>/dev/null
+  )
+}
+
+if [ ! -f "$S105_FAKE_ROOT/.claude/hooks/session_start.sh" ] || ! command -v jq >/dev/null 2>&1; then
+  ng "105b: jq missing or fake-root setup failed — cannot drive the §6.5(d) advisory (#398)"
+  ng "105c: jq missing or fake-root setup failed (#398)"
+  ng "105d: jq missing or fake-root setup failed (#398)"
+else
+  # §105b (surfacing fires; RED until Code): a per-project audit log with an above-
+  # threshold escape cluster (force-push, 2 distinct LIVE days — narrowing_candidates.sh
+  # thresholds on >=2 distinct UTC days) + no friction stamp → the advisory line appears.
+  S105B_STATE="$S105_PROBE/state-b"
+  mkdir -p "$S105B_STATE/audit"
+  cat > "$S105B_STATE/audit/audit.jsonl" <<'S105FIX'
+{"ts":"2026-06-01T10:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+{"ts":"2026-06-02T11:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+S105FIX
+  rm -f "$S105B_STATE/last-friction-surfaced"
+  s105b_out=$(run_friction_session "$S105B_STATE" 21600)
+  if printf '%s\n' "$s105b_out" | grep -qi 'friction'; then
+    ok "105b: §6.5(d) advisory surfaces a one-line friction pointer on a clustered audit log (#398)"
+  else
+    ng "105b: §6.5(d) advisory did not surface on the clustered audit log — Phase C not yet landed (#398)"
+  fi
+
+  # §105c (suppressed — falsifiable twin): an audit log with NO above-threshold cluster
+  # (a single force-push day → below threshold 2) and NO unattended-park records → no
+  # advisory line. Pre-Code this may pass vacuously (nothing is emitted yet); its real
+  # value is post-Code as the falsifiable companion to 105b. Robust absence assertion:
+  # the captured text must not contain a friction pointer line.
+  S105C_STATE="$S105_PROBE/state-c"
+  mkdir -p "$S105C_STATE/audit"
+  cat > "$S105C_STATE/audit/audit.jsonl" <<'S105FIX'
+{"ts":"2026-06-01T10:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+S105FIX
+  rm -f "$S105C_STATE/last-friction-surfaced"
+  s105c_out=$(run_friction_session "$S105C_STATE" 21600)
+  if printf '%s\n' "$s105c_out" | grep -qi 'friction'; then
+    ng "105c: §6.5(d) advisory fired with NO above-threshold cluster (should be suppressed) (#398)"
+  else
+    ok "105c: §6.5(d) advisory stays silent when nothing clusters (falsifiable twin) (#398)"
+  fi
+
+  # §105d(i) (TTL-skip; RED until Code): clustered data BUT a fresh stamp (mtime now) →
+  # the advisory is skipped (compute runs only when the stamp is stale/absent). Reuses
+  # the 105b clustered fixture with a freshly-touched stamp.
+  S105D_STATE="$S105_PROBE/state-d"
+  mkdir -p "$S105D_STATE/audit"
+  cp "$S105B_STATE/audit/audit.jsonl" "$S105D_STATE/audit/audit.jsonl"
+  touch "$S105D_STATE/last-friction-surfaced"
+  s105d_out=$(run_friction_session "$S105D_STATE" 21600)
+  if printf '%s\n' "$s105d_out" | grep -qi 'friction'; then
+    ng "105d(i): §6.5(d) advisory fired despite a fresh TTL stamp (should skip) (#398)"
+  else
+    ok "105d(i): §6.5(d) advisory honors the fresh last-friction-surfaced stamp (TTL-skip) (#398)"
+  fi
+
+  # §105d(ii) (fail-open / no-stall; holds regardless, partly inherent): an ABSENT audit
+  # log (state dir exists, no audit.jsonl) with no stamp must not stall or crash —
+  # session_start.sh still exits 0. Exercises the advisory path's degrade-to-silence arm.
+  S105D2_STATE="$S105_PROBE/state-d2"
+  mkdir -p "$S105D2_STATE"
+  rm -f "$S105D2_STATE/last-friction-surfaced"
+  run_friction_session "$S105D2_STATE" 21600 >/dev/null 2>&1; s105d2_rc=$?
+  if [ "$s105d2_rc" = 0 ]; then
+    ok "105d(ii): session_start exits 0 (fail-open, no stall) when the audit aggregate is absent (#398)"
+  else
+    ng "105d(ii): session_start did not exit 0 with an absent audit aggregate (rc=$s105d2_rc) (#398)"
+  fi
+fi
+rm -rf "$S105_PROBE"
+
+# §105e (park reaches audit + friction view): ship_park_pr on a FRESH park appends the
+# human-readable park-log line (unchanged, additive contract) AND — Phase C — emits one
+# `audit_log warn unattended-park parked "reason=<token>"` record into audit.jsonl, so
+# park frequency becomes greppable as the §6.5(d) park-frequency signal. (ii)/(iii) are
+# RED until the additive emit lands; (i) holds today. Run from a non-repo cwd so the
+# `gh pr view` label check yields empty (no real PR) → the fresh-park arm.
+if ! command -v jq >/dev/null 2>&1; then
+  ng "105e(i): jq missing — cannot run the park→audit bridge check (#398)"
+  ng "105e(ii): jq missing (#398)"
+  ng "105e(iii): jq missing (#398)"
+else
+  S105E_DIR=$(mktemp -d)
+  S105E_PARKLOG="$S105E_DIR/park.log"
+  S105E_STATE="$S105E_DIR/eng-state"
+  mkdir -p "$S105E_STATE/audit"
+  (
+    cd "$S105E_DIR" || exit 1
+    export CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT"
+    export ENG_STATE_DIR_OVERRIDE="$S105E_STATE"   # audit_log writes here
+    export SHIP_PARK_LOG_PATH="$S105E_PARKLOG"     # park-log isolation seam
+    # shellcheck source=/dev/null
+    . "$SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+    # shellcheck source=/dev/null
+    . "$SHELL_ROOT/.claude/hooks/helpers/ship_mode.sh" 2>/dev/null
+    ship_park_pr ci-hard-blocker >/dev/null 2>&1
+  )
+  S105E_AUDIT="$S105E_STATE/audit/audit.jsonl"
+  # (i) park-log line still appears (additive, unchanged).
+  if [ -f "$S105E_PARKLOG" ] && grep -q 'parked reason=ci-hard-blocker' "$S105E_PARKLOG"; then
+    ok "105e(i): ship_park_pr still writes the human-readable park-log line (additive) (#398)"
+  else
+    ng "105e(i): ship_park_pr did not write the expected park-log line (#398)"
+  fi
+  # (ii) an unattended-park/parked record landed in audit.jsonl (RED until Code).
+  if [ -f "$S105E_AUDIT" ] \
+     && grep -v '^[[:space:]]*$' "$S105E_AUDIT" \
+        | jq -e 'select(.category=="unattended-park" and .decision=="parked")' >/dev/null 2>&1; then
+    ok "105e(ii): fresh park emits an unattended-park/parked record into audit.jsonl (#398)"
+  else
+    ng "105e(ii): no unattended-park/parked audit record — §5.7.1 bridge not yet landed (#398)"
+  fi
+  # (iii) that record is greppable as the park-frequency signal the §6.5(d) advisory reads.
+  if [ -f "$S105E_AUDIT" ] && grep -q 'unattended-park' "$S105E_AUDIT"; then
+    ok "105e(iii): the park record is greppable as the park-frequency signal (#398)"
+  else
+    ng "105e(iii): park-frequency signal not greppable in audit.jsonl (#398)"
+  fi
+  rm -rf "$S105E_DIR"
+fi
+
 # ---------- §357 AC1: live shared sinks untouched by the run ----------
 # A smoke run must add ZERO lines to the live audit log and ZERO entries to the
 # live scope registry (MISSION "shared code, per-project state" isolation, #357).
