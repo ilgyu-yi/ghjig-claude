@@ -10108,6 +10108,38 @@ else
   ng "357: smoke polluted live sinks — audit Δ=$((s357_audit_after - s357_audit_before)) registry Δ=$((s357_reg_after - s357_reg_before)) (#357)"
 fi
 
+# ---------- §111: /recall episodic-retrieval skill contract (#422) ----------
+# Placed before §110 because §110 (the README floor guard) runs last by design.
+# Static greps on the helper + command — no network: the pointers-only and cap
+# guarantees are STRUCTURAL (field projection + a code cap), so they are pinned
+# by inspecting the source, not by a live gh round-trip.
+s111_helper="$SHELL_ROOT/.claude/hooks/helpers/recall.sh"
+s111_cmd="$SHELL_ROOT/.claude/commands/recall.md"
+s111=1; s111_why=""
+if [ ! -f "$s111_helper" ]; then
+  s111=0; s111_why="${s111_why}helper-missing;"
+else
+  # (a) pointers-only: projects number,title and NEVER projects a body field
+  grep -q -- '--json number,title' "$s111_helper" || { s111=0; s111_why="${s111_why}no-number-title-projection;"; }
+  grep -qE -- '--json[[:space:]]+[A-Za-z,]*body' "$s111_helper" && { s111=0; s111_why="${s111_why}body-projected;"; }
+  # (b) bounded: RECALL_LIMIT default 5 + --limit honored
+  grep -qE 'RECALL_LIMIT:-5' "$s111_helper" || { s111=0; s111_why="${s111_why}cap-default-not-5;"; }
+  grep -q -- '--limit' "$s111_helper" || { s111=0; s111_why="${s111_why}no-limit-flag;"; }
+  # (c) decision-record coverage: issues + PRs + ADRs arms
+  grep -q 'gh search issues' "$s111_helper" || { s111=0; s111_why="${s111_why}no-issues-arm;"; }
+  grep -q 'gh search prs' "$s111_helper" || { s111=0; s111_why="${s111_why}no-prs-arm;"; }
+  grep -q 'docs/ADRs' "$s111_helper" || { s111=0; s111_why="${s111_why}no-adr-arm;"; }
+  # (d) fail-open: a record-unavailable fallback line exists
+  grep -q 'decision record unavailable' "$s111_helper" || { s111=0; s111_why="${s111_why}no-fail-open;"; }
+fi
+# (e) command file delegates to the helper
+grep -q 'recall_pointers' "$s111_cmd" 2>/dev/null || { s111=0; s111_why="${s111_why}cmd-no-delegate;"; }
+if [ "$s111" = 1 ]; then
+  ok "111: /recall helper is pointers-only (number,title, no body projection) + bounded (RECALL_LIMIT=5) + covers issues/prs/ADRs + fail-open (#422)"
+else
+  ng "111: /recall contract violated:$s111_why (#422)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
