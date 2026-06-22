@@ -25,10 +25,21 @@ MUTATIONS=(
 )
 
 killed=0; survived_list=""
+# Track the in-flight worktree/tempdir so an interrupt (SIGINT/SIGTERM) mid-smoke
+# doesn't leak them — the per-iteration cleanup below handles the normal path.
+_mut_base=""; _mut_wt=""
+_mut_cleanup() {
+  [ -n "$_mut_wt" ] && git worktree remove --force "$_mut_wt" 2>/dev/null
+  [ -n "$_mut_base" ] && rm -rf "$_mut_base" 2>/dev/null
+  git worktree prune 2>/dev/null || true
+}
+trap _mut_cleanup EXIT INT TERM
+
 for m in "${MUTATIONS[@]}"; do
   label=${m%%|*}; rest=${m#*|}; relpath=${rest%%|*}; override=${rest#*|}
   base=$(mktemp -d) || { echo "mutation: mktemp failed" >&2; exit 2; }
   wt="$base/mut-$label"
+  _mut_base="$base"; _mut_wt="$wt"   # arm the interrupt-cleanup trap for this iteration
 
   if ! git worktree add --quiet --detach "$wt" HEAD 2>/dev/null; then
     echo "mutation: ERROR — git worktree add failed for $label" >&2
@@ -53,6 +64,7 @@ for m in "${MUTATIONS[@]}"; do
 
   git worktree remove --force "$wt" 2>/dev/null
   rm -rf "$base" 2>/dev/null
+  _mut_wt=""; _mut_base=""   # disarm — this iteration cleaned up normally
 done
 
 echo
