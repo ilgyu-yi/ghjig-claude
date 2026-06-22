@@ -41,8 +41,10 @@ Consume the fragment-contract substrate (SPEC §18) and produce a release PR. Th
    ```bash
    git checkout -b release/<X.Y.Z>
    SKIP_HOOKS=branch SKIP_REASON='/release initial release-branch commit' \
-     git commit -m "chore(release): <X.Y.Z>" -m "Consolidated $(N) fragments. See CHANGELOG.md ## [<X.Y.Z>]."
+     git commit -m "chore: release <X.Y.Z>" -m "Consolidated $(N) fragments. See CHANGELOG.md ## [<X.Y.Z>]."
    ```
+   The subject is the **scopeless** `chore: release <X.Y.Z>`, not `chore(release): …`: the conventional-commit matcher (SPEC §6.1, `commit-format` category) permits only a `(#N)` scope or no scope (`conventional_commit.sh` `re_optional`), so a `(release)` scope is rejected — and the documented `SKIP_HOOKS=branch` escape covers only the `branch` category, *not* `commit-format`. Scopeless fits the repo's "scope = issue number" convention with zero hook change.
+
    The `SKIP_HOOKS=branch` escape is **structurally required**: the protected-branch matcher (SPEC §6.1, `helpers/git_matcher.sh` pattern `release/\S+`) blocks all direct commits on `release/X.Y.Z`, and this is the one purposeful commit `/release` makes. Audit-logged with the documented `SKIP_REASON`; `/audit` can filter on it to distinguish legitimate uses from drift.
 
 9. **Reviewer gate** (`unattended` mode only) — invoke `code-reviewer` (SPEC §4.5) against the staged release diff before opening the PR. On `block` verdict, stop with the reason and leave the branch in place for the maintainer to inspect. On `refine`, surface the feedback; the helper does not auto-revise (the release diff is deterministic). On `ship`, proceed. Skip in `attended` mode (the human reviews the PR after creation). Escape: `SKIP_HOOKS=release-review SKIP_REASON='<why>'`.
@@ -51,7 +53,7 @@ Consume the fragment-contract substrate (SPEC §18) and produce a release PR. Th
     ```bash
     git push -u origin HEAD
     gh pr create --draft --base "<base>" \
-      --title "chore(release): <X.Y.Z>" \
+      --title "chore: release <X.Y.Z>" \
       --body-file <(printf '%s\n' "Release <X.Y.Z>. Consolidates <N> changelog fragments into CHANGELOG.md ## [<X.Y.Z>]. VERSION updated to <X.Y.Z>.")
     ```
     The PR body includes the newly-prepended `## [X.Y.Z]` section verbatim for reviewer convenience.

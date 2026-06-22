@@ -7140,6 +7140,31 @@ else
   ng "65h: /release skill-body grep-locks failed:$s65h_reasons (#131)"
 fi
 
+# §65i — the documented /release commit subject must pass the conventional-commit
+# hook unmodified (#416). The template lived as `chore(release): X.Y.Z`, which the
+# `commit-format` matcher rejects (re_optional permits only a (#N) scope or none),
+# and the documented SKIP_HOOKS=branch escape does NOT cover commit-format — so
+# every release commit made with the documented subject was blocked. This guard
+# extracts the real documented subject and runs it through the real check (not a
+# grep-lock), so a future re-introduction of a rejected scope — or a regex change
+# that breaks the unchanged subject — fails smoke.
+. "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+s65i_skill="$SHELL_ROOT/.claude/commands/release.md"
+s65i_subject=$(grep -oE 'git commit -m "[^"]+"' "$s65i_skill" | head -1 | sed -E 's/^git commit -m "//; s/"$//')
+# Resolve the <X.Y.Z> placeholder to a fixed valid semver (pinned, not VERSION-coupled).
+s65i_resolved=${s65i_subject//<X.Y.Z>/0.3.0}
+if [ -z "$s65i_subject" ]; then
+  ng "65i: could not extract /release commit subject from release.md (#416)"
+elif check_commit_subject "$s65i_resolved" 2>/dev/null; then
+  ok "65i: documented /release commit subject passes conventional_commit hook unmodified (#416)"
+else
+  ng "65i: documented /release commit subject '$s65i_resolved' rejected by conventional_commit hook (#416)"
+fi
+# Premise lock: the pre-fix scoped form must remain rejected, else the guard is moot.
+check_commit_subject "chore(release): 0.3.0" 2>/dev/null \
+  && ng "65i: scoped chore(release) form unexpectedly accepted — guard premise broken (#416)" \
+  || ok "65i: scoped chore(release) form correctly rejected by conventional_commit hook (#416)"
+
 # ---------- 66. check-changelog.yml workflow (#133 / Directive #128) ----------
 # §66 locks the per-PR fragment-gate workflow contract: file exists at the
 # shell repo AND at canonical-source path AND they are byte-identical AND
