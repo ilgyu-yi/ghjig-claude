@@ -2,7 +2,7 @@
 
 - Date: 2026-06-22
 - Status: Accepted
-- Context PR: #_TBD_
+- Context PR: #433
 
 ## Context
 
