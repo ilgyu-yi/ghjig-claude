@@ -13,9 +13,15 @@
 # gh/grep error degrades to whatever substrate still answers and prints a single
 # "decision record unavailable" notice — never an error exit, never a body dump.
 
-# ADR directory — the local half of the decision record (per-project).
+# ADR directory — the local half of the decision record. Scoped to the PROJECT
+# repo (the cwd's git toplevel), NOT the shell root: the gh arms resolve to the
+# current repo via `gh repo view`, so the ADR arm must read the same project's
+# docs/ADRs/ — else a bound target would merge the project's issues/PRs with the
+# shell's ADRs (two different repos' records). Fall back to cwd when not in git.
 _recall_adr_dir() {
-  printf '%s' "${CLAUDE_ENG_SHELL_ROOT:-.}/docs/ADRs"
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
+  printf '%s' "$root/docs/ADRs"
 }
 
 recall_pointers() {
@@ -56,7 +62,8 @@ recall_pointers() {
       h=$(head -1 "$f" 2>/dev/null)
       if printf '%s' "$h" | grep -qi -- "$topic"; then
         num=$(basename "$f" | grep -oE '^[0-9]+')
-        title=${h#*: }
+        title=${h#\# }        # strip leading "# "
+        title=${title#*: }    # then the "ADR NNNN: " prefix when present (no-op if no colon)
         printf 'ADR-%s %s\n' "$num" "$title"
         count=$((count + 1)); any=1
       fi
