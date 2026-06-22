@@ -74,3 +74,15 @@ jobs:
         run: command -v jq && jq --version
       - name: run smoke
         run: ./scripts/test/smoke.sh
+
+  mutation:
+    name: mutation (kill-rate guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install jq (the inner smoke runs need jq)
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: verify jq present
+        run: command -v jq && jq --version
+      - name: run mutation harness
+        run: ./scripts/test/mutation.sh

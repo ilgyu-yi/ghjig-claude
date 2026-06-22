@@ -10140,6 +10140,29 @@ else
   ng "111: /recall contract violated:$s111_why (#422)"
 fi
 
+# ---------- §112: enforcement-matcher mutation harness contract (#423) ----------
+# Placed before §110 (the README floor guard, which runs last by design). Static
+# greps on scripts/test/mutation.sh — the harness itself runs full smoke per
+# mutant, so it is a SEPARATE CI job, not invoked from inside smoke (no recursion).
+# Here we only pin that the harness exists, seeds the three highest-cost matcher
+# mutations (§6.0), and isolates each in a git worktree (never mutates the live tree).
+s112_mut="$SHELL_ROOT/scripts/test/mutation.sh"
+s112=1; s112_why=""
+if [ ! -f "$s112_mut" ]; then
+  s112=0; s112_why="${s112_why}harness-missing;"
+else
+  grep -q 'check_commit_subject' "$s112_mut"     || { s112=0; s112_why="${s112_why}no-commit-format-mutant;"; }
+  grep -q 'scan_staged_secrets' "$s112_mut"       || { s112=0; s112_why="${s112_why}no-secret-mutant;"; }
+  grep -q 'PROTECTED_BRANCH_PATTERN' "$s112_mut"  || { s112=0; s112_why="${s112_why}no-protected-branch-mutant;"; }
+  grep -q 'git worktree add' "$s112_mut"          || { s112=0; s112_why="${s112_why}no-worktree-isolation;"; }
+  grep -q 'CLAUDE_ENG_SHELL_ROOT=' "$s112_mut"    || { s112=0; s112_why="${s112_why}no-shell-root-override;"; }
+fi
+if [ "$s112" = 1 ]; then
+  ok "112: mutation harness exists, seeds commit-format/secret/protected-branch mutants, worktree-isolated (#423)"
+else
+  ng "112: mutation harness contract violated:$s112_why (#423)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
