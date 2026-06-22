@@ -10193,6 +10193,37 @@ else
   ng "113: /replan-check contract violated:$s113_why (#427)"
 fi
 
+# ---------- §114: high-asymmetry reviewer tier (#428) ----------
+# Placed before §110 (README floor, runs last). The classifier is pure shell
+# (no external calls), so the rc-per-kind + off-list falsifiability arm run
+# offline by sourcing it directly. The fan-out itself is skill prose (LLM) —
+# grep-locked on /ship + /complete-directive + the SPEC §4.11 contract.
+s114_helper="$SHELL_ROOT/.claude/hooks/helpers/blast_radius.sh"
+s114=1; s114_why=""
+if [ ! -f "$s114_helper" ]; then
+  s114=0; s114_why="${s114_why}helper-missing;"
+else
+  # shellcheck source=/dev/null
+  . "$s114_helper"
+  if command -v is_high_asymmetry >/dev/null 2>&1; then
+    for k in merge-security-surface force-push directive-completion irreversible-adr; do
+      is_high_asymmetry "$k" 2>/dev/null || { s114=0; s114_why="${s114_why}$k-not-flagged;"; }
+    done
+    # falsifiability arm: an off-list kind must NOT be flagged (closed set, AC1)
+    is_high_asymmetry "ordinary-merge" 2>/dev/null && { s114=0; s114_why="${s114_why}off-list-flagged;"; }
+  else
+    s114=0; s114_why="${s114_why}no-is_high_asymmetry-fn;"
+  fi
+fi
+grep -qiE 'high-asymmetry|is_high_asymmetry' "$SHELL_ROOT/.claude/commands/ship.md" 2>/dev/null || { s114=0; s114_why="${s114_why}ship-no-tier;"; }
+grep -qiE 'high-asymmetry|is_high_asymmetry' "$SHELL_ROOT/.claude/commands/complete-directive.md" 2>/dev/null || { s114=0; s114_why="${s114_why}complete-directive-no-tier;"; }
+grep -q '### 4.11 High-asymmetry reviewer tier' "$SHELL_ROOT/SPEC.md" 2>/dev/null || { s114=0; s114_why="${s114_why}no-spec-4.11;"; }
+if [ "$s114" = 1 ]; then
+  ok "114: is_high_asymmetry flags the closed set (not off-list) + /ship & /complete-directive carry the N-way tier + SPEC §4.11 (#428)"
+else
+  ng "114: high-asymmetry reviewer tier contract violated:$s114_why (#428)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
