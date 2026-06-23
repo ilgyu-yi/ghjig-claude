@@ -37,8 +37,8 @@ Post a structured reflection comment on a PR's parent Directive summarizing what
    ```
    Read the Directive's `## Success signals` section from its body (the same field `activation-reviewer` uses at completion time). For each signal, search the PR body / AC closeout comment for evidence; if no evidence is found, mark the signal as "not advanced by this PR" rather than fabricating a claim.
 
-5. **Write the comment** — branch on step 3's classification. Pass the body via stdin / a temp file (`--body-file` / `-f body=@-`), **never** argument-interpolated, so PR/Directive text cannot inject `gh` arguments:
-   - **enrich in place** (step 3 found the `reflect-stub`): edit the bot-authored stub by REST id — `printf '%s' "<composed>" | gh api -X PATCH "/repos/<owner>/<repo>/issues/comments/<id>" -f body=@-`. (`gh issue comment --edit-last` can't be used — it only edits the caller's own last comment, and the stub is authored by `github-actions[bot]`.) This swaps the `reflect-stub` marker for `reflect-enriched` in place, preserving the comment's position.
+5. **Write the comment** — branch on step 3's classification. Pass the body via stdin / a temp file (`--body-file` / `-F body=@-`), **never** argument-interpolated, so PR/Directive text cannot inject `gh` arguments:
+   - **enrich in place** (step 3 found the `reflect-stub`): edit the bot-authored stub by REST id — `printf '%s' "<composed>" | gh api -X PATCH "/repos/<owner>/<repo>/issues/comments/<id>" -F body=@-`. (`gh issue comment --edit-last` can't be used — it only edits the caller's own last comment, and the stub is authored by `github-actions[bot]`.) This swaps the `reflect-stub` marker for `reflect-enriched` in place, preserving the comment's position.
    - **post fresh** (no stub or enriched comment present): `gh issue comment <D> --body-file <file>`.
    Capture the comment URL.
 

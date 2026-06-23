@@ -10391,6 +10391,22 @@ else
   ng "116: SPEC §1.9 coverage parity drift — classified=$s116_rows expected=$s116_exp (levers=$s116_levers agents=$s116_agents cmds=$s116_cmds hooks=$s116_hooks) (#450)"
 fi
 
+# ---------- §117: command docs use -F (not -f) for gh api stdin/file body (#452) ----------
+# Placed before §110 (the README floor guard, which runs last by design). `gh api
+# -f field=@-` sets the LITERAL string "@-" — only `-F field=@-` reads stdin/file.
+# A command doc teaching the lowercase form silently corrupts the artifact it writes
+# (hit live: /reflect's enrich-in-place PATCH wrote "@-" into a Directive comment).
+# The legitimate graphql `-f query=<string>` form has no `=@`, so anchoring on `=@`
+# is precise. NON-VACUOUS: a file-count guard fails loud if the commands glob is
+# empty (rather than greening on nothing scanned).
+s117_files=$(ls "$SHELL_ROOT"/.claude/commands/*.md 2>/dev/null | wc -l | tr -d ' ')
+s117_bad=$(grep -rlE '\-f [a-zA-Z_]+=@' "$SHELL_ROOT"/.claude/commands/*.md 2>/dev/null | wc -l | tr -d ' ')
+if [ "$s117_files" -gt 0 ] && [ "$s117_bad" = 0 ]; then
+  ok "117: no .claude/commands/*.md teaches the broken 'gh api -f <field>=@' form (use -F for stdin/file) (#452)"
+else
+  ng "117: broken 'gh api -f <field>=@' (literal, not stdin) in commands docs — use -F (files=$s117_files bad=$s117_bad) (#452)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
