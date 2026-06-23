@@ -44,6 +44,8 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default `m
    ```
    `Closes` vs `Refs` — the rule above is the default; the user may override on split (intermediate PR → `Refs`, final consolidator → `Closes`).
 
+   **Recommended assembly path** (SPEC §10.2, ADR-0002): instead of hand-rolling the `git commit -m` above, source `helpers/eng_commit.sh` and call `eng_commit <type> <#> "<subject>" "<body-para>" "${TRAILER}"` — it validates the assembled `<type>(#<#>): <subject>` via `check_commit_subject` *before* committing and builds the message as a bash argv array (multibyte/multi-paragraph bodies round-trip cleanly; the `commit-format` hook sees and accepts the first-`-m` subject). `eng_commit` appends the Co-Authored-By trailer itself when enabled, so pass body paragraphs + the `Closes`/`Refs` trailer as args. Offered, not mandatory — the hand-roll above remains valid.
+
    If Phase A isn't ready to commit (e.g. planner output needs more clarification), **defer the PR** — keep the issue + plan in conversation. Don't fall back to an empty seed commit just to open the draft PR; see SPEC §5.3.
 9. Print "ready to start" message. Continue with the next phase (Test).
 

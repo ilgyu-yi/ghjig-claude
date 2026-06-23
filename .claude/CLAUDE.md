@@ -62,6 +62,7 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 - Required group (`feat`/`fix`/`docs`/`refactor`/`perf`) — issue # required
 - Optional group (`test`/`style`/`build`/`ci`/`chore`/`revert`) — issue # optional
 - `Closes #N` (single/final PR), `Refs #N` (intermediate PR)
+- Recommended: assemble the commit via `eng_commit <type> <issue> "<subject>" [body…]` (`helpers/eng_commit.sh`, SPEC §10.2) — validates the subject before committing + array-argv build avoids multibyte/multiline `-m` pitfalls. Offered, not forced; the commit-format hook stays the net.
 
 ## What hooks enforce
 Pointer index — every contract below lives in full in SPEC §6.1 (PreToolUse matcher table + `safe_source` fail-policy table), with the binding/state/banner items in §3.2.1, §3.2.2, and §6.5(c). Enforcement-style face (negative block vs positive guide) is chosen by cost-asymmetry — SPEC §6.0.
