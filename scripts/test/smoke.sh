@@ -7716,6 +7716,42 @@ else
   ng "70o: sibling-only force flag should not trigger the force-push gate (#437)"
 fi
 
+# §70p–§70s: message-value strip (#440). A force/protected literal documented
+# inside a commit MESSAGE body (-m/--message/-F value) is data, not a command,
+# so it must not false-trip the force-push/protected arms — while a REAL push in
+# a sibling segment still blocks (the elision is anchored to the message flag).
+
+# §70p: a force-push literal inside an -m message body → ALLOW (not a command).
+if [ "$(hook_run 'git commit -m "feat(#5): real subject" -m "example: git push --force-with-lease origin main"')" = "0" ]; then
+  ok "70p: force-push literal in a commit message body not blocked (#440)"
+else
+  ng "70p: a force-push literal in -m message data should not trip the gate (#440)"
+fi
+
+# §70q: a protected-push literal inside an -m message body → ALLOW (branch arm).
+if [ "$(hook_run 'git commit -m "feat(#5): real subject" -m "see git push origin main for the tail"')" = "0" ]; then
+  ok "70q: protected-push literal in a commit message body not blocked (#440)"
+else
+  ng "70q: a protected-push literal in -m message data should not trip the branch arm (#440)"
+fi
+
+# §70r: --message=-glued force/protected literal → ALLOW (the = form is elided
+# too). The subject itself is a VALID conventional commit (so commit-format does
+# not block on the subject); the force/protected literal lives in the value.
+if [ "$(hook_run 'git commit --message="feat(#5): note re git push --force origin main"')" = "0" ]; then
+  ok "70r: --message=-glued force/protected literal not blocked (#440)"
+else
+  ng "70r: a force/protected literal in a --message= value should not trip the gate (#440)"
+fi
+
+# §70s: falsifiability — a REAL force-push to protected in a SIBLING of a commit
+# still BLOCKS (the -m is elided, but the genuine push segment is not).
+if [ "$(hook_run 'git commit -m "feat(#5): real subject" && git push --force origin main')" = "2" ]; then
+  ok "70s: real force-push to protected in a commit sibling still blocks (#440)"
+else
+  ng "70s: a genuine sibling force-push to protected must still block (#440)"
+fi
+
 # ---------- 71. escape-hatch reference docs route in-harness blocks correctly (#217) ----------
 # SPEC §7 has TWO escape forms; the leading env-prefix is non-functional in the
 # live Claude Code Bash tool (consumed as subprocess env, #206), so the canonical
