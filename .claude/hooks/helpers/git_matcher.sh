@@ -54,17 +54,27 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 # (and, in the default "full" mode, quoted string literals removed too) so a
 # subsequent token grep sees command words, not DATA. Factored from #340's
 # is_pr_merge_command stripper, shared by the protected-push and git-clean arms
-# (#366). Two modes:
+# (#366). Three modes:
 #   "heredoc" — strip ONLY heredoc bodies. For the protected-push / git-clean
 #     arms: the matched token (a branch positional, a -f flag) may be legitimately
 #     quoted, so quote-stripping could drop a genuine quoted target/flag and miss
 #     a real action (false-negative). Heredoc-only never removes a real command.
-#   "full" (default) — strip heredoc bodies AND quoted literals. For
+#   "message" (#440) — heredoc strip PLUS elide only the argument VALUES of
+#     `-m`/`--message`/`-F`/`--file` (the commit-message data, in `=`-glued,
+#     quoted, or bareword form). For the force-push / protected-push arms: a
+#     force/protected literal documented inside a commit MESSAGE body is data,
+#     not a command, so it must not false-trip — but the elision is anchored
+#     strictly to the message-flag token, so a quoted push TARGET (`origin "main"`,
+#     which has no preceding message-flag) is NEVER removed (no false-negative).
+#     `message ⊇ heredoc` (a superset single pass).
+#   "full" (default) — strip heredoc bodies AND all quoted literals. For
 #     is_pr_merge_command (#340), which must see through a quoted
 #     `--body "…gh pr merge…"`; #340 already accepts the quote-obfuscation residual.
-# FAIL-CLOSED: python3 absent, an unclosed quote (full mode), or any parse error
-# prints the cmd UNCHANGED (return 0) — the caller's grep then runs against the
-# full command, so a token that should block is never stripped away by a failure.
+# FAIL-CLOSED: python3 absent, an unclosed quote (full OR message mode), or any
+# parse error prints the cmd UNCHANGED (return 0) — the caller's grep then runs
+# against the full command, so a token that should block is never stripped away
+# by a failure (a missed message-elision degrades to today's recoverable
+# false-trip; it never over-strips a genuine target).
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
   local cmd="$1" mode="${2:-full}" out
