@@ -99,7 +99,7 @@ for f in \
 done
 
 # ---------- 2. helper / hook syntax ----------
-for h in log escape cwd_guard detect_stack branch_guard conventional_commit secret_scan tests gh_state; do
+for h in log escape cwd_guard detect_stack branch_guard conventional_commit secret_scan tests gh_state eng_commit; do
   if bash -n "$SHELL_ROOT/.claude/hooks/helpers/$h.sh" 2>/dev/null; then
     ok "helper syntax: $h.sh"
   else
@@ -10222,6 +10222,58 @@ if [ "$s114" = 1 ]; then
   ok "114: is_high_asymmetry flags the closed set (not off-list) + /ship & /complete-directive carry the N-way tier + SPEC §4.11 (#428)"
 else
   ng "114: high-asymmetry reviewer tier contract violated:$s114_why (#428)"
+fi
+
+# ---------- §115: eng_commit slot-assembly helper (#436) ----------
+# Behavioral, offline: exercise eng_commit against a throwaway git repo (no
+# network, no PreToolUse hook — the internal `git commit` is a subprocess of
+# this script). Pins: reject-before-commit, happy-path subject hook-visible
+# (extract+check accept it, NOT the -F bypass), and multibyte/multi-paragraph
+# body round-trip.
+s115_helper="$SHELL_ROOT/.claude/hooks/helpers/eng_commit.sh"
+if [ ! -f "$s115_helper" ]; then
+  ng "115: eng_commit.sh missing (#436)"
+else
+  # shellcheck source=/dev/null
+  . "$s115_helper"
+  if ! command -v eng_commit >/dev/null 2>&1; then
+    ng "115: eng_commit function not defined after sourcing (#436)"
+  else
+    s115_tmp=$(mktemp -d)
+    git -C "$s115_tmp" init -q
+    git -C "$s115_tmp" config user.email smoke@example.com
+    git -C "$s115_tmp" config user.name smoke
+    git -C "$s115_tmp" config commit.gpgsign false   # isolate from a global signing config
+    printf 'x\n' > "$s115_tmp/f"
+    git -C "$s115_tmp" add f
+    s115_long=$(python3 -c 'print("a"*73)' 2>/dev/null || printf 'a%.0s' $(seq 1 73))
+    s115=1; s115_why=""
+
+    # (a) reject-before-commit: a 73-char subject must error nonzero AND create no commit
+    ( cd "$s115_tmp" && eng_commit feat 5 "$s115_long" ) >/dev/null 2>&1 \
+      && { s115=0; s115_why="${s115_why}overlong-not-rejected;"; }
+    if git -C "$s115_tmp" rev-parse HEAD >/dev/null 2>&1; then
+      s115=0; s115_why="${s115_why}committed-despite-reject;"
+    fi
+
+    # (b) happy path: valid slots commit; the subject is hook-visible (extract+check accept it)
+    if ( cd "$s115_tmp" && eng_commit feat 5 "add the thing" "본문 한국어 단락 첫 줄" ) >/dev/null 2>&1; then
+      s115_subj=$(git -C "$s115_tmp" log -1 --format=%s)
+      s115_xs=$(extract_commit_subject "git commit -m \"$s115_subj\"" "git commit -m \"$s115_subj\"")
+      check_commit_subject "$s115_xs" >/dev/null 2>&1 || { s115=0; s115_why="${s115_why}subject-not-hook-accepted;"; }
+      # (c) multibyte body round-trips intact
+      git -C "$s115_tmp" log -1 --format=%B | grep -q '본문 한국어 단락 첫 줄' || { s115=0; s115_why="${s115_why}body-not-roundtripped;"; }
+    else
+      s115=0; s115_why="${s115_why}valid-commit-failed;"
+    fi
+
+    rm -rf "$s115_tmp"
+    if [ "$s115" = 1 ]; then
+      ok "115: eng_commit rejects-before-commit on overlong subject + happy-path subject is hook-accepted + multibyte body round-trips (#436)"
+    else
+      ng "115: eng_commit contract violated:$s115_why (#436)"
+    fi
+  fi
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------
