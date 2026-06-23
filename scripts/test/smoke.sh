@@ -10366,6 +10366,31 @@ else
   fi
 fi
 
+# ---------- §116: SPEC §1.9 harness-overlap coverage parity (#450) ----------
+# Placed before §110 (the README floor guard, which runs last by design). The
+# §1.9 classification must carry exactly one posture row per enumerated mechanism
+# in §1.8 (narrowing levers) + §4 (subagents) + §5 (slash commands) + §6.1 (hook
+# matchers). NON-VACUOUS by construction: the expected total is four INDEPENDENTLY
+# machine-derived counts (the same derivations §74a/§74b already trust), the actual
+# count is §1.9 table rows whose posture cell carries a BACKTICKED posture token —
+# the code form, so prose mentioning "cede to harness" without backticks does NOT
+# match (anti-vacuity #1) — and the `-gt 0` count-guard fails loud on a §1.9
+# rename / empty table (anti-vacuity #2). A mechanism added to any of the four
+# families bumps the expected total and trips this guard until a §1.9 row is added.
+s116_spec="$SHELL_ROOT/SPEC.md"
+s116_levers=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$s116_spec")
+s116_agents=$(ls "$SHELL_ROOT"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
+s116_cmds=$(grep -cE '^### 5\.[0-9]+ `/' "$s116_spec")
+s116_hooks=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT"/.claude/hooks/pre_tool_use.sh | awk '{print $2}' | sort -u | wc -l | tr -d ' ')
+s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
+s116_rows=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$s116_spec" \
+            | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
+if [ "$s116_rows" -gt 0 ] && [ "$s116_rows" = "$s116_exp" ]; then
+  ok "116: SPEC §1.9 classifies all $s116_exp enumerated mechanisms (parity, #450)"
+else
+  ng "116: SPEC §1.9 coverage parity drift — classified=$s116_rows expected=$s116_exp (levers=$s116_levers agents=$s116_agents cmds=$s116_cmds hooks=$s116_hooks) (#450)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading

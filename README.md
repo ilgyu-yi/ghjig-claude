@@ -73,7 +73,7 @@ This is review *substituted*, not *skipped*: every verdict is a reviewer artifac
 
 ## Why this shape
 
-One load-bearing observation drives the design: **an AI agent's output quality is bounded by the size and relevance of its working context.** Free-form sessions read opportunistically, accumulate digressions, and ask the model to hold the whole task in one window — and as that window fills with irrelevant material, they drift, hallucinate invariants, and lose preconditions. So the shell splits each task into narrow, well-scoped phases and pushes everything else *out* of the active context. Engineering discipline is the lever; context discipline is the effect:
+One **design hypothesis** drives the design — a working prior the shell is built around, not a measured law it asserts: **an AI agent's output quality tends to track the size and relevance of its working context.** Free-form sessions read opportunistically, accumulate digressions, and ask the model to hold the whole task in one window — and as that window fills with irrelevant material, they drift, hallucinate invariants, and lose preconditions. So the shell splits each task into narrow, well-scoped phases and pushes everything else *out* of the active context. Engineering discipline is the lever; context discipline is the effect. The *generic* form of this — keeping one session's context small — is increasingly native to the Claude Code harness; the shell treats the harness as a **rising floor** and concentrates on the harness-orthogonal forms (task-boundary handoff, GitHub-artifact memory, engineering enforcement), classified mechanism-by-mechanism in [SPEC §1.9](SPEC.md):
 
 - **Doc → Test → Code** splits the job into three short-context steps — each phase reads only what it needs, and each phase's output (a doc commit, a failing-test commit, a passing-test commit) is the next phase's input.
 - **Subagents run in isolated windows.** `planner`, `doc-writer`, `test-writer`, and the `*-reviewer` family spawn fresh, do their job, and return a verdict — not a transcript. Exploration and planning burn never pollute the main session.
@@ -113,6 +113,7 @@ The shell version is a single [semver](https://semver.org) 0.x line in the top-l
 - [docs/ENGINEERING_FLOW.md](docs/ENGINEERING_FLOW.md) — step-by-step engineering flow.
 - [docs/DIR_MODE_FLOW.md](docs/DIR_MODE_FLOW.md) — dir-mode flow (Directives, Initiatives, substrate tiers).
 - [docs/SUBAGENTS.md](docs/SUBAGENTS.md) — subagent usage guide.
+- [docs/HARNESS_OVERLAP.md](docs/HARNESS_OVERLAP.md) — harness-overlap classification (cede / policy / safety-redundancy).
 - [docs/CONFIG.md](docs/CONFIG.md) — configuration toggles.
 - [docs/ESCAPE_HATCH.md](docs/ESCAPE_HATCH.md) — bypassing hooks safely.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common blocks and fixes.
