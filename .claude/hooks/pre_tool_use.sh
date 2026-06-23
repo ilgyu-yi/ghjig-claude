@@ -789,7 +789,7 @@ case "$tool" in
       # `\` with the next) BEFORE segmenting, else a `git \<nl> push \<nl> --force`
       # continuation splits across newlines and no segment carries `git push`
       # together (#17 regression guard). Heredoc bodies are already stripped.
-      fp_force_segs=$(push_segments "$(strip_command_data "$raw_cmd" heredoc | awk '{ if (sub(/\\$/,"")) printf "%s ", $0; else print }')" | grep -E "(\-f\b|\-\-force\b|\-\-force-with-lease\b)")
+      fp_force_segs=$(push_segments "$(strip_command_data "$raw_cmd" message | awk '{ if (sub(/\\$/,"")) printf "%s ", $0; else print }')" | grep -E "(\-f\b|\-\-force\b|\-\-force-with-lease\b)")
       if [ -z "$fp_force_segs" ]; then
         # The force flag lived only in a non-push sibling segment → not a
         # force-push → allow (silent).
@@ -868,7 +868,7 @@ case "$tool" in
       # protected token. The hit is computed into a var via grep-count rather
       # than a refining conditional grep, which the §39b structural awk would
       # mis-read as a second matcher entry (the merge-strategy arm does the same).
-      pp_hit=$(push_segments "$(strip_command_data "$raw_cmd" heredoc)" | grep -cE "\b(${PROTECTED_BRANCH_PATTERN})\b")
+      pp_hit=$(push_segments "$(strip_command_data "$raw_cmd" message)" | grep -cE "\b(${PROTECTED_BRANCH_PATTERN})\b")
       if [ "${pp_hit:-0}" -gt 0 ]; then
         should_skip branch && decided=1 || block branch "direct push to protected branch blocked"
       else

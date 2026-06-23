@@ -107,6 +107,51 @@ while i < n:
             i += 1
     i += 1
 stripped = "\n".join(out)
+if mode == "message":
+    # Elide ONLY the argument VALUES of -m/--message/-F/--file (commit-message
+    # data). The elision is anchored to a message-flag token at a word boundary,
+    # so a quoted push TARGET (origin "main") — which has no preceding
+    # message-flag — is NEVER removed. Unclosed value quote → exit(2) (caller
+    # fail-closes to the unstripped command; never an over-strip).
+    s = stripped
+    res = []
+    i, mlen = 0, len(s)
+    flagre = re.compile(r"(--message|--file|-m|-F)(=|[ \t]|$)")
+    seps = (" ", "\t", "\n", ";", "&", "|", "(")
+    while i < mlen:
+        at_b = (i == 0) or (s[i-1] in seps)
+        mm = flagre.match(s, i) if at_b else None
+        if mm:
+            res.append(mm.group(1)); i += len(mm.group(1))
+            if mm.group(2) == "=":
+                res.append("="); i += 1
+            else:
+                while i < mlen and s[i] in (" ", "\t"):
+                    res.append(s[i]); i += 1
+            # elide the value token at i (quoted or bareword) — appended to nothing
+            if i < mlen and s[i] == "\x27":           # single-quoted value
+                k = s.find("\x27", i + 1)
+                if k == -1:
+                    sys.exit(2)
+                i = k + 1
+            elif i < mlen and s[i] == "\"":           # double-quoted (backslash-aware)
+                k = i + 1
+                while k < mlen:
+                    if s[k] == "\\":
+                        k += 2; continue
+                    if s[k] == "\"":
+                        break
+                    k += 1
+                if k >= mlen:
+                    sys.exit(2)
+                i = k + 1
+            else:                                      # bareword to next whitespace
+                while i < mlen and s[i] not in (" ", "\t", "\n"):
+                    i += 1
+            continue
+        res.append(s[i]); i += 1
+    sys.stdout.write("".join(res))
+    sys.exit(0)
 if mode != "full":
     sys.stdout.write(stripped)
     sys.exit(0)
