@@ -4,21 +4,33 @@ description: One-time check right after cloning a target repo. Reports on upstre
 
 Perform an initial check of the target repo. **No automatic changes.** All recommendations are for the user to review and execute.
 
-Report in order:
+## Mechanical checks (delegated)
 
-1. **Upstream check**: `gh repo view --json isFork,parent`. If it's a fork, block with a message and stop.
-2. **Permission check**: `gh repo view --json viewerPermission`. If push permission (`ADMIN`/`MAINTAIN`/`WRITE`) is missing, advise and stop.
-3. **Target SSOT check**: one line per file:
-   - `MISSION.md` (absent → strong warning + draft proposal based on `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/mission.md`)
-   - `SPEC.md` — the project's behavioural contract (SPEC §1.3, the frequently-consulted pair with MISSION). Required **once the project has an external contract** (CLI/API/schema/protocol); a project with no external surface yet legitimately has none. Absent **and** the project has an external contract → warn + draft proposal based on `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/spec.md` (a lightweight scaffold — the shell never authors the contract content). The ToC-freshness CI gate (`check-toc.yml`) ships with the tier-3 dir-mode substrate (`/onboard-dir-mode`).
-   - `README.md`
-   - `CLAUDE.md`
-   - `docs/ARCHITECTURE.md`
-4. **`.github/` check**:
-   - `.github/ISSUE_TEMPLATE/` present? If absent → propose installing `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/issue_template_for_target.md`.
-   - `.github/PULL_REQUEST_TEMPLATE.md` present? If absent → propose installing `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/pr_template_for_target.md`.
-   - `.github/CODEOWNERS` present? If absent → recommend.
-5. **Branch protection**: `gh api repos/{owner}/{repo}/branches/main/protection`. Report missing items (PR required, review required, status checks required, force push blocked). Setup requires admin so print commands only.
-6. **CI presence**: check `.github/workflows/`. If absent → recommend appropriate workflows.
+The mechanical present/absent facts are produced by one shared script — the single source, also consumed by `scripts/setup.sh`, so the two never carry divergent copies of the check logic (SPEC §9). Run it from the target repo's cwd:
 
-Each item gets ✓ or ✗ and a one-line summary. End with a "Recommended next actions" block.
+```bash
+"$CLAUDE_ENG_SHELL_ROOT/scripts/lib/onboard_checks.sh"
+```
+
+It emits one `<check> ok|fail <detail>` line per check on stdout and always exits 0 (it reports facts, it never gates):
+
+- `upstream` — fork detection (`ok` = not a fork; `fail` = a fork — the shell is upstream-only).
+- `permission` — push permission (`ok` = `ADMIN`/`MAINTAIN`/`WRITE`).
+- `ssot:MISSION.md` / `ssot:SPEC.md` — presence of the frequently-consulted SSOT pair (SPEC §1.3).
+- `branch-protect` — branch protection on the default branch (PR required, review required, status checks, force-push blocked); `fail` also covers the no-admin / unreadable case.
+- `ci` — presence of `.github/workflows/`.
+
+Render each line as ✓ (`ok`) or ✗ (`fail`) with its one-line detail. A fork (`upstream fail`) or missing push permission (`permission fail`) is a **hard stop** — the shell is upstream-only and needs push; advise and stop before the judgment steps.
+
+## Judgment steps (prose — not delegated)
+
+These need authoring judgment and the MISSION scaffold-not-author boundary, so they stay here rather than in the fact-reporting script:
+
+1. **SSOT authoring.** `SPEC.md` is **required for any project that carries code** — it is the behavioural SSOT (SPEC §1.3), not gated on an external contract. If `ssot:SPEC.md` came back `fail`, treat authoring it as the **first thing to fix, before other work**: prompt the user to write `SPEC.md`, offering the lightweight scaffold `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/spec.md` (the shell scaffolds the slot; it never authors the contract content). Likewise for `ssot:MISSION.md fail`, offer `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/mission.md`. Note `README.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md` if absent (reference SSOT — recommend only).
+2. **`.github/` proposals.** If absent, propose installing the templates (the tier-3 dir-mode substrate install via `/onboard-dir-mode` owns the full path):
+   - `.github/ISSUE_TEMPLATE/` → `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/issue_template_for_target.md`
+   - `.github/PULL_REQUEST_TEMPLATE.md` → `$CLAUDE_ENG_SHELL_ROOT/.claude/templates/pr_template_for_target.md`
+   - `.github/CODEOWNERS` → recommend.
+3. **Branch protection setup.** If `branch-protect` is `fail`, print the setup commands only (setup requires admin) — do not apply them.
+
+Each rendered item gets ✓ or ✗ and a one-line summary. End with a "Recommended next actions" block, leading with SPEC authoring when `ssot:SPEC.md` failed.

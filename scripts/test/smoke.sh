@@ -10407,6 +10407,147 @@ else
   ng "117: broken 'gh api -f <field>=@' (literal, not stdin) in commands docs — use -F (files=$s117_files bad=$s117_bad) (#452)"
 fi
 
+# ---------- §118: shared onboard_checks.sh fact-reporter (#456) ----------
+# Phase B (Test). Drives the FORTHCOMING shared mechanical-check script
+# scripts/lib/onboard_checks.sh (Execution #456, Directive #454) headlessly: a
+# stubbed `gh` on PATH + a temp target dir, asserting the emitted `<check> <status>`
+# token for each of the five mechanical checks. The script is the single source the
+# later scripts/setup.sh and /onboard both call, so the contract under test here is
+# the line protocol they consume:
+#   <check-name>  ok|fail  <one-line detail>      (one line per check, ALWAYS exit 0)
+# Check names: upstream, permission, ssot:MISSION.md, ssot:SPEC.md, branch-protect, ci.
+# The script reaches gh via $PATH (so the shim drives it) and supports --dry-run; it
+# REPORTS facts, never gates — every invocation exits 0, even when the branch-protect
+# `gh api .../protection` probe errors (non-admin 404/403).
+#
+# Shim design: one `gh` script serves every sub-case, keyed on state files under
+# $S118_STATE. `gh repo view --json isFork`/`--json viewerPermission` answer
+# upstream/permission; `gh api .../protection` exits 0 (protected) or non-zero
+# (absent/unreadable) per a flag file. SSOT + CI are pure filesystem facts (no gh).
+#
+# RED until Phase C: with scripts/lib/onboard_checks.sh absent, the guard below
+# fails LOUD on every planned assertion (mirrors §107's script-absent pattern) —
+# a clean intended failure, not a harness error.
+S118_SCRIPT="$SHELL_ROOT/scripts/lib/onboard_checks.sh"
+if [ ! -f "$S118_SCRIPT" ]; then
+  ng "118a: upstream fork→fail / non-fork→ok — scripts/lib/onboard_checks.sh missing (Phase C not landed) (#456)"
+  ng "118b: permission READ→fail / WRITE→ok — script missing (#456)"
+  ng "118c: ssot:SPEC.md absent→fail / present→ok (SPEC unconditionally expected) — script missing (#456)"
+  ng "118d: ssot:MISSION.md absent→fail / present→ok — script missing (#456)"
+  ng "118e: branch-protect present→ok / absent-or-gh-api-error→fail, still exit 0 — script missing (#456)"
+  ng "118f: ci .github/workflows present→ok / absent→fail — script missing (#456)"
+else
+  S118_DIR=$(cd "$(mktemp -d)" && pwd -P)
+  S118_SHIM="$S118_DIR/bin"
+  S118_STATE="$S118_DIR/state"
+  mkdir -p "$S118_SHIM" "$S118_STATE"
+  cat > "$S118_SHIM/gh" <<'SHIM'
+#!/bin/sh
+# Smoke shim for onboard_checks.sh. State files under $S118_STATE drive each answer:
+#   isfork     → printed for `gh repo view --json isFork`   (true|false)
+#   permission → printed for `gh repo view --json viewerPermission` (READ|WRITE|…)
+#   protected  → present ⇒ `gh api .../protection` succeeds; absent ⇒ it errors (non-admin).
+case "$*" in
+  *"repo view"*"isFork"*)            cat "$S118_STATE/isfork" 2>/dev/null ;;
+  *"repo view"*"viewerPermission"*)  cat "$S118_STATE/permission" 2>/dev/null ;;
+  *"api"*"protection"*)
+    if [ -f "$S118_STATE/protected" ]; then
+      printf '{"required_pull_request_reviews":{}}\n'      # protected → success
+    else
+      echo '{"message":"Not Found"}' >&2; exit 1           # non-admin / absent → error
+    fi
+    ;;
+esac
+exit 0
+SHIM
+  chmod +x "$S118_SHIM/gh"
+
+  # s118_run <target-dir> → echoes the script's stdout; sets s118_rc to its exit code.
+  # gh is reached via PATH (shim first); the script runs from the target's cwd.
+  s118_run() {
+    s118_out=$(
+      cd "$1" || exit 99
+      PATH="$S118_SHIM:$PATH" S118_STATE="$S118_STATE" bash "$S118_SCRIPT" 2>/dev/null
+    ); s118_rc=$?
+  }
+  # Extract the status token (field 2) for a given check name (field 1) from output.
+  s118_status() { printf '%s\n' "$s118_out" | awk -v c="$1" '$1==c{print $2; exit}'; }
+
+  # Two target dirs: a "bare" repo (no SSOT, no CI) and a "full" one (SPEC, MISSION,
+  # workflows present). SSOT/CI are filesystem facts, so the dir contents drive them.
+  S118_BARE="$S118_DIR/bare"; mkdir -p "$S118_BARE"
+  S118_FULL="$S118_DIR/full"; mkdir -p "$S118_FULL/.github/workflows"
+  printf '# spec\n'    > "$S118_FULL/SPEC.md"
+  printf '# mission\n' > "$S118_FULL/MISSION.md"
+  printf 'name: ci\n'  > "$S118_FULL/.github/workflows/ci.yml"
+
+  # 118a: fork→upstream fail; non-fork→upstream ok.
+  printf 'true\n'  > "$S118_STATE/isfork"; printf 'WRITE\n' > "$S118_STATE/permission"
+  s118_run "$S118_BARE"; s118_fork=$(s118_status upstream)
+  printf 'false\n' > "$S118_STATE/isfork"
+  s118_run "$S118_BARE"; s118_nofork=$(s118_status upstream)
+  if [ "$s118_fork" = fail ] && [ "$s118_nofork" = ok ]; then
+    ok "118a: upstream fork→fail, non-fork→ok (#456)"
+  else
+    ng "118a: upstream wrong (fork=$s118_fork non-fork=$s118_nofork, want fail/ok) (#456)"
+  fi
+
+  # 118b: missing push permission (READ)→fail; WRITE→ok.
+  printf 'false\n' > "$S118_STATE/isfork"
+  printf 'READ\n'  > "$S118_STATE/permission"
+  s118_run "$S118_BARE"; s118_pread=$(s118_status permission)
+  printf 'WRITE\n' > "$S118_STATE/permission"
+  s118_run "$S118_BARE"; s118_pwrite=$(s118_status permission)
+  if [ "$s118_pread" = fail ] && [ "$s118_pwrite" = ok ]; then
+    ok "118b: permission READ→fail, WRITE→ok (#456)"
+  else
+    ng "118b: permission wrong (READ=$s118_pread WRITE=$s118_pwrite, want fail/ok) (#456)"
+  fi
+
+  # 118c: SPEC.md absent→fail (SPEC unconditionally expected AC); present→ok.
+  s118_run "$S118_BARE"; s118_spec_absent=$(s118_status ssot:SPEC.md)
+  s118_run "$S118_FULL"; s118_spec_present=$(s118_status ssot:SPEC.md)
+  if [ "$s118_spec_absent" = fail ] && [ "$s118_spec_present" = ok ]; then
+    ok "118c: ssot:SPEC.md absent→fail, present→ok (SPEC unconditionally expected) (#456)"
+  else
+    ng "118c: ssot:SPEC.md wrong (absent=$s118_spec_absent present=$s118_spec_present, want fail/ok) (#456)"
+  fi
+
+  # 118d: MISSION.md absent→fail; present→ok (same shape).
+  s118_run "$S118_BARE"; s118_mission_absent=$(s118_status ssot:MISSION.md)
+  s118_run "$S118_FULL"; s118_mission_present=$(s118_status ssot:MISSION.md)
+  if [ "$s118_mission_absent" = fail ] && [ "$s118_mission_present" = ok ]; then
+    ok "118d: ssot:MISSION.md absent→fail, present→ok (#456)"
+  else
+    ng "118d: ssot:MISSION.md wrong (absent=$s118_mission_absent present=$s118_mission_present) (#456)"
+  fi
+
+  # 118e: branch-protect present→ok; absent OR gh api .../protection ERRORS→fail,
+  # and the script must STILL exit 0 (reports facts, never crashes/gates).
+  printf 'false\n' > "$S118_STATE/isfork"; printf 'WRITE\n' > "$S118_STATE/permission"
+  touch "$S118_STATE/protected"
+  s118_run "$S118_BARE"; s118_bp_ok=$(s118_status branch-protect); s118_bp_ok_rc=$s118_rc
+  rm -f "$S118_STATE/protected"
+  s118_run "$S118_BARE"; s118_bp_fail=$(s118_status branch-protect); s118_bp_fail_rc=$s118_rc
+  if [ "$s118_bp_ok" = ok ] && [ "$s118_bp_fail" = fail ] \
+     && [ "$s118_bp_ok_rc" = 0 ] && [ "$s118_bp_fail_rc" = 0 ]; then
+    ok "118e: branch-protect present→ok, absent/gh-api-error→fail, both exit 0 (#456)"
+  else
+    ng "118e: branch-protect wrong (ok=${s118_bp_ok}[rc=$s118_bp_ok_rc] fail=${s118_bp_fail}[rc=$s118_bp_fail_rc]) (#456)"
+  fi
+
+  # 118f: .github/workflows present→ci ok; absent→ci fail.
+  s118_run "$S118_FULL"; s118_ci_present=$(s118_status ci)
+  s118_run "$S118_BARE"; s118_ci_absent=$(s118_status ci)
+  if [ "$s118_ci_present" = ok ] && [ "$s118_ci_absent" = fail ]; then
+    ok "118f: ci .github/workflows present→ok, absent→fail (#456)"
+  else
+    ng "118f: ci wrong (present=$s118_ci_present absent=$s118_ci_absent, want ok/fail) (#456)"
+  fi
+
+  rm -rf "$S118_DIR"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading

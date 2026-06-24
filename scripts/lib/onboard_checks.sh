@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# scripts/lib/onboard_checks.sh — the single shared implementation of the
+# mechanical onboard pre-flight checks (Execution #456, Directive #454).
+#
+# It is the ONE source for these present/absent facts, consumed by both the
+# `/onboard` slash command (Claude renders the lines as ✓/✗) and the forthcoming
+# `scripts/setup.sh` single entry — so neither carries a divergent copy of the
+# check logic (SPEC §9). The judgment half (SSOT *drafting*, SPEC-first prompting,
+# `.github/` install proposals) stays in `/onboard` prose: those need authoring
+# judgment and the MISSION scaffold-not-author boundary a fact-reporter must not encode.
+#
+# Run from the target repo's cwd. Emits ONE line per check on stdout:
+#
+#     <check-name>  <status>  <one-line detail>
+#
+# where <status> is the stable token `ok` or `fail` (NOT a glyph — renderers map it
+# to their own presentation, keeping this script presentation-neutral). Check names:
+# upstream, permission, ssot:MISSION.md, ssot:SPEC.md, branch-protect, ci.
+#
+# It REPORTS facts and never gates: every invocation exits 0, even when a `gh`
+# probe errors (a non-admin `gh api .../protection` 404/403 is reported as
+# `branch-protect fail`, not a crash). `gh` is reached via $PATH so it is stubbable.
+#
+# --dry-run / no-gh: when --dry-run is passed or `gh` is unavailable, the three
+# gh-dependent checks (upstream, permission, branch-protect) emit `fail` with a
+# "not queried" detail — the structural output stays complete (all six lines) for
+# no-auth / smoke contexts, and `fail` correctly reads as "not confirmed OK".
+
+set -uo pipefail
+
+DRY_RUN=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    *) printf 'onboard_checks: unknown arg: %s\n' "$1" >&2; exit 2 ;;
+  esac
+done
+
+# emit <check> <status> <detail…>
+emit() { printf '%s %s %s\n' "$1" "$2" "$3"; }
+
+# Is the live gh path usable? (present on PATH and not suppressed by --dry-run)
+gh_usable() { [ -z "$DRY_RUN" ] && command -v gh >/dev/null 2>&1; }
+
+# ---- upstream / fork ----
+if gh_usable; then
+  isfork=$(gh repo view --json isFork --jq .isFork 2>/dev/null)
+  if [ "$isfork" = false ]; then
+    emit upstream ok "not a fork"
+  elif [ "$isfork" = true ]; then
+    emit upstream fail "this repo is a fork — the shell is upstream-only"
+  else
+    emit upstream fail "could not determine fork status (gh)"
+  fi
+else
+  emit upstream fail "not queried (--dry-run or gh unavailable)"
+fi
+
+# ---- push permission ----
+if gh_usable; then
+  perm=$(gh repo view --json viewerPermission --jq .viewerPermission 2>/dev/null)
+  case "$perm" in
+    ADMIN|MAINTAIN|WRITE) emit permission ok "push permission: $perm" ;;
+    "")                   emit permission fail "could not determine push permission (gh)" ;;
+    *)                    emit permission fail "push permission missing (have: $perm)" ;;
+  esac
+else
+  emit permission fail "not queried (--dry-run or gh unavailable)"
+fi
+
+# ---- SSOT presence (the frequently-consulted MISSION+SPEC pair, SPEC §1.3) ----
+# Presence only — mechanical. Drafting / SPEC-first prompting is /onboard's prose job.
+for ssot in MISSION.md SPEC.md; do
+  if [ -f "$ssot" ]; then
+    emit "ssot:$ssot" ok "present"
+  else
+    emit "ssot:$ssot" fail "absent — required behavioural SSOT (SPEC §1.3)"
+  fi
+done
+
+# ---- branch protection on the default branch ----
+if gh_usable; then
+  default_branch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null)
+  [ -z "$default_branch" ] && default_branch=main
+  if gh api "repos/{owner}/{repo}/branches/${default_branch}/protection" >/dev/null 2>&1; then
+    emit branch-protect ok "protected (${default_branch})"
+  else
+    emit branch-protect fail "absent or unreadable on ${default_branch} (may need admin)"
+  fi
+else
+  emit branch-protect fail "not queried (--dry-run or gh unavailable)"
+fi
+
+# ---- CI presence ----
+if [ -d .github/workflows ] && [ -n "$(ls -A .github/workflows 2>/dev/null)" ]; then
+  emit ci ok "present (.github/workflows/)"
+else
+  emit ci fail "no workflows under .github/workflows/"
+fi
+
+exit 0
