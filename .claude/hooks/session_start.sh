@@ -173,6 +173,25 @@ branch=$(current_branch)
 [ -z "$branch" ] && exit 0
 printf '[claude-eng-shell] branch: %s\n' "$branch"
 
+# 2.5) SSOT-presence health line (SPEC §6.5(e), #460, Directive #454).
+# Once-per-session (this hook fires once per session), zero-network glance at the
+# target's SSOT presence via the shared onboard_checks.sh --dry-run (single source —
+# no reimplemented `[ -f SPEC.md ]`; --dry-run short-circuits before any gh call).
+# Renders an unobtrusive present line, or a prominent SPEC-first nudge when SPEC.md
+# is absent (SPEC is the required behavioural SSOT, §1.3). Fail-open to silence.
+_ssot_checks="$SHELL_ROOT/scripts/lib/onboard_checks.sh"
+if [ -f "$_ssot_checks" ]; then
+  _ssot_out=$("$_ssot_checks" --dry-run 2>/dev/null || true)
+  _ssot_spec=$(printf '%s\n' "$_ssot_out" | awk '$1=="ssot:SPEC.md"{print $2; exit}')
+  _ssot_mission=$(printf '%s\n' "$_ssot_out" | awk '$1=="ssot:MISSION.md"{print $2; exit}')
+  if [ "$_ssot_spec" = fail ]; then
+    printf '[claude-eng-shell] SSOT-nudge: SPEC.md absent — SPEC is the required behavioural SSOT (SPEC §1.3); author it before other work (scaffold: .claude/templates/spec.md).\n'
+  elif [ "$_ssot_spec" = ok ]; then
+    _ssot_mg='✗'; [ "$_ssot_mission" = ok ] && _ssot_mg='✓'
+    printf '[claude-eng-shell] SSOT: MISSION.md %s SPEC.md ✓\n' "$_ssot_mg"
+  fi
+fi
+
 if [ -f MISSION.md ]; then
   printf '[MISSION summary]\n'
   head -n 20 MISSION.md
