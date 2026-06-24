@@ -7257,6 +7257,75 @@ else
 fi
 rm -rf "$s65j2_root"
 
+# Sibling seeder for the python/TOML stack: same shape as setup_release_smoke_node,
+# but writes pyproject.toml ([project] version) instead of package.json so
+# detect_stack resolves `python` and detect_version reads the pure-awk _toml_version
+# (NO jq). usage: setup_release_smoke_toml <dir> <version-content> <toml-version> <cat> <num> <body>
+setup_release_smoke_toml() {
+  local dir="$1" ver="$2" tomlver="$3" cat="${4:-}" num="${5:-}" body="${6:-}"
+  mkdir -p "$dir"
+  ( cd "$dir" && git init -q && \
+    git config user.email "smoke@example.com" && \
+    git config user.name "smoke" && \
+    git config commit.gpgsign false && \
+    git config tag.gpgsign false && \
+    printf '%s\n' "$ver" > VERSION && \
+    printf '[project]\nname = "smoke-fixture"\nversion = "%s"\n' "$tomlver" > pyproject.toml && \
+    printf '# Changelog\n\n## [0.1.0] — 2026-05-26\n\n### Added\n- prior release. (#1)\n\n[0.1.0]: https://example.test/releases/tag/v0.1.0\n' > CHANGELOG.md && \
+    for c in added changed deprecated removed fixed security; do
+      mkdir -p "changelog_unreleased/$c"
+      touch "changelog_unreleased/$c/.gitkeep"
+    done && \
+    if [ -n "$cat" ] && [ -n "$num" ]; then
+      printf '%s\n' "$body" > "changelog_unreleased/$cat/$num.md"
+    fi && \
+    git add -A && \
+    git commit -q -m init ) >/dev/null 2>&1
+}
+
+# §65j-5 — TOML MISMATCH: python fixture with pyproject.toml [project] version 0.1.0,
+# cutting 0.2.0 → preflight must refuse (non-zero) AND stderr names BOTH versions.
+# Exercises detect_version's pure-awk _toml_version (no jq). Passes against current
+# code (the awk parser already works; the preflight already refuses confident node
+# mismatches and python flows through the same path).
+s65j5_root=$(mktemp -d)
+s65j5_dir="$s65j5_root/repo"
+setup_release_smoke_toml "$s65j5_dir" "0.2.0-dev" "0.1.0" "added" "473" "- toml preflight. (#473)"
+s65j5_rc=0
+s65j5_err=""
+if [ -x "$RELEASE_CONS" ]; then
+  s65j5_err=$( cd "$s65j5_dir" && "$RELEASE_CONS" 0.2.0 --dry-run 2>&1 >/dev/null )
+  s65j5_rc=$?
+fi
+s65j5_has_manifest=$(printf '%s' "$s65j5_err" | grep -c '0\.1\.0')
+s65j5_has_release=$(printf '%s' "$s65j5_err" | grep -c '0\.2\.0')
+if [ "$s65j5_rc" != "0" ] && [ "$s65j5_has_manifest" -ge 1 ] && [ "$s65j5_has_release" -ge 1 ]; then
+  ok "65j-5: pyproject.toml manifest-match preflight refuses a confident mismatch (rc!=0) naming both manifest 0.1.0 + release 0.2.0, via pure-awk _toml_version (#469)"
+else
+  ng "65j-5: toml manifest-mismatch refusal failed (rc=$s65j5_rc err-has-manifest=$s65j5_has_manifest err-has-release=$s65j5_has_release) (#469)"
+fi
+rm -rf "$s65j5_root"
+
+# §65j-6 — TOML MATCH: python fixture with pyproject.toml [project] version 0.2.0,
+# cutting 0.2.0 → preflight passes, release reaches today's normal staged dry-run
+# success. Confirms the awk _toml_version returns the version that satisfies the match.
+s65j6_root=$(mktemp -d)
+s65j6_dir="$s65j6_root/repo"
+setup_release_smoke_toml "$s65j6_dir" "0.2.0-dev" "0.2.0" "added" "473" "- toml match. (#473)"
+s65j6_rc=1
+if [ -x "$RELEASE_CONS" ]; then
+  ( cd "$s65j6_dir" && "$RELEASE_CONS" 0.2.0 --dry-run >/dev/null 2>&1 )
+  s65j6_rc=$?
+fi
+s65j6_version=$(tr -d '[:space:]' < "$s65j6_dir/VERSION" 2>/dev/null)
+s65j6_section=$(grep -c '^## \[0\.2\.0\]' "$s65j6_dir/CHANGELOG.md" 2>/dev/null | tr -d ' ')
+if [ "$s65j6_rc" = "0" ] && [ "$s65j6_version" = "0.2.0" ] && [ "$s65j6_section" = "1" ]; then
+  ok "65j-6: pyproject.toml manifest-match preflight passes a matching manifest; release reaches staged dry-run success (#469)"
+else
+  ng "65j-6: toml manifest-match pass-through failed (rc=$s65j6_rc version=$s65j6_version section=$s65j6_section) (#469)"
+fi
+rm -rf "$s65j6_root"
+
 # §65j-3 — UNCERTAIN: no package.json (detect_stack → unknown) → preflight must
 # gracefully skip and NOT block; run reaches today's happy-path success. This
 # likely holds pre-Code (no preflight yet) — it is the falsifiable non-block
@@ -9806,6 +9875,39 @@ else
   ng "103b: SPEC §8 missing a summarized subtree node (target-substrate/ / lib/ / test/) (#392)"
 fi
 
+# §103c: scripts/ TOP-LEVEL *.sh listing exactness + stale-count guard. Unlike the
+# summarized lib//test/ nodes (103b, node-presence only), the top-level scripts ARE
+# enumerated leaf-by-leaf in §8, so a script added/removed without a §8 edit must be
+# caught. Slice the scripts/ node (├── scripts/ → next top-level sibling ├── workspace/)
+# via the awk-range idiom, then RESTRICT to the top level by stopping at the lib/ node —
+# so the deeper test/smoke.sh leaf never enters the listed set. Extract basenames, diff
+# both directions against disk, and pin the "<N> top-level scripts" header integer.
+S103C_SLICE=$(printf '%s\n' "$S103_BLOCK" | awk '
+  /├── scripts\// {inrange=1}
+  inrange && /│   ├── lib\// {exit}
+  inrange
+')
+S103C_LISTED=$(printf '%s\n' "$S103C_SLICE" | grep -oE '[A-Za-z0-9_.-]+\.sh' | sort -u)
+S103C_DISK=$(for f in "$SHELL_ROOT"/scripts/*.sh; do basename "$f"; done | sort -u)
+S103C_LISTED_F=$(mktemp); S103C_DISK_F=$(mktemp)
+printf '%s\n' "$S103C_LISTED" > "$S103C_LISTED_F"
+printf '%s\n' "$S103C_DISK"   > "$S103C_DISK_F"
+# comm -3: col1 = listed-only (in §8, not on disk); col2 = disk-only (on disk, not §8).
+S103C_ONLY_SPEC=$(comm -23 "$S103C_LISTED_F" "$S103C_DISK_F" | tr '\n' ' ' | tr -s ' ')
+S103C_ONLY_DISK=$(comm -13 "$S103C_LISTED_F" "$S103C_DISK_F" | tr '\n' ' ' | tr -s ' ')
+rm -f "$S103C_LISTED_F" "$S103C_DISK_F"
+S103C_HDR=$(printf '%s\n' "$S103C_SLICE" | grep -oE '[0-9]+ top-level scripts' | grep -oE '^[0-9]+')
+S103C_NDISK=$(ls "$SHELL_ROOT"/scripts/*.sh 2>/dev/null | wc -l | tr -d ' ')
+S103C_DRIFT=""
+[ -z "$(printf '%s' "$S103C_ONLY_SPEC" | tr -d ' ')" ] || S103C_DRIFT="$S103C_DRIFT listed-not-on-disk:$S103C_ONLY_SPEC"
+[ -z "$(printf '%s' "$S103C_ONLY_DISK" | tr -d ' ')" ] || S103C_DRIFT="$S103C_DRIFT on-disk-not-listed:$S103C_ONLY_DISK"
+[ "$S103C_HDR" = "$S103C_NDISK" ] || S103C_DRIFT="$S103C_DRIFT count(§8=${S103C_HDR:-unparsed},disk=$S103C_NDISK)"
+if [ -z "$S103C_DRIFT" ]; then
+  ok "103c: SPEC §8 scripts/ top-level *.sh listing + count match disk (#473)"
+else
+  ng "103c: SPEC §8 scripts/ top-level listing drifted from disk —$S103C_DRIFT (#473)"
+fi
+
 # ---------- §104 (#396): always-on injection budget — CLAUDE.md pointer-index discipline ----------
 # CLAUDE.md is injected into every session, so it is pure always-on cost. The
 # rewrite (#396) turned it into a thin pointer index whose contracts live in full
@@ -11282,7 +11384,7 @@ SHIM
 
   # 65k-3: gh 'release not found' → exit 0 AND an advisory naming the missing Release.
   s65k_run notfound
-  if [ "$s65k_rc" = "0" ] && printf '%s\n' "$s65k_out" | grep -qi 'release'; then
+  if [ "$s65k_rc" = "0" ] && printf '%s\n' "$s65k_out" | grep -qi 'no Release found'; then
     ok "65k-3: gh 'release not found' → no-Release advisory, exit 0 (#471)"
   else
     ng "65k-3: no-Release arm failed (rc=$s65k_rc out='$s65k_out'; want exit 0 + Release advisory) (#471)"
@@ -11290,7 +11392,7 @@ SHIM
 
   # 65k-4: empty body → exit 0 AND an advisory naming empty notes.
   s65k_run empty
-  if [ "$s65k_rc" = "0" ] && printf '%s\n' "$s65k_out" | grep -qi 'empty\|notes'; then
+  if [ "$s65k_rc" = "0" ] && printf '%s\n' "$s65k_out" | grep -qi 'empty'; then
     ok "65k-4: empty/whitespace body → empty-notes advisory, exit 0 (#471)"
   else
     ng "65k-4: empty-notes arm failed (rc=$s65k_rc out='$s65k_out'; want exit 0 + empty-notes advisory) (#471)"
@@ -11302,6 +11404,26 @@ SHIM
     ok "65k-5: generic gh failure → fail-open advisory, exit 0 (#471)"
   else
     ng "65k-5: fail-open arm failed (rc=$s65k_rc out='$s65k_out'; want exit 0 + fail-open advisory) (#471)"
+  fi
+
+  # 65k-6: jq-absent guard. Drive the notes-present mode (gh returns a non-empty
+  # body) but with `jq` SHADOWED by a nonzero-exit stub first on PATH — so the
+  # script cannot parse `.body` and must NOT misfire the empty-notes advisory.
+  # RED pre-Code: release_verify.sh has no jq-absent guard, so a missing/broken jq
+  # leaves body="" and the "empty notes" advisory falsely fires. The Code phase
+  # adds the guard (skip the notes check when jq is unavailable) → GREEN.
+  cat > "$S65K_SHIM/jq" <<'JQSHIM'
+#!/bin/sh
+echo 'jq: shadowed (smoke jq-absent arm)' >&2
+exit 127
+JQSHIM
+  chmod +x "$S65K_SHIM/jq"
+  s65k_run ok
+  rm -f "$S65K_SHIM/jq"
+  if [ "$s65k_rc" = "0" ] && ! printf '%s\n' "$s65k_out" | grep -qi 'empty notes'; then
+    ok "65k-6: jq-absent → no false empty-notes advisory, exit 0 (#471)"
+  else
+    ng "65k-6: jq-absent guard missing — false empty-notes advisory fired (rc=$s65k_rc out='$s65k_out'; want exit 0 + no 'empty notes') (#471)"
   fi
   rm -rf "$S65K_DIR"
 fi
