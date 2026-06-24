@@ -10866,6 +10866,77 @@ else
 fi
 rm -rf "$S120_PROBE"
 
+# ---------- §121: spec_drift_candidates.sh code-vs-SPEC drift detector (#462) ----------
+# Phase B (Test). Drives the FORTHCOMING measure-first reader scripts/spec_drift_candidates.sh
+# (Execution #462, Directive #455) on a synthetic git fixture (offline, local git, mirrors
+# §107's ceremony fixture). Contract: it greps SPEC.md for referenced repo paths, then flags
+# a "code-ahead drift" candidate = a commit that touched a referenced path WITHOUT co-touching
+# SPEC.md. Output: indented `  <path> | drift-commits=N` cluster lines (the §6.5(d) advisory
+# grep shape) or a sentinel; always exit 0, fail-open. Detection only (no /reconcile-spec, no
+# session_start wiring here).
+# RED until Phase C: with the script absent the guard fails LOUD on every assertion.
+S121_SCRIPT="$SHELL_ROOT/scripts/spec_drift_candidates.sh"
+if [ ! -f "$S121_SCRIPT" ]; then
+  ng "121a: divergence commit (touches a SPEC-referenced path, not SPEC.md) → candidate — scripts/spec_drift_candidates.sh missing (Phase C not landed) (#462)"
+  ng "121b: co-commit (touches the path AND SPEC.md) → NOT a candidate — script missing (#462)"
+  ng "121c: output is the §6.5(d) grep cluster shape — script missing (#462)"
+  ng "121d: fail-open on non-repo / absent dir / clean repo → sentinel + exit 0 — script missing (#462)"
+else
+  S121_DIR=$(mktemp -d)
+  S121_REPO="$S121_DIR/repo"
+  mkdir -p "$S121_REPO"
+  (
+    cd "$S121_REPO" || exit 1
+    git init -q
+    gc() { git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit -q "$@"; }
+    # Commit 1: SPEC.md references scripts/foo.sh + scripts/bar.sh, added with both files
+    # (co-touches SPEC → contributes no drift).
+    printf 'SPEC referencing scripts/foo.sh and scripts/bar.sh\n' > SPEC.md
+    mkdir -p scripts; printf 'foo\n' > scripts/foo.sh; printf 'bar\n' > scripts/bar.sh
+    git add SPEC.md scripts/foo.sh scripts/bar.sh; gc -m 'init: spec + scripts'
+    # Commit 2: DIVERGENCE — modify scripts/foo.sh only, not SPEC.md → foo.sh drift candidate.
+    printf 'foo2\n' >> scripts/foo.sh; git add scripts/foo.sh; gc -m 'change foo only'
+    # Commit 3: CO-COMMIT — modify scripts/bar.sh AND SPEC.md together → bar.sh NOT a candidate.
+    printf 'bar2\n' >> scripts/bar.sh; printf 'spec note\n' >> SPEC.md
+    git add scripts/bar.sh SPEC.md; gc -m 'change bar + update spec'
+  )
+  s121_out=$(bash "$S121_SCRIPT" "$S121_REPO" 2>/dev/null); s121_rc=$?
+
+  # 121a: divergence path scripts/foo.sh surfaces as a drift candidate.
+  if [ "$s121_rc" = 0 ] && printf '%s\n' "$s121_out" | grep -q 'scripts/foo.sh' \
+     && printf '%s\n' "$s121_out" | grep -qi 'drift'; then
+    ok "121a: surfaces scripts/foo.sh (touched without co-touching SPEC.md) as a drift candidate (#462)"
+  else
+    ng "121a: did not surface the scripts/foo.sh drift candidate (rc=$s121_rc) (#462)"
+  fi
+  # 121b: co-commit path scripts/bar.sh is NOT surfaced (it co-touched SPEC.md).
+  if ! printf '%s\n' "$s121_out" | grep -q 'scripts/bar.sh'; then
+    ok "121b: omits scripts/bar.sh (co-committed with SPEC.md — not drift) (#462)"
+  else
+    ng "121b: scripts/bar.sh leaked as a candidate despite co-touching SPEC.md (#462)"
+  fi
+  # 121c: output carries the §6.5(d) advisory cluster shape.
+  if printf '%s\n' "$s121_out" | grep -qE '^[[:space:]]+.+\|.+='; then
+    ok "121c: emits the §6.5(d) grep cluster shape (  <path> | drift-commits=N) (#462)"
+  else
+    ng "121c: output not in the §6.5(d) cluster shape (#462)"
+  fi
+  # 121d: fail-open — non-repo dir, absent dir, and a clean repo (no drift) all exit 0 with a sentinel.
+  bash "$S121_SCRIPT" "$S121_DIR" >/dev/null 2>&1; s121_e1=$?       # exists, not a git repo
+  bash "$S121_SCRIPT" "$S121_DIR/nope" >/dev/null 2>&1; s121_e2=$?  # absent
+  s121_clean=$(mktemp -d)
+  ( cd "$s121_clean" && git init -q && printf 'no refs\n' > SPEC.md \
+    && git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m 'chore: init' )
+  s121_clean_out=$(bash "$S121_SCRIPT" "$s121_clean" 2>/dev/null); s121_e3=$?
+  if [ "$s121_e1" = 0 ] && [ "$s121_e2" = 0 ] && [ "$s121_e3" = 0 ] \
+     && printf '%s\n' "$s121_clean_out" | grep -qi 'no spec-drift\|none'; then
+    ok "121d: fail-open — non-repo/absent dir + clean repo degrade to a sentinel, exit 0 (#462)"
+  else
+    ng "121d: fail-open broke (non-repo=$s121_e1 absent=$s121_e2 clean=$s121_e3) (#462)"
+  fi
+  rm -rf "$S121_DIR" "$s121_clean"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
