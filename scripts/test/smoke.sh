@@ -10937,6 +10937,50 @@ else
   rm -rf "$S121_DIR" "$s121_clean"
 fi
 
+# ---------- §122: /reconcile-spec command contract (#464) ----------
+# Phase B (Test). Asserts the STRUCTURE/contract of the forthcoming
+# .claude/commands/reconcile-spec.md (Execution #464, Directive #455) — the drift
+# classification + user-gated SPEC correction command. It deliberately does NOT
+# assert classification CORRECTNESS (that is agent judgment, like /onboard's SSOT
+# drafting); it greps the command file for the stable contract tokens the SPEC §5.27
+# contract also fixes: the three named dispositions, the user-approval gate, the
+# never-edit-SPEC-on-code-wrong invariant, the unattended no-auto-apply rule, and the
+# spec-reconcile audit category. RED until Phase C (the command file is absent).
+S122_CMD="$SHELL_ROOT/.claude/commands/reconcile-spec.md"
+if [ ! -f "$S122_CMD" ]; then
+  ng "122a: reconcile-spec.md exists + frontmatter — command file missing (Phase C not landed) (#464)"
+  ng "122b: encodes the three dispositions (spec-ahead/code-ahead/code-wrong) — file missing (#464)"
+  ng "122c: user-approval gate + never-edit-SPEC-on-code-wrong invariant — file missing (#464)"
+  ng "122d: unattended no-auto-apply rule + spec-reconcile audit category — file missing (#464)"
+else
+  # 122a: file present with description + argument-hint frontmatter.
+  if grep -qE '^description:' "$S122_CMD" && grep -qE '^argument-hint:' "$S122_CMD"; then
+    ok "122a: reconcile-spec.md has description + argument-hint frontmatter (#464)"
+  else
+    ng "122a: reconcile-spec.md missing frontmatter (#464)"
+  fi
+  # 122b: the three named dispositions are encoded.
+  if grep -qF 'spec-ahead' "$S122_CMD" && grep -qF 'code-ahead' "$S122_CMD" \
+     && grep -qF 'code-wrong' "$S122_CMD"; then
+    ok "122b: encodes the three dispositions (spec-ahead / code-ahead-correct / code-wrong) (#464)"
+  else
+    ng "122b: missing one of the three disposition tokens (#464)"
+  fi
+  # 122c: the user-approval gate + the never-edit-SPEC-on-code-wrong invariant are present.
+  if grep -qiE 'approv' "$S122_CMD" && grep -qiE 'never edit|not edit|no SPEC edit|never .*SPEC' "$S122_CMD"; then
+    ok "122c: states the user-approval gate + the never-edit-SPEC-on-code-wrong invariant (#464)"
+  else
+    ng "122c: missing the approval gate or the never-edit-on-code-wrong invariant (#464)"
+  fi
+  # 122d: the unattended no-auto-apply rule + the spec-reconcile audit category.
+  if grep -qiE 'unattended' "$S122_CMD" && grep -qiE 'auto-apply|self-approve|park' "$S122_CMD" \
+     && grep -qF 'spec-reconcile' "$S122_CMD"; then
+    ok "122d: states the unattended no-auto-apply rule + names the spec-reconcile audit category (#464)"
+  else
+    ng "122d: missing the unattended no-auto-apply rule or the spec-reconcile audit category (#464)"
+  fi
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
