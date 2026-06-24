@@ -126,21 +126,28 @@ _session_friction_advisory() {
   if command -v timeout  >/dev/null 2>&1; then timeout_bin=timeout
   elif command -v gtimeout >/dev/null 2>&1; then timeout_bin=gtimeout; fi
 
-  local nc pc ce hits=0 log parks=0
+  local nc pc ce sd hits=0 log parks=0 sd_count=0
   if [ -n "$timeout_bin" ]; then
     nc=$("$timeout_bin" "$secs" bash "$run/narrowing_candidates.sh" 2>/dev/null || true)
     pc=$("$timeout_bin" "$secs" bash "$run/promotion_candidates.sh" 2>/dev/null || true)
-    # Ceremony reader mines git history of the project repo (§6.5(d), #401); the
-    # timeout + || true envelope degrades a non-repo cwd / missing base to silence.
+    # Ceremony + spec-drift readers mine git history of the project repo (§6.5(d),
+    # #401/#466); the timeout + || true envelope degrades a non-repo cwd / missing
+    # base to silence. Both default to $CLAUDE_PROJECT_DIR (no path arg), like the trio.
     ce=$("$timeout_bin" "$secs" bash "$run/ceremony_candidates.sh" 2>/dev/null || true)
+    sd=$("$timeout_bin" "$secs" bash "$run/spec_drift_candidates.sh" 2>/dev/null || true)
   else
     nc=$(bash "$run/narrowing_candidates.sh" 2>/dev/null || true)
     pc=$(bash "$run/promotion_candidates.sh" 2>/dev/null || true)
     ce=$(bash "$run/ceremony_candidates.sh" 2>/dev/null || true)
+    sd=$(bash "$run/spec_drift_candidates.sh" 2>/dev/null || true)
   fi
   # Candidate cluster lines are indented and carry " | … =" (escapes=/days=/files=/etc.);
   # the "(none above threshold)"/"no records" sentinels and headers do not.
-  printf '%s\n%s\n%s\n' "$nc" "$pc" "$ce" | grep -qE '^[[:space:]]+.+\|.+=' && hits=1
+  printf '%s\n%s\n%s\n%s\n' "$nc" "$pc" "$ce" "$sd" | grep -qE '^[[:space:]]+.+\|.+=' && hits=1
+  # Spec-drift candidate count (§6.5(d), #466): each `  <path> | drift-commits=N` line
+  # is one drifted path; surfaced in the advisory line below.
+  sd_count=$(printf '%s\n' "$sd" | grep -cE 'drift-commits=' 2>/dev/null || echo 0)
+  case "$sd_count" in ""|*[!0-9]*) sd_count=0 ;; esac
 
   # Park-frequency signal — read the same aggregate directly (neither candidate
   # script matches a warn/parked record). SPEC §5.7.1 / §6.5(d).
@@ -154,7 +161,8 @@ _session_friction_advisory() {
   if [ "$hits" -eq 1 ] || [ "$parks" -gt 0 ]; then
     local msg="[claude-eng-shell] friction advisory: accumulated friction detected"
     [ "$parks" -gt 0 ] && msg="$msg (${parks} unattended park record(s))"
-    msg="$msg — review via /audit or scripts/narrowing_candidates.sh + scripts/promotion_candidates.sh + scripts/ceremony_candidates.sh"
+    [ "$sd_count" -gt 0 ] && msg="$msg (${sd_count} spec-drift candidate(s))"
+    msg="$msg — review via /audit or scripts/narrowing_candidates.sh + scripts/promotion_candidates.sh + scripts/ceremony_candidates.sh + scripts/spec_drift_candidates.sh"
     printf '%s\n' "$msg"
   fi
 
