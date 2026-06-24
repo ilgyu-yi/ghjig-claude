@@ -93,6 +93,8 @@ for f in \
   scripts/bootstrap.sh \
   scripts/clone-into.sh \
   scripts/register.sh \
+  scripts/setup.sh \
+  scripts/lib/onboard_checks.sh \
   scripts/lib/inject.sh \
 ; do
   [ -f "$SHELL_ROOT/$f" ] && ok "exists: $f" || ng "missing: $f"
