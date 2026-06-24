@@ -13,7 +13,7 @@
 git clone <this-repo-url> claude-eng-shell
 cd claude-eng-shell
 ./scripts/bootstrap.sh                 # checks dependencies only — never edits ~/.zshrc
-export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-eng"
+export PATH="$PWD/bin:$PATH"            # 선택 — 아무 디렉터리에서나 `claude-eng`를 실행하려는 경우에만 (또는: alias claude-eng="$PWD/bin/claude-eng")
 ```
 
 `bootstrap.sh`가 하는 일은 의존성 확인뿐입니다. `git`·`gh`·`jq`는 반드시 있어야 하고, `python3`는 권장합니다(여러 helper가 쓰며, 없으면 정밀도가 떨어지는 방식으로 동작합니다). `~/.zshrc`를 비롯한 사용자 전역(user-global) 파일은 어떤 것도 건드리지 않습니다.
@@ -25,12 +25,14 @@ export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-
 # 주입되는 것과 claude-eng vs claude 선택은 아래 "Adopting it on your repo"에
 # 한 곳에 정리돼 있습니다 — 실제 첫 실행 전에 읽어 두세요.
 
-# 기존 로컬 레포에 셸을 붙입니다(흔한 경로):
-./scripts/register.sh ~/code/<repo>
-cd ~/code/<repo>
-claude                          # 그냥 `claude`가 셸을 스스로 찾습니다; 아래 Invocation 참고
-#   …또는 새 레포를 workspace/로 clone하려면:
-#   ./scripts/clone-into.sh https://github.com/<owner>/<repo>.git && cd workspace/<repo>
+# 명령 하나 — 로컬 경로 또는 레포 URL. setup.sh가 의존성 확인 →
+# 등록-또는-clone → onboard 사전 점검 → dir-mode 제안(기본값 N) →
+# 다음에 실행할 명령 출력까지 한 번에 처리합니다:
+./scripts/setup.sh ~/code/<repo>                              # 기존 로컬 레포(흔한 경로)
+#   …또는:  ./scripts/setup.sh https://github.com/<owner>/<repo>.git   # 새 레포를 workspace/로 clone
+#   --enter를 붙이면 다음 명령을 출력하는 대신 `claude`를 바로 exec합니다.
+# 내부적으로는 예전에 따로 하던 단계들을 하나로 묶습니다:
+#   register.sh / clone-into.sh + (선택) PATH export + claude.
 
 # Inside the session — the engineering loop:
 > /onboard                      # one-time, read-only: upstream, permissions, SSOT, CI

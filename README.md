@@ -13,7 +13,7 @@
 git clone <this-repo-url> claude-eng-shell
 cd claude-eng-shell
 ./scripts/bootstrap.sh                 # checks dependencies only — never edits ~/.zshrc
-export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-eng"
+export PATH="$PWD/bin:$PATH"            # optional — only to run `claude-eng` from any dir (or: alias claude-eng="$PWD/bin/claude-eng")
 ```
 
 `bootstrap.sh` only verifies dependencies — `git`, `gh`, `jq` are required; `python3` is recommended (several helpers fall back to less-precise behavior without it). It never modifies `~/.zshrc` or any other user-global file.
@@ -25,12 +25,14 @@ export PATH="$PWD/bin:$PATH"            # or: alias claude-eng="$PWD/bin/claude-
 # What this puts in your repo, and the claude-eng-vs-claude choice, are under
 # "Adopting it on your repo" below — read it before the first real run.
 
-# Point the shell at an existing local repo (the common path):
-./scripts/register.sh ~/code/<repo>
-cd ~/code/<repo>
-claude                          # plain `claude` self-locates the shell; see Invocation below
-#   …or clone a fresh target into workspace/ instead:
-#   ./scripts/clone-into.sh https://github.com/<owner>/<repo>.git && cd workspace/<repo>
+# One command — local path or repo URL. setup.sh runs deps check →
+# registers-or-clones → onboard pre-flight → offers dir-mode (default N) →
+# prints the next command to run:
+./scripts/setup.sh ~/code/<repo>                              # existing local repo (the common path)
+#   …or:  ./scripts/setup.sh https://github.com/<owner>/<repo>.git   # clone a fresh target into workspace/
+#   add --enter to exec `claude` directly instead of printing the next command.
+# Under the hood it folds together what used to be separate steps:
+#   register.sh / clone-into.sh + (optional) PATH export + claude.
 
 # Inside the session — the engineering loop:
 > /onboard                      # one-time, read-only: upstream, permissions, SSOT, CI

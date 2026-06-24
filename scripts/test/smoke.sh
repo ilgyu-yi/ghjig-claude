@@ -93,6 +93,8 @@ for f in \
   scripts/bootstrap.sh \
   scripts/clone-into.sh \
   scripts/register.sh \
+  scripts/setup.sh \
+  scripts/lib/onboard_checks.sh \
   scripts/lib/inject.sh \
 ; do
   [ -f "$SHELL_ROOT/$f" ] && ok "exists: $f" || ng "missing: $f"
@@ -10546,6 +10548,159 @@ SHIM
   fi
 
   rm -rf "$S118_DIR"
+fi
+
+# ---------- §119: setup.sh single-entry orchestrator (#458) ----------
+# Phase B (Test). Drives the FORTHCOMING single-entry script scripts/setup.sh
+# (Execution #458) headlessly. setup.sh is a thin orchestrator over the existing
+# sibling scripts; the contract under test:
+#   setup.sh <local-path | repo-url> [--enter]
+#   1. deps    → calls scripts/bootstrap.sh
+#   2. dispatch on the single positional arg:
+#        existing local dir → scripts/register.sh ; repo URL → scripts/clone-into.sh.
+#        Tie-breaker: if [ -d "$arg" ] it is a local path regardless of URL shape.
+#   3. pre-flight → runs scripts/lib/onboard_checks.sh, ok→✓ / fail→✗.
+#   4. dir-mode gate: an always-offered y/N prompt, default N, `read -r resp || resp=N`
+#        so EOF / non-TTY → N; only y/Y calls scripts/onboard_target.sh.
+#   5. prints next-command guidance; --enter execs claude.
+#   6. NEVER writes a user-global file (~/.zshrc, ~/.bashrc, ~/.profile, ~/.claude,
+#        git config --global) — the PATH line is printed, never appended.
+#
+# Isolation mirrors §9b: setup.sh is copied into a fake shell root whose sibling
+# deps (bootstrap/register/clone-into/onboard_target) are marker-dropping stubs —
+# each touches a sentinel under $S119_MARK when invoked, so we assert WHICH path
+# ran. onboard_checks.sh is stubbed to a one-line ok-report (the spec permits a
+# stub) so pre-flight neither needs a real `gh` nor gates.
+#
+# RED until Phase C: with scripts/setup.sh absent the guard below fails LOUD on
+# every planned assertion (mirrors §107/§118's script-absent pattern) — a clean
+# intended failure, not a harness error.
+S119_SCRIPT="$SHELL_ROOT/scripts/setup.sh"
+if [ ! -f "$S119_SCRIPT" ]; then
+  ng "119a: path arg → register.sh dispatch (not clone-into) — scripts/setup.sh missing (Phase C not landed) (#458)"
+  ng "119b: URL arg → clone-into.sh dispatch (not register) — script missing (#458)"
+  ng "119c: dir-mode gate non-TTY/EOF → onboard_target.sh NOT called, no hang — script missing (#458)"
+  ng "119d: dir-mode gate 'y' → onboard_target.sh called — script missing (#458)"
+  ng "119e: source contains no user-global redirect / git config --global — script missing (#458)"
+  ng "119f: run against fake \$HOME leaves rc files untouched — script missing (#458)"
+else
+  # Build a fake shell root holding setup.sh + stubbed siblings.
+  S119_FSR=$(cd "$(mktemp -d)" && pwd -P)
+  mkdir -p "$S119_FSR/scripts/lib"
+  cp "$S119_SCRIPT" "$S119_FSR/scripts/setup.sh"
+  chmod +x "$S119_FSR/scripts/setup.sh"
+  # Marker-dropping stubs: each writes a sentinel named after itself when invoked.
+  for s119_dep in bootstrap register clone-into onboard_target; do
+    {
+      printf '#!/bin/sh\n'
+      printf ': "${S119_MARK:?}"\n'
+      printf 'touch "$S119_MARK/%s"\n' "$s119_dep"
+      printf 'exit 0\n'
+    } > "$S119_FSR/scripts/$s119_dep.sh"
+    chmod +x "$S119_FSR/scripts/$s119_dep.sh"
+  done
+  # onboard_checks.sh stub: one ok line, always exit 0 (fact-reporter contract).
+  {
+    printf '#!/bin/sh\n'
+    printf 'echo "upstream ok stub"\n'
+    printf 'exit 0\n'
+  } > "$S119_FSR/scripts/lib/onboard_checks.sh"
+  chmod +x "$S119_FSR/scripts/lib/onboard_checks.sh"
+
+  # Bounded runner: drives the COPIED setup.sh with a marker dir + a stdin source.
+  # $1 = positional arg, $2 = stdin source path (e.g. /dev/null or a printf-fed file).
+  # A fresh marker dir per call; if `timeout`/`gtimeout` is present we hard-bound the
+  # run (defence-in-depth against a `read` that fails to honor EOF), else fall back
+  # to a backgrounded run + kill guard so a hang cannot wedge the suite.
+  s119_run() {
+    S119_MARK=$(mktemp -d)
+    export S119_MARK
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 10 sh "$S119_FSR/scripts/setup.sh" "$1" < "$2" >/dev/null 2>&1
+      s119_rc=$?
+    elif command -v gtimeout >/dev/null 2>&1; then
+      gtimeout 10 sh "$S119_FSR/scripts/setup.sh" "$1" < "$2" >/dev/null 2>&1
+      s119_rc=$?
+    else
+      sh "$S119_FSR/scripts/setup.sh" "$1" < "$2" >/dev/null 2>&1 &
+      s119_pid=$!
+      ( sleep 10; kill -9 "$s119_pid" 2>/dev/null ) & s119_killer=$!
+      wait "$s119_pid" 2>/dev/null; s119_rc=$?
+      kill "$s119_killer" 2>/dev/null
+    fi
+  }
+  # s119_dropped <dep> → 0 if that dep's sentinel exists in the last run's marker dir.
+  s119_dropped() { [ -f "${S119_MARK}/$1" ]; }
+
+  # 119a: an existing local dir dispatches to register.sh, NOT clone-into.sh.
+  S119_LOCAL=$(cd "$(mktemp -d)" && pwd -P)
+  s119_run "$S119_LOCAL" /dev/null
+  if s119_dropped register && ! s119_dropped clone-into; then
+    ok "119a: path arg → register.sh dispatch (not clone-into) (#458)"
+  else
+    ng "119a: path arg dispatch wrong (register=$(s119_dropped register && echo y || echo n) clone-into=$(s119_dropped clone-into && echo y || echo n)) (#458)"
+  fi
+  rm -rf "$S119_LOCAL" "$S119_MARK"
+
+  # 119b: a repo URL dispatches to clone-into.sh, NOT register.sh.
+  s119_run "https://example.com/foo.git" /dev/null
+  if s119_dropped clone-into && ! s119_dropped register; then
+    ok "119b: URL arg → clone-into.sh dispatch (not register) (#458)"
+  else
+    ng "119b: URL arg dispatch wrong (clone-into=$(s119_dropped clone-into && echo y || echo n) register=$(s119_dropped register && echo y || echo n)) (#458)"
+  fi
+  rm -rf "$S119_MARK"
+
+  # 119c: dir-mode gate, non-TTY / EOF stdin (< /dev/null) → default N → onboard_target
+  # NOT called, and the run must terminate (no hang). A URL arg keeps the dispatch in
+  # clone-into (a stub), so onboard_target firing would be the gate, not dispatch.
+  s119_run "https://example.com/foo.git" /dev/null
+  if ! s119_dropped onboard_target && [ "$s119_rc" != 137 ] && [ "$s119_rc" != 124 ]; then
+    ok "119c: dir-mode gate EOF/non-TTY → onboard_target NOT called, no hang (rc=$s119_rc) (#458)"
+  else
+    ng "119c: dir-mode gate non-TTY wrong (onboard_target=$(s119_dropped onboard_target && echo y || echo n) rc=$s119_rc; 124/137 ⇒ hang/timeout) (#458)"
+  fi
+  rm -rf "$S119_MARK"
+
+  # 119d: dir-mode gate, stdin = 'y' → onboard_target.sh IS called.
+  S119_YES=$(mktemp); printf 'y\n' > "$S119_YES"
+  s119_run "https://example.com/foo.git" "$S119_YES"
+  if s119_dropped onboard_target; then
+    ok "119d: dir-mode gate 'y' → onboard_target.sh called (#458)"
+  else
+    ng "119d: dir-mode gate 'y' did NOT call onboard_target.sh (#458)"
+  fi
+  rm -f "$S119_YES"; rm -rf "$S119_MARK"
+
+  # 119e: source-level guard — setup.sh must contain no redirection into a user-global
+  # rc file and no `git config --global`. A grep-the-source assertion is robust against
+  # whichever branch a run happens to take. Pattern covers > and >> into the rc paths.
+  if grep -Eq '>>?[[:space:]]*("?~|"?\$HOME)?/?\.(zshrc|bashrc|profile)|>>?[[:space:]]*"?~?/?\.claude|git[[:space:]]+config[[:space:]]+--global' "$S119_SCRIPT"; then
+    ng "119e: setup.sh source contains a user-global redirect or git config --global (#458)"
+  else
+    ok "119e: setup.sh source has no user-global redirect / git config --global (#458)"
+  fi
+
+  # 119f: behavioural backstop — run against a fake $HOME seeded with rc files and
+  # assert they are byte-identical afterwards (the PATH line is printed, never written).
+  S119_HOME=$(cd "$(mktemp -d)" && pwd -P)
+  printf 'orig-zshrc\n'   > "$S119_HOME/.zshrc"
+  printf 'orig-bashrc\n'  > "$S119_HOME/.bashrc"
+  printf 'orig-profile\n' > "$S119_HOME/.profile"
+  s119_pre=$(cat "$S119_HOME/.zshrc" "$S119_HOME/.bashrc" "$S119_HOME/.profile")
+  ( S119_MARK=$(mktemp -d); export S119_MARK
+    HOME="$S119_HOME" sh "$S119_FSR/scripts/setup.sh" "https://example.com/foo.git" < /dev/null >/dev/null 2>&1
+    rm -rf "$S119_MARK" ) || true
+  s119_post=$(cat "$S119_HOME/.zshrc" "$S119_HOME/.bashrc" "$S119_HOME/.profile")
+  if [ "$s119_pre" = "$s119_post" ] && [ ! -d "$S119_HOME/.claude" ]; then
+    ok "119f: run against fake \$HOME left rc files + ~/.claude untouched (#458)"
+  else
+    ng "119f: run against fake \$HOME mutated an rc file or created ~/.claude (#458)"
+  fi
+  rm -rf "$S119_HOME"
+
+  unset S119_MARK
+  rm -rf "$S119_FSR"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------

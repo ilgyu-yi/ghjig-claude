@@ -4,9 +4,7 @@ Full details in [SPEC.md §2](../SPEC.md).
 
 ```
 [Project start / joining]
-  ./scripts/clone-into.sh <upstream-repo-url>
-  cd workspace/<repo>
-  claude-eng
+  ./scripts/setup.sh <local-path | repo-url>   ← single entry: deps → register-or-clone → onboard → dir-mode gate (default N) → next command (--enter execs claude)
   /onboard                   ← check target SSOT, .github/, permissions, branch protection
        │
        ▼
