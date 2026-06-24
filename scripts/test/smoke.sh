@@ -10703,6 +10703,169 @@ else
   rm -rf "$S119_FSR"
 fi
 
+# ---------- §120: SessionStart SSOT-presence health line (#460) ----------
+# Phase B (Test). Drives the FORTHCOMING SSOT-presence health line that
+# session_start.sh is to emit in its in-scope section (alongside the branch
+# banner), consuming scripts/lib/onboard_checks.sh --dry-run (filesystem-only,
+# NO gh call). Contract under test (Execution #460):
+#   - both MISSION.md + SPEC.md present → one line `[claude-eng-shell] SSOT: …`
+#       carrying the `✓` glyph (grep anchor: a line with `SSOT:` and `✓`);
+#   - SPEC.md ABSENT → a prominent SPEC-first nudge line prefixed
+#       `[claude-eng-shell] SSOT-nudge:` mentioning SPEC.md (anchor: `SSOT-nudge`);
+#   - the path makes NO `gh` call (onboard_checks --dry-run is gh-free);
+#   - it fires for a REGISTERED target only — it sits AFTER `in_scope || exit 0`.
+#
+# Driver mirrors §105's fake-root pattern: a self-contained shell copy carrying
+# session_start.sh + hookrt + helpers + the REAL scripts/lib/onboard_checks.sh,
+# with a git-fetch shim for the self-sync step. Each sub-case runs from a fixture
+# TARGET dir (its own git repo); `in_scope` is made true by writing that target's
+# path into the per-project registry that eng_registry_file resolves to under
+# ENG_STATE_DIR_OVERRIDE. CLAUDE_PROJECT_DIR points at the target (hook context),
+# CLAUDE_ENG_SHELL_ROOT at the fake root (where session_start.sh + its libs live).
+#
+# RED until Phase C: session_start.sh has NO SSOT code yet, so the present/nudge
+# assertions (120a/120b) and the registered-only positive sense fail LOUD with a
+# "(Phase C not wired)" message (mirrors §107/§118/§119's not-yet-wired pattern) —
+# a clean intended failure, not a harness error. 120c (no-gh-call) and 120d's
+# negative sense are falsifiable companions that may pass pre-Code.
+S120_PROBE=$(cd "$(mktemp -d)" && pwd -P)
+S120_FAKE_ROOT="$S120_PROBE/shell"
+mkdir -p "$S120_FAKE_ROOT/.claude/hooks/helpers" \
+         "$S120_FAKE_ROOT/.claude/state" \
+         "$S120_FAKE_ROOT/scripts/lib"
+cp "$SHELL_ROOT/.claude/hooks/session_start.sh" "$S120_FAKE_ROOT/.claude/hooks/" 2>/dev/null
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh"         "$S120_FAKE_ROOT/.claude/hooks/" 2>/dev/null
+for s120_h in log escape cwd_guard branch_guard; do
+  cp "$SHELL_ROOT/.claude/hooks/helpers/$s120_h.sh" "$S120_FAKE_ROOT/.claude/hooks/helpers/" 2>/dev/null
+done
+# The candidate readers + audit-path lib so the §6.5(d) friction advisory degrades
+# silently (the fixture target has no audit aggregate) without scanning the real repo.
+cp "$SHELL_ROOT/scripts/narrowing_candidates.sh"  "$S120_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/promotion_candidates.sh"  "$S120_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/ceremony_candidates.sh"   "$S120_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/lib/audit_log_path.sh"    "$S120_FAKE_ROOT/scripts/lib/" 2>/dev/null
+# The SSOT line consumes the REAL onboard_checks.sh --dry-run — copy it in so the
+# line can compute from the fake root (Phase C will source/invoke it via SHELL_ROOT).
+cp "$SHELL_ROOT/scripts/lib/onboard_checks.sh"    "$S120_FAKE_ROOT/scripts/lib/" 2>/dev/null
+
+# git-fetch shim: no-op the self-sync fetch so the run stays offline/fast.
+S120_GIT_SHIM="$S120_PROBE/bin"
+S120_REAL_GIT=$(command -v git)
+mkdir -p "$S120_GIT_SHIM"
+cat > "$S120_GIT_SHIM/git" <<SHIM
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "fetch" ]; then exit 0; fi
+done
+exec '$S120_REAL_GIT' "\$@"
+SHIM
+chmod +x "$S120_GIT_SHIM/git"
+
+# gh stub: a BROKEN gh — exits nonzero on every invocation. The SSOT path consumes
+# onboard_checks --dry-run (gh-free), so its health line must still render under this
+# broken gh (120c). A clean "sentinel never touched" assertion is not possible here:
+# session_start.sh's pre-existing branch banner already shells `gh pr view`, which
+# would confound an absolute no-call sentinel — so the gh-free property is asserted by
+# RESULT (the SSOT line renders even though gh is broken) rather than by call-count.
+cat > "$S120_GIT_SHIM/gh" <<'SHIM'
+#!/bin/sh
+exit 3
+SHIM
+chmod +x "$S120_GIT_SHIM/gh"
+
+# s120_make_target <name> <register:0|1> [files…] → echoes the target path.
+# Builds a git-repo fixture target, drops the named SSOT files, and (when
+# register=1) writes its path into the per-project registry that eng_registry_file
+# resolves to under ENG_STATE_DIR_OVERRIDE=<target>/.claude/eng-state.
+s120_make_target() {
+  s120_t=$(cd "$(mktemp -d)" && pwd -P)
+  mkdir -p "$s120_t/.claude/eng-state"
+  (
+    cd "$s120_t" || exit 1
+    git init -q
+    git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
+  )
+  shift 2 2>/dev/null || true
+  for s120_f in "$@"; do
+    printf '# %s\n' "$s120_f" > "$s120_t/$s120_f"
+  done
+  [ "${s120_reg:-}" = 1 ] && printf '%s\n' "$s120_t" > "$s120_t/.claude/eng-state/registry.txt"
+  printf '%s\n' "$s120_t"
+}
+
+# s120_run <target> → drives the fake-root session_start.sh from <target>'s cwd
+# with <target> registered + in scope; echoes captured stdout (the SSOT line, if any).
+s120_run() {
+  (
+    cd "$1" || exit 1
+    export CLAUDE_ENG_SHELL_ROOT="$S120_FAKE_ROOT"
+    export CLAUDE_PROJECT_DIR="$1"
+    export ENG_STATE_DIR_OVERRIDE="$1/.claude/eng-state"
+    export PATH="$S120_GIT_SHIM:$PATH"
+    touch "$S120_FAKE_ROOT/.claude/state/last-shell-fetched" 2>/dev/null
+    bash "$S120_FAKE_ROOT/.claude/hooks/session_start.sh" 2>/dev/null
+  )
+}
+
+if [ ! -f "$S120_FAKE_ROOT/.claude/hooks/session_start.sh" ] \
+   || [ ! -f "$S120_FAKE_ROOT/scripts/lib/onboard_checks.sh" ]; then
+  ng "120a: SSOT present line — fake-root setup failed (Phase C not wired) (#460)"
+  ng "120b: SSOT-nudge on absent SPEC.md — fake-root setup failed (#460)"
+  ng "120c: SSOT path makes no gh call — fake-root setup failed (#460)"
+  ng "120d: SSOT line is registered-only — fake-root setup failed (#460)"
+else
+  # 120a (present; RED until Code): a REGISTERED target with BOTH MISSION.md and
+  # SPEC.md → output carries the SSOT health line (a line with `SSOT:` and `✓`).
+  s120_reg=1
+  S120_BOTH=$(s120_make_target both 1 MISSION.md SPEC.md)
+  s120a_out=$(s120_run "$S120_BOTH")
+  if printf '%s\n' "$s120a_out" | grep -F 'SSOT:' | grep -Fq '✓'; then
+    ok "120a: SessionStart emits the SSOT-present health line (SSOT: … ✓) on a registered both-present target (#460)"
+  else
+    ng "120a: no SSOT-present health line emitted — Phase C not wired (#460)"
+  fi
+
+  # 120b (nudge; RED until Code): a REGISTERED target with MISSION.md but NO SPEC.md
+  # → a prominent SPEC-first nudge line prefixed `SSOT-nudge`.
+  S120_NOSPEC=$(s120_make_target nospec 1 MISSION.md)
+  s120b_out=$(s120_run "$S120_NOSPEC")
+  if printf '%s\n' "$s120b_out" | grep -q 'SSOT-nudge'; then
+    ok "120b: SessionStart emits an SSOT-nudge line when SPEC.md is absent (#460)"
+  else
+    ng "120b: no SSOT-nudge line emitted on absent SPEC.md — Phase C not wired (#460)"
+  fi
+
+  # 120c (no-gh-call; RED until Code): drive the both-present target with gh stubbed
+  # to FAIL (exit 3) + drop a sentinel on every invocation. The SSOT path consumes
+  # onboard_checks --dry-run, which is gh-free, so the SSOT health line MUST still
+  # render even though every gh shell-out fails. We cannot attribute the pre-existing
+  # branch-banner `gh pr view` to the SSOT path, so the gh-free property is verified
+  # by RESULT: the SSOT line renders under a broken gh. Pre-Code no line renders →
+  # this fails LOUD for the right reason (Phase C not wired), and post-Code it is the
+  # falsifiable proof that the SSOT line does not depend on a working gh.
+  s120c_out=$(s120_run "$S120_BOTH")
+  if printf '%s\n' "$s120c_out" | grep -Eq 'SSOT:|SSOT-nudge'; then
+    ok "120c: SSOT line renders under a broken/failing gh (onboard_checks --dry-run is gh-free) (#460)"
+  else
+    ng "120c: SSOT line did not render under a broken gh — Phase C not wired (gh-free path unproven) (#460)"
+  fi
+
+  # 120d (registered-only): an UNREGISTERED cwd (not in the registry) → session_start
+  # exits at `in_scope || exit 0` BEFORE any SSOT line, so neither SSOT: nor SSOT-nudge
+  # appears. Negative sense holds pre-Code (vacuously) and is the falsifiable twin of
+  # 120a's positive sense once Code lands.
+  s120_reg=0
+  S120_UNREG=$(s120_make_target unreg 0 MISSION.md SPEC.md)
+  s120d_out=$(s120_run "$S120_UNREG")
+  if printf '%s\n' "$s120d_out" | grep -Eq 'SSOT:|SSOT-nudge'; then
+    ng "120d: an SSOT line leaked on an UNREGISTERED cwd (must sit after in_scope || exit 0) (#460)"
+  else
+    ok "120d: no SSOT line on an unregistered cwd (registered-only, after in_scope) (#460)"
+  fi
+  unset s120_reg
+fi
+rm -rf "$S120_PROBE"
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
