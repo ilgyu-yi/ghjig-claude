@@ -13,6 +13,38 @@ detect_stack() {
   echo unknown
 }
 
+# detect_version → prints the detected stack's native manifest version, or nothing
+# (empty → the /release manifest-match preflight degrades to a graceful skip, §18.2 /
+# §6.6, #469). Read-only; verification only. Stacks with no universal version field
+# (go / ruby / godot) and any absent/unparseable field return empty.
+detect_version() {
+  case "$(detect_stack)" in
+    node)
+      command -v jq >/dev/null 2>&1 || return 0
+      [ -f package.json ] || return 0
+      jq -r '.version // empty' package.json 2>/dev/null ;;
+    python)
+      [ -f pyproject.toml ] && _toml_version pyproject.toml project ;;   # setup.py-only → empty (skip)
+    rust)
+      [ -f Cargo.toml ] && _toml_version Cargo.toml package ;;
+  esac
+}
+
+# _toml_version <file> <section> → prints the `version = "X"` value inside [<section>].
+# Section-scoped (cleared at the next `[`), and extracts the first QUOTED value from the
+# original line so a trailing comment / spacing cannot leak in. BSD-awk / bash-3.2 safe.
+_toml_version() {
+  awk -v sect="$2" '
+    { t=$0; gsub(/[[:space:]]/, "", t) }
+    t == ("[" sect "]") { inseg=1; next }
+    t ~ /^\[/ { inseg=0 }
+    inseg && t ~ /^version=/ {
+      if (match($0, /"[^"]*"/))   { print substr($0, RSTART+1, RLENGTH-2); exit }
+      if (match($0, /'\''[^'\'']*'\''/)) { print substr($0, RSTART+1, RLENGTH-2); exit }
+    }
+  ' "$1" 2>/dev/null
+}
+
 detect_test_cmd() {
   case "$(detect_stack)" in
     node)

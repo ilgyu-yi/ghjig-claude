@@ -32,6 +32,13 @@ VERSION_ARG=""
 BASE="main"
 DRY_RUN=0
 
+# Resolve + source the stack/version detector for the §18.2 manifest-match preflight
+# (#469). The path is fixed from BASH_SOURCE before any cd; detect_stack.sh is pure
+# (function defs only, no side effects), and absence degrades the preflight to a skip.
+_RC_DETECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)/.claude/hooks/helpers/detect_stack.sh"
+# shellcheck source=/dev/null
+[ -f "$_RC_DETECT" ] && . "$_RC_DETECT"
+
 usage() {
   echo "usage: $0 <X.Y.Z> [--base <branch>] [--dry-run]" >&2
 }
@@ -187,6 +194,25 @@ if [ "$FRAGMENTS_FOUND" -eq 0 ]; then
   echo "release_consolidate: no fragments found under $FRAGMENT_DIR/<category>/*.md" >&2
   echo "release_consolidate: nothing to release; add a fragment first or this is not the right operation" >&2
   exit 2
+fi
+
+# Step 3.5 — manifest-match preflight (verify, not write-back; SPEC §18.2 / §6.6, #469).
+# Read-only: resolve the detected stack's native manifest version and refuse on a
+# CONFIDENT mismatch (naming both versions + the fix); degrade to a graceful skip on the
+# UNCERTAIN path (unknown stack / absent / unparseable). It never writes the manifest —
+# write-back stays VERSION-only (§18.2). Runs in REPO_ROOT (cwd), where manifests live.
+if command -v detect_version >/dev/null 2>&1; then
+  MANIFEST_VER=$(detect_version 2>/dev/null || true)
+  if [ -n "$MANIFEST_VER" ]; then
+    if [ "$MANIFEST_VER" = "$X_Y_Z" ]; then
+      echo "release_consolidate: manifest version matches $X_Y_Z (manifest-match preflight ok)"
+    else
+      echo "release_consolidate: manifest version is $MANIFEST_VER but releasing $X_Y_Z — bump the manifest to match before releasing (SPEC §18.2)" >&2
+      exit 2
+    fi
+  else
+    echo "release_consolidate: no detectable manifest version for this stack — skipping manifest-match preflight (SPEC §18.2)" >&2
+  fi
 fi
 
 # Step 4 — VERSION write-back.
