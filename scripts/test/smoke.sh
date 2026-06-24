@@ -10981,6 +10981,98 @@ else
   fi
 fi
 
+# ---------- §123: SessionStart friction advisory surfaces the spec-drift count (#466) ----------
+# Phase B (Test). Phase C will wire scripts/spec_drift_candidates.sh into
+# _session_friction_advisory in .claude/hooks/session_start.sh — adding it to the
+# reader set (alongside narrowing/promotion/ceremony) under the SAME timeout
+# envelope and the existing once-per-session last-friction-surfaced stamp — and when
+# spec-drift candidates exist the advisory line reports the count (text containing
+# `spec-drift candidate`, e.g. `N spec-drift candidate(s)`). SPEC §6.5(d), Directive #455.
+#
+# 123a (wiring; mirrors §107f): static grep — Phase C must reference the reader in
+# session_start.sh. RED now (not yet referenced).
+# 123b (count surfaces on seeded drift): drive session_start.sh headlessly (mirrors the
+# §105 friction driver — self-contained fake shell root with its own git repo + registry,
+# a git shim that no-ops fetch, ENG_STATE_DIR_OVERRIDE/CLAUDE_PROJECT_DIR/
+# SESSION_START_FRICTION_TTL forcing the once-per-session advisory to compute via an
+# absent stamp) against a fake root whose repo carries a SEEDED code-ahead drift: a
+# SPEC.md referencing scripts/foo.sh + a later commit that modified scripts/foo.sh
+# WITHOUT co-touching SPEC.md. The REAL spec_drift_candidates.sh (carried into the root,
+# pointed at the project repo) thus returns a candidate, so once wired the advisory text
+# must contain `spec-drift candidate`. RED now — session_start.sh does not run the reader.
+if grep -q 'spec_drift_candidates.sh' "$SHELL_ROOT/.claude/hooks/session_start.sh"; then
+  ok "123a: session_start.sh wires spec_drift_candidates.sh into the friction advisory (#466)"
+else
+  ng "123a: session_start.sh does not invoke spec_drift_candidates.sh — drift reader not wired (#466)"
+fi
+
+S123_PROBE=$(mktemp -d)
+S123_FAKE_ROOT="$S123_PROBE/shell"
+mkdir -p "$S123_FAKE_ROOT/.claude/hooks/helpers" \
+         "$S123_FAKE_ROOT/.claude/state" \
+         "$S123_FAKE_ROOT/.claude/audit" \
+         "$S123_FAKE_ROOT/scripts/lib"
+cp "$SHELL_ROOT/.claude/hooks/session_start.sh" "$S123_FAKE_ROOT/.claude/hooks/"
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$S123_FAKE_ROOT/.claude/hooks/" 2>/dev/null
+for h in log escape cwd_guard branch_guard; do
+  cp "$SHELL_ROOT/.claude/hooks/helpers/$h.sh" "$S123_FAKE_ROOT/.claude/hooks/helpers/" 2>/dev/null
+done
+# Carry the candidate readers (incl. the drift reader under test) + their path lib.
+cp "$SHELL_ROOT/scripts/narrowing_candidates.sh" "$S123_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/promotion_candidates.sh" "$S123_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/ceremony_candidates.sh" "$S123_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/spec_drift_candidates.sh" "$S123_FAKE_ROOT/scripts/" 2>/dev/null
+cp "$SHELL_ROOT/scripts/lib/audit_log_path.sh" "$S123_FAKE_ROOT/scripts/lib/" 2>/dev/null
+: > "$S123_FAKE_ROOT/.claude/state/registry.txt"
+# Seed a code-ahead drift INTO the fake-root repo (it is also $CLAUDE_PROJECT_DIR, so the
+# drift reader run with no arg mines this history): SPEC.md references scripts/foo.sh,
+# then a later commit modifies scripts/foo.sh WITHOUT co-touching SPEC.md.
+(
+  cd "$S123_FAKE_ROOT" || exit 1
+  git init -q
+  gc() { git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit -q "$@"; }
+  printf 'SPEC referencing scripts/foo.sh\n' > SPEC.md
+  printf 'foo\n' > scripts/foo.sh
+  git add SPEC.md scripts/foo.sh; gc -m 'init: spec + foo'
+  printf 'foo2\n' >> scripts/foo.sh; git add scripts/foo.sh; gc -m 'change foo only (code-ahead drift)'
+)
+S123_GIT_SHIM="$S123_PROBE/bin"
+REAL_GIT_123=$(command -v git)
+mkdir -p "$S123_GIT_SHIM"
+cat > "$S123_GIT_SHIM/git" <<SHIM
+#!/bin/sh
+for arg in "\$@"; do
+  if [ "\$arg" = "fetch" ]; then exit 0; fi
+done
+exec '$REAL_GIT_123' "\$@"
+SHIM
+chmod +x "$S123_GIT_SHIM/git"
+
+if [ ! -f "$S123_FAKE_ROOT/.claude/hooks/session_start.sh" ] \
+   || [ ! -f "$S123_FAKE_ROOT/scripts/spec_drift_candidates.sh" ] \
+   || ! command -v jq >/dev/null 2>&1; then
+  ng "123b: jq missing or fake-root/drift-reader setup failed — cannot drive the §6.5(d) advisory (#466)"
+else
+  S123_STATE="$S123_PROBE/state"
+  mkdir -p "$S123_STATE/audit"
+  rm -f "$S123_STATE/last-friction-surfaced"   # absent stamp → force the once-per-session compute
+  s123_out=$(
+    export CLAUDE_ENG_SHELL_ROOT="$S123_FAKE_ROOT"
+    export PATH="$S123_GIT_SHIM:$PATH"
+    export CLAUDE_PROJECT_DIR="$S123_FAKE_ROOT"
+    export ENG_STATE_DIR_OVERRIDE="$S123_STATE"
+    export SESSION_START_FRICTION_TTL=21600
+    touch "$S123_FAKE_ROOT/.claude/state/last-shell-fetched" 2>/dev/null
+    bash "$S123_FAKE_ROOT/.claude/hooks/session_start.sh" 2>/dev/null
+  )
+  if printf '%s\n' "$s123_out" | grep -qi 'spec-drift candidate'; then
+    ok "123b: §6.5(d) advisory reports the spec-drift candidate count on seeded code-ahead drift (#466)"
+  else
+    ng "123b: §6.5(d) advisory did not surface the spec-drift count — reader not wired into session_start.sh (#466)"
+  fi
+fi
+rm -rf "$S123_PROBE"
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
