@@ -18,7 +18,7 @@ if [ -e "$TARGET" ]; then
   exit 1
 fi
 
-git clone "$URL" "$TARGET"
+git clone -- "$URL" "$TARGET"
 inject_into "$TARGET"
 
 # Fork detection

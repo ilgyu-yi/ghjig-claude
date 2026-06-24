@@ -146,7 +146,7 @@ _session_friction_advisory() {
   printf '%s\n%s\n%s\n%s\n' "$nc" "$pc" "$ce" "$sd" | grep -qE '^[[:space:]]+.+\|.+=' && hits=1
   # Spec-drift candidate count (§6.5(d), #466): each `  <path> | drift-commits=N` line
   # is one drifted path; surfaced in the advisory line below.
-  sd_count=$(printf '%s\n' "$sd" | grep -cE 'drift-commits=' 2>/dev/null || echo 0)
+  sd_count=$(printf '%s\n' "$sd" | grep -cE 'drift-commits=' 2>/dev/null || true)
   case "$sd_count" in ""|*[!0-9]*) sd_count=0 ;; esac
 
   # Park-frequency signal — read the same aggregate directly (neither candidate

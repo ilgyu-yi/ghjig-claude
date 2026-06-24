@@ -46,9 +46,17 @@ if [ "$rv_rc" -ne 0 ]; then
 fi
 
 # gh succeeded — confirm the notes are non-empty (the tag is implied by a present Release).
-body=""
-if command -v jq >/dev/null 2>&1; then
-  body=$(printf '%s' "$rv_out" | jq -r '.body // empty' 2>/dev/null || true)
+# jq is the only way to read the `body` field; if it is absent OR fails to run, we cannot
+# read the notes, so fail-open with an advisory (mirroring the gh-absent guard at :25) rather
+# than letting `body` stay empty and firing a false "empty notes" advisory (#473).
+if ! command -v jq >/dev/null 2>&1; then
+  echo "release_verify: jq not on PATH — cannot read the $TAG Release notes; skipping the notes check" >&2
+  exit 0
+fi
+body=$(printf '%s' "$rv_out" | jq -r '.body // empty' 2>/dev/null)
+if [ "$?" -ne 0 ]; then
+  echo "release_verify: jq could not parse the $TAG Release payload — skipping the notes check" >&2
+  exit 0
 fi
 if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
   echo "release_verify: $TAG ok (tag + Release with notes present)"
