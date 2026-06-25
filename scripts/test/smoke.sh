@@ -11833,6 +11833,23 @@ else
   ng "125-9b: eng_skip.sh wrote a token for a too-short fingerprint (footgun) (#479)"
 fi
 
+# 125-10. created OUT-OF-RANGE does NOT disarm (security regression, #479 N=3
+# review): a leading-zero value (`$(( ))` parses it as octal) and a >=2^63 value
+# (overflows bash 3.2 arithmetic, wraps negative) both pass a naive all-digit
+# check but break the TTL/future-date arithmetic — they MUST fail-safe-block.
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_write_token branch "category=branch" "reason=octal probe" "cmd_fingerprint=$ESC_FP" "created=0$(date +%s)"
+esc_rc10a=$(esc_hook_run "$ESC_CMD")
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_write_token branch "category=branch" "reason=overflow probe" "cmd_fingerprint=$ESC_FP" "created=99999999999999999999"
+esc_rc10b=$(esc_hook_run "$ESC_CMD")
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc_rc10a" = "2" ] && [ "$esc_rc10b" = "2" ]; then
+  ok "125-10: out-of-range created (leading-zero octal / >=2^63 overflow) fail-safe-blocks (#479)"
+else
+  ng "125-10: out-of-range created wrongly honored (octal rc=$esc_rc10a overflow rc=$esc_rc10b) (#479)"
+fi
+
 # ---------- §124: escape docs state the in-harness reality, not a false "survives in-harness" claim (#478) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Both
 # SKIP_HOOKS escape forms (leading env-prefix + trailing `# claude-eng:skip=…`

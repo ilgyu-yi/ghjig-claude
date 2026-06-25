@@ -58,7 +58,15 @@ _escape_token_honored() {
      || [ -z "$bind" ]; then
     rm -f "$tok"; return 1
   fi
-  case "$t_created" in ''|*[!0-9]*) rm -f "$tok"; return 1 ;; esac   # non-numeric → block
+  # `created` must be a plausible base-10 epoch BEFORE it reaches arithmetic, or
+  # the TTL/future-date guards below silently fall through to HONOR (#479 N=3
+  # security review): a LEADING ZERO makes `$(( ))` parse it as octal (8/9 → an
+  # arithmetic error that reads as "not stale"), and a value >= 2^63 (≈20 digits)
+  # overflows bash 3.2 arithmetic and wraps negative (also "not stale"). Reject
+  # both here — digits only, no leading zero, <=11 digits (good past year 5138) —
+  # so any out-of-range created is fail-safe-to-block, never a spurious skip.
+  case "$t_created" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
+  [ "${#t_created}" -le 11 ] || { rm -f "$tok"; return 1; }
   case "$bind" in *"$t_fp"*) : ;; *) rm -f "$tok"; return 1 ;; esac  # fingerprint not a substring → block
   now=$(date +%s)
   if [ "$t_created" -gt "$now" ] || [ "$(( now - t_created ))" -gt 60 ]; then
