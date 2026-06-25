@@ -86,6 +86,7 @@ Pointer index — every contract below lives in full in SPEC §6.1 (PreToolUse m
 - **trusted-filer-mutate** — blocks a trusted-filer `gh issue close` without `--reason completed`, and `--remove-label directive` on any filer (SPEC §6.1).
 - **label-parent-consistency** — blocks a `gh issue edit --add-label {execution|task|bug}` that contradicts the body's line-1 parent marker (plus the initiative/directive + parent-XOR arms) (SPEC §6.1).
 - **initiative-readonly** — blocks mutating `gh issue edit`/`close`/`reopen` on an `initiative` Issue (comments always allowed) (SPEC §6.1).
+- **directive-close** — blocks a GitHub close keyword + Directive `#N` in a PR body (inline `--body`) or commit message; the auto-close would bypass `/complete-directive` (§5.13). Execution Issues unaffected; per-`#N` fail-open (SPEC §6.1).
 
 Escape — three audit-logged forms. The **primary in-agent** form is a **file-based skip token** (`scripts/eng_skip.sh <cat> <cmd_fingerprint> [reason]`, one-shot + 60s TTL, read by the hook at fire time so the harness can't strip it). The two in-command forms — a trailing `# claude-eng:skip=<cat> reason=<why>` sentinel and a leading `SKIP_HOOKS=<cat> SKIP_REASON='<why>'` env-prefix — are **verbatim-delivery only** (a real shell, the smoke harness); the live Claude Code Bash tool strips both before the hook, so neither lands in-harness. Real terminal / non-protected-branch + rename is the fallback. Full contract: SPEC §7.
 
