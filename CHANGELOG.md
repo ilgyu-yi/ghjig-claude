@@ -4,6 +4,36 @@ All notable changes to this project are recorded here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [semver](https://semver.org/) 0.x (`MAJOR=0` throughout v0; see SPEC §3.5 and §18.4). The per-PR fragment contract for unreleased changes lives at [`changelog_unreleased/TEMPLATE.md`](changelog_unreleased/TEMPLATE.md); `/release X.Y.Z` consolidates the fragments into a new section here.
 
+## [0.5.0] — 2026-06-25
+
+### Added
+
+- Added `scripts/setup.sh`, a single host-side entry point that collapses first-run setup into one relative-path command: dependency check → register (local path) or clone (repo URL) → mechanical onboard pre-flight → an always-offered dir-mode install gate (default N) → next-step guidance (`--enter` launches the session directly). The PATH `export` is now optional — only needed to invoke `claude-eng` from an arbitrary directory (#459).
+- The SessionStart banner now includes a once-per-session, zero-network SSOT-presence health line: `SSOT: MISSION.md ✓ SPEC.md ✓` when both are present, or a prominent SPEC-first nudge when `SPEC.md` is absent (SPEC is the required behavioural SSOT, SPEC §1.3). It consumes the shared `scripts/lib/onboard_checks.sh --dry-run` and surfaces only for a registered target (#461).
+- Added `scripts/spec_drift_candidates.sh`, a measure-first advisory reader (sibling of the `*_candidates.sh` family) that surfaces code-ahead code-vs-SPEC drift candidates — commits that touched a path `SPEC.md` references without co-updating `SPEC.md` — in the `  <path> | drift-commits=N` cluster shape. Detection only; configurable via `SPEC_DRIFT_LOOKBACK` / `SPEC_DRIFT_MIN_COUNT` (#463).
+- Added the `/reconcile-spec` command: it consumes `scripts/spec_drift_candidates.sh`, classifies each code-vs-SPEC drift candidate into one of three dispositions (spec-ahead → track; code-ahead-correct → propose a SPEC update, applied only after explicit user approval; code-wrong → never edit SPEC, route to a code fix), and audit-logs each decision under `spec-reconcile`. It never silently rewrites SPEC to match possibly-buggy code, and never auto-applies a correction in unattended mode (#465).
+- `/release` now runs a stack-aware, verification-only manifest-version preflight: it resolves the detected project's native version field (node `package.json`, python `pyproject.toml`, rust `Cargo.toml`; other stacks skip) via the single-source `detect_version` and refuses a release whose manifest version contradicts the `X.Y.Z` being cut (naming both + the bump fix). An unknown stack / absent or unparseable field degrades to a graceful skip; the manifest is read, never written (#470).
+- Added a file-based **in-agent escape channel** (`scripts/eng_skip.sh` writer + a `should_skip` token reader): a one-shot, command-fingerprint-bound, 60s-TTL skip token under the per-project state dir that the PreToolUse hook reads at fire time — restoring a working escape inside the Claude Code Bash tool, which strips the in-command `SKIP_HOOKS` forms (#478). Fail-safe-to-block on any doubt, consumed on read, category-scoped, and audit-logged (parity with `SKIP_HOOKS`). `/release` and `/bootstrap-repo` now arm a token via `eng_skip.sh` immediately before their protected-branch commit; the in-command forms remain valid where a command arrives verbatim (a real shell, the smoke harness). The shell cannot change the harness's command preprocessing, so the channel lives outside the command string by design (#479)
+
+### Changed
+
+- Re-centered MISSION "The mechanism" on the harness-as-rising-floor model and added a SPEC §1.9 harness-overlap classification — every shell mechanism marked `cede-to-harness` / `keep-as-policy` / `keep-as-safety-redundancy` — guarded by a smoke coverage-parity assertion. (#451)
+- SPEC.md is now required for any repo that carries code (the behavioural-SSOT framing of SPEC §1.3), not only once an external CLI/API/schema/protocol contract exists; the mechanical `/onboard` checks (upstream, permission, SSOT presence, branch protection, CI) are extracted into a single shared `scripts/lib/onboard_checks.sh` that `/onboard` and the forthcoming `setup.sh` both consume (#457).
+- The SessionStart friction advisory now also runs `scripts/spec_drift_candidates.sh` and reports the outstanding code-vs-SPEC drift-candidate count (`N spec-drift candidate(s)`) once per session, under the same timeout envelope + once-per-session stamp as the other readers — so SPEC drift surfaces without a human running the script (#467).
+
+### Fixed
+
+- `/reflect` enrich-in-place PATCH now uses `gh api -F body=@-` (reads stdin) instead of `-f` (which set the literal string `@-`), so enriching a Directive reflection comment no longer corrupts its body; guarded by a smoke check against the broken form in any command doc. (#452)
+- `/release`'s documented post-merge `gh release create` one-liner no longer passes `--verify-tag`, which always aborted on a fresh release (the tag is created together with the Release, so the flag's pre-existing-tag requirement could never be met). It is also followed by a new read-only, fail-open `scripts/release_verify.sh <X.Y.Z>` that confirms the `vX.Y.Z` tag + a GitHub Release with non-empty notes actually landed, surfacing an advisory on a missing tag / missing-or-empty-notes Release; resolves #448 (#472).
+- Fixed `release_verify.sh` falsely reporting "empty notes" when `jq` is absent or fails (it now fails open with a named advisory), and hardened the post-merge release-integrity safety net: re-anchored two non-discriminating smoke assertions, added a self-policing guard for the SPEC §8 `scripts/` tree, and closed the TOML manifest-version coverage gap (#473)
+- Fixed the single-`&` (background operator) sibling of the #446 glued-separator force-push false-negative: a command gluing a background `&` onto a protected force-push (`git status&git push --force origin main`, no space) was folded by the env-prefix shlex round-trip and slipped past the gate. A lone unquoted `&` is now re-separated like the other separators — except when it is part of a redirect (`>&`, `&>`, `N>&M`, `<&`, `&>>`), which is left intact so legitimate commands (`git push --force origin feature 2>&1`) are not over-blocked. `push_segments` gains the same `&` split so a backgrounded sibling clause's token cannot collapse into the push segment (#476)
+- Corrected the escape-hatch documentation (SPEC §7 + §5.0, CLAUDE.md, and the `escape.sh` helper header): in the live Claude Code Bash tool BOTH `SKIP_HOOKS` escape forms (leading env-prefix and trailing sentinel) are stripped before the PreToolUse hook reads the command, so neither takes effect in-harness — the prior docs incorrectly claimed the trailing sentinel survives in-harness. Recourse for a sanctioned guarded op is now documented: run it in a real terminal (no PreToolUse hook fires there) or via a non-protected branch + rename; a smoke guard prevents the false claim from regressing (#478)
+- Fixed the #479 in-agent escape token channel being non-functional in the live harness: the writer (`eng_skip.sh`, a Bash-tool subprocess with `CLAUDE_PROJECT_DIR` unset) and the reader (the PreToolUse hook, with it set) resolved different `eng_state_dir` directories, so the armed token was never found. The writer now derives `CLAUDE_PROJECT_DIR` from the git top-level when unset (matching what the hook sees), and both empty-`eng_state_dir` fallbacks are realigned to `.claude/eng-state` — so writer and reader always agree. A new smoke arm exercises the resolution without the `ENG_STATE_DIR_OVERRIDE` seam that masked the divergence (#483)
+
+### Security
+
+- Fixed a false-negative on the force-push/protected-branch PreToolUse gate: a command that glued a separator (`&&`/`||`/`;`/`|`) onto a following push with no surrounding space was folded by the env-prefix shlex round-trip, so the trailing protected force-push slipped past unblocked. Glued separators are now re-separated (quote-aware, leaving in-message literals untouched) before matching, so glued and spaced forms gate identically (#446)
+
 ## [0.4.0] — 2026-06-23
 
 ### Added
@@ -211,3 +241,5 @@ Inaugural tagged release. Covers `init` through `v0.1.0` as a single block (per 
 [0.3.0]: https://github.com/ilgyu-yi/claude-eng-shell/releases/tag/v0.3.0
 
 [0.4.0]: https://github.com/ilgyu-yi/claude-eng-shell/releases/tag/v0.4.0
+
+[0.5.0]: https://github.com/ilgyu-yi/claude-eng-shell/releases/tag/v0.5.0
