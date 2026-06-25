@@ -61,6 +61,7 @@ Engineering-flow matchers are type-aware:
 - AC-closeout matcher skips when ALL closing issues are Directives (Directives close via `/complete-directive`, not AC checkboxes).
 - `proposed-protect` matcher blocks `git checkout -b <user>/<type>/<N>-<slug>` when `<N>` is `status:proposed` (any type — run `/activate <N>` first) or a Directive (any status — the engineering-flow `/work-on` is the wrong tool for a Directive; use `/file-issue --parent <N>`).
 - `initiative-readonly` matcher blocks mutating `gh issue` subcommands against an `initiative` Issue; `label-parent-consistency` enforces the Initiative/Directive label and parent-marker invariants.
+- `directive-close` matcher blocks a GitHub close keyword + Directive `#N` in a `gh pr create`/`edit --body` or a commit message — the auto-close would bypass `/complete-directive` (Execution Issues are unaffected; per-`#N` fail-open).
 
 See SPEC §1.7 type-aware engineering hooks for the predicates (`is_directive_issue`, `is_proposed_issue`, `is_initiative_issue`, `issue_has_*_marker`) and fail-policy.
 
