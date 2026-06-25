@@ -12076,6 +12076,80 @@ else
   ng "124: escape docs still claim the trailing sentinel works in-harness, or lack the stripped-reality statement (missing=$s124_missing false=$s124_false fixed=$s124_fixed) (#478)"
 fi
 
+# ---------- §126: implementer subagent (Phase C) opt-in channel contract (#486 / Directive #477) ----------
+# Placed before §110 (the README floor guard, which runs last by design). Phase B
+# (Test) for EI-1 under Directive #477. The Doc phase already landed the contract
+# into .claude/agents/implementer.md, .claude/commands/implement.md, SPEC, and
+# CLAUDE.md, so these are REGRESSION LOCKS (style of §117 / the agent-doc checks),
+# not RED-first: this declarative feat's Code is n/a, and this Test phase guards
+# the declarative contract. NON-VACUOUS throughout: each arm fails LOUD when a
+# scanned file is missing rather than greening on nothing scanned.
+
+# §126a — implementer.md must declare the channel-defining contract: artifact-only
+# / manifest-driven input, churn-discard, and a structured return. Anchors are
+# stable tokens read from the file (manifest, artifact-only premise, churn-discard,
+# structured return, plan-deviations, discoveries).
+S126_AGENT="$SHELL_ROOT/.claude/agents/implementer.md"
+if [ ! -f "$S126_AGENT" ]; then
+  ng "126a: .claude/agents/implementer.md missing — implementer contract absent (#486)"
+else
+  s126a_manifest=$(grep -ciE 'manifest' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  s126a_artifact=$(grep -ciE 'artifact-only|no knowledge of the main assistant|not from the main assistant' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  s126a_churn=$(grep -ciE 'churn[ -]?discard|working churn|never re-enters' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  s126a_struct=$(grep -ciE 'structured return' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  s126a_dev=$(grep -ciE 'deviation' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  s126a_disc=$(grep -ciE 'discover' "$S126_AGENT" 2>/dev/null | tr -d ' ')
+  if [ "$s126a_manifest" -ge 1 ] && [ "$s126a_artifact" -ge 1 ] && [ "$s126a_churn" -ge 1 ] \
+     && [ "$s126a_struct" -ge 1 ] && [ "$s126a_dev" -ge 1 ] && [ "$s126a_disc" -ge 1 ]; then
+    ok "126a: implementer.md declares manifest-driven artifact-only input + churn-discard + structured return (deviations/discoveries) (#486)"
+  else
+    ng "126a: implementer.md missing a contract token (manifest=$s126a_manifest artifact=$s126a_artifact churn=$s126a_churn struct=$s126a_struct dev=$s126a_dev disc=$s126a_disc) (#486)"
+  fi
+fi
+
+# §126b — /implement command must document manifest assembly (plan + failing test +
+# named files), spawning the implementer subagent, absorbing ONLY the structured
+# return, and the OPT-IN invariant (explicitly not the default / not auto-routed).
+S126_CMD="$SHELL_ROOT/.claude/commands/implement.md"
+if [ ! -f "$S126_CMD" ]; then
+  ng "126b: .claude/commands/implement.md missing — /implement contract absent (#486)"
+else
+  s126b_manifest=$(grep -ciE 'manifest' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  s126b_plan=$(grep -ciE 'plan' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  s126b_test=$(grep -ciE 'failing .{0,12}test|phase-?b test' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  s126b_spawn=$(grep -ciE 'subagent_type: *implementer|implementer subagent' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  s126b_absorb=$(grep -ciE 'structured return|absorb' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  s126b_optin=$(grep -ciE 'opt-in|nothing auto-routes|not auto-routed|default .{0,30}unchanged' "$S126_CMD" 2>/dev/null | tr -d ' ')
+  if [ "$s126b_manifest" -ge 1 ] && [ "$s126b_plan" -ge 1 ] && [ "$s126b_test" -ge 1 ] \
+     && [ "$s126b_spawn" -ge 1 ] && [ "$s126b_absorb" -ge 1 ] && [ "$s126b_optin" -ge 1 ]; then
+    ok "126b: /implement documents manifest assembly + implementer spawn + structured-return absorb + OPT-IN invariant (#486)"
+  else
+    ng "126b: /implement missing a contract token (manifest=$s126b_manifest plan=$s126b_plan test=$s126b_test spawn=$s126b_spawn absorb=$s126b_absorb optin=$s126b_optin) (#486)"
+  fi
+fi
+
+# §126c — opt-in / no-auto-route guard (the #477 signal-4 gate lock). The load-bearing
+# arm: the DEFAULT Code-phase flow must NOT auto-route to the implementer. /work-on.md
+# must not dispatch the implementer subagent, and no Stop/PostToolUse hook may
+# auto-invoke it. GREEN now (no reference exists today), goes RED the moment an
+# auto-route is wired — before the signal-4 measurement authorizes a default-flip.
+# NON-VACUOUS: fails loud if /work-on.md is missing (else the negative would green
+# on an absent file).
+S126_WORKON="$SHELL_ROOT/.claude/commands/work-on.md"
+if [ ! -f "$S126_WORKON" ]; then
+  ng "126c: .claude/commands/work-on.md missing — cannot assert no-auto-route (#486)"
+else
+  # NEGATIVE: /work-on must not dispatch the implementer subagent.
+  s126c_workon_route=$(grep -ciE 'subagent_type: *implementer|implementer subagent|invoke .{0,20}implementer' "$S126_WORKON" 2>/dev/null | tr -d ' ')
+  # NEGATIVE: no Stop / PostToolUse hook may auto-invoke the implementer.
+  s126c_hook_route=$(grep -rilE 'subagent_type: *implementer|invoke .{0,20}implementer|implementer subagent' "$SHELL_ROOT"/.claude/hooks/stop.sh "$SHELL_ROOT"/.claude/hooks/post_tool_use.sh 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$s126c_workon_route" = 0 ] && [ "$s126c_hook_route" = 0 ]; then
+    ok "126c: default Code-phase flow does NOT auto-route to implementer (/work-on + Stop/PostToolUse hooks clean) — #477 signal-4 gate intact (#486)"
+  else
+    ng "126c: implementer is auto-routed before #477 signal-4 measurement (work-on=$s126c_workon_route hooks=$s126c_hook_route) — opt-in invariant broken (#486)"
+  fi
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
