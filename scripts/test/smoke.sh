@@ -11538,6 +11538,276 @@ JQSHIM
   rm -rf "$S65K_DIR"
 fi
 
+# ---------- §125: file-based in-agent skip token — the hook-side READER (#479) ----------
+# Phase B (Test), RED-first against the current (no-reader) escape.sh. The Code
+# phase will extend should_skip <cat> to consult, AFTER the $SKIP_HOOKS check, a
+# per-category token at $(eng_state_dir)/escape/<cat>.token: four KEY=VALUE keys
+# (category, reason, cmd_fingerprint, created), honored iff ALL hold — file
+# present+readable; exactly the four keys; category==requested==filename;
+# cmd_fingerprint non-empty AND a substring of the hook-exported $ESCAPE_BIND_CMD
+# (the raw command); created numeric AND now-created <= 60; bind-cmd non-empty. On
+# honor: audit_log escape <cat> skip "<reason>" → delete the token → skip. Token
+# is consumed-on-read (deleted on honor AND on stale/malformed reject). Pure-bash
+# reader; fail-safe-to-block on any doubt. Bash-tool path ONLY.
+#
+# WHY a dedicated driver (esc_hook_run) and fixture repo: §15's hook_run cds into
+# $TMP/fake on a NON-protected branch, so the `branch` matcher never fires there.
+# The honor path is exercised against a genuinely-blocked op — a commit on a
+# protected branch (release/9.9.9) — mirroring §15's "escape against a real block"
+# discipline. The driver keeps ENG_STATE_DIR_OVERRIDE=$SMOKE_STATE inherited (NOT
+# setting CLAUDE_PROJECT_DIR), so the hook's eng_state_dir() resolves to the SAME
+# isolated dir we write the token under — testing the READER independently of
+# scripts/eng_skip.sh (Code phase, absent). Tokens are written DIRECTLY with printf.
+#
+# EXPECTED pre-Code RED set: 125-1 (honor), 125-2-first (consume — first call must
+# be allowed, which needs honor), 125-5a (python-free honor), 125-8 (audit). The
+# fail-safe arms (125-3/4/5b/6/7) are GREEN both pre and post Code (the current
+# escape.sh has no reader → every token is ignored → block stands).
+
+ESC_HOOK="$SHELL_ROOT/.claude/hooks/pre_tool_use.sh"
+ESC_REPO=$(cd "$(mktemp -d)" && pwd -P)
+ESC_TOKEN_DIR="$SMOKE_STATE/escape"
+esc_git() { git -c commit.gpgsign=false -c user.email=t@t -c user.name=t "$@"; }
+(
+  cd "$ESC_REPO" || exit 1
+  git init -q
+  git checkout -q -b release/9.9.9 2>/dev/null || git checkout -q release/9.9.9
+  esc_git commit --allow-empty -q -m "init"
+) || ng "125: protected fixture repo setup failed (#479)"
+# Register the fixture under the isolated registry so out-of-scope concerns don't
+# interfere; the branch matcher is what we exercise here.
+grep -qxF "$ESC_REPO" "$SMOKE_REG" 2>/dev/null || printf '%s\n' "$ESC_REPO" >> "$SMOKE_REG"
+
+# Non-vacuity guard: the isolated escape dir MUST resolve under $SMOKE_STATE, or
+# every token write below would land somewhere the hook never reads and the arms
+# would green on nothing. Assert the seam loudly before any token is written.
+if [ -n "$SMOKE_STATE" ] && [ -d "$SMOKE_STATE" ]; then
+  mkdir -p "$ESC_TOKEN_DIR"
+  ok "125: isolated escape token dir resolves under \$SMOKE_STATE (seam, #479)"
+else
+  ng "125: cannot resolve isolated escape state dir — token arms would be vacuous (#479)"
+fi
+
+# Sanity: the fixture must really be on a protected branch (else the branch
+# matcher never fires and the honor arms would test nothing).
+esc_repo_branch=$(cd "$ESC_REPO" && git symbolic-ref --short HEAD 2>/dev/null)
+if printf '%s' "$esc_repo_branch" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$"; then
+  ok "125: fixture on protected branch '$esc_repo_branch' (honor arms exercise a real block, #479)"
+else
+  ng "125: fixture NOT on a protected branch ('$esc_repo_branch') — honor arms vacuous (#479)"
+fi
+
+# Driver: run the PreToolUse hook against a Bash command FROM the protected repo,
+# with the isolated state override inherited. Echoes the hook exit code.
+esc_hook_run() {
+  local _cmd="$1"
+  (
+    cd "$ESC_REPO" || exit 1
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$_cmd" | jq -Rs .)" \
+      | CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$ESC_HOOK" >/dev/null 2>&1
+    printf '%s' "$?"
+  )
+}
+
+# Write a token file with EXACTLY the supplied KEY=VALUE lines.
+# Usage: esc_write_token <category> <line...> ; writes $ESC_TOKEN_DIR/<category>.token
+esc_write_token() {
+  local _cat="$1"; shift
+  mkdir -p "$ESC_TOKEN_DIR"
+  : > "$ESC_TOKEN_DIR/$_cat.token"
+  local _ln
+  for _ln in "$@"; do
+    printf '%s\n' "$_ln" >> "$ESC_TOKEN_DIR/$_cat.token"
+  done
+}
+
+# A protected-branch commit whose SUBJECT is a distinguishing fingerprint
+# substring (NOT a bare verb). The fingerprint must be a substring of THIS cmd.
+ESC_CMD='git commit --allow-empty -m "chore: release 9.9.9 cut"'
+ESC_FP='chore: release 9.9.9 cut'
+
+# 125-1. HONORED happy-path (RED until Code): a valid `branch` token disarms the
+# protected-branch commit block → allowed (rc 0). Pre-Code: no reader → blocked.
+esc_write_token branch \
+  "category=branch" \
+  "reason=in-agent escape token" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(date +%s)"
+esc_before=$(audit_lines); [ -z "$esc_before" ] && esc_before=0
+esc_rc1=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc1" = "0" ]; then
+  ok "125-1: valid branch token honored — protected commit allowed (#479)"
+else
+  ng "125-1: valid branch token NOT honored (rc=$esc_rc1) — RED until Code (#479)"
+fi
+
+# 125-8. AUDIT emission (RED until Code): the honored skip from 125-1 wrote
+# exactly one escape/skip/branch record carrying the token's reason.
+esc_after=$(audit_lines); [ -z "$esc_after" ] && esc_after=0
+esc_delta=$((esc_after - esc_before))
+if [ "$esc_delta" -ge 1 ] \
+   && [ "$(tail -n "$esc_delta" "$REAL_AUDIT" 2>/dev/null | grep -c '"event":"escape"')" -ge 1 ] \
+   && tail -n "$esc_delta" "$REAL_AUDIT" 2>/dev/null | grep '"event":"escape"' | grep -q '"category":"branch"' \
+   && tail -n "$esc_delta" "$REAL_AUDIT" 2>/dev/null | grep '"event":"escape"' | grep -q 'in-agent escape token'; then
+  ok "125-8: honored skip emits an escape/branch audit record with the token reason (#479)"
+else
+  ng "125-8: no escape/branch audit record for the honored token (delta=$esc_delta) — RED until Code (#479)"
+fi
+
+# 125-2. NO standing bypass / consume-on-read (RED-first part + GREEN part):
+#   (a) after 125-1's honor, the token file no longer exists (consumed);
+#   (b) re-driving the SAME command now BLOCKS (rc 2) — no persistent bypass.
+# Pre-Code: the reader never consumes (the token still sits there) AND the first
+# call already blocked, so (b) is trivially true but (a) is RED.
+if [ ! -e "$ESC_TOKEN_DIR/branch.token" ]; then
+  ok "125-2a: honored token consumed (file deleted) — RED until Code (#479)"
+else
+  ng "125-2a: token NOT consumed after honor — standing bypass risk (#479)"
+fi
+esc_rc2=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc2" = "2" ]; then
+  ok "125-2b: re-driving the same command after consume → blocked (no standing bypass) (#479)"
+else
+  ng "125-2b: token granted a standing bypass (rc=$esc_rc2) (#479)"
+fi
+
+# 125-3. FAIL-SAFE: absent token → blocked (GREEN pre+post — regression guard).
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_rc3=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc3" = "2" ]; then
+  ok "125-3: no token → protected commit blocked (fail-safe, #479)"
+else
+  ng "125-3: protected commit allowed with NO token (rc=$esc_rc3) (#479)"
+fi
+
+# 125-4. FAIL-SAFE: malformed token → blocked AND consumed.
+#   (a) missing a required key, (b) an unknown extra key, (c) non-numeric created.
+# Each must block (GREEN pre+post); post-Code each must also be consumed (the
+# reader deletes a rejected token). The consume assertion is RED pre-Code (no
+# reader to delete) — but it sits with the malformed fail-safe family by intent.
+esc_malformed_block_ok=1
+esc_malformed_consume_ok=1
+# (a) missing cmd_fingerprint
+esc_write_token branch "category=branch" "reason=x" "created=$(date +%s)"
+[ "$(esc_hook_run "$ESC_CMD")" = "2" ] || esc_malformed_block_ok=0
+[ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_malformed_consume_ok=0
+# (b) unknown extra key
+esc_write_token branch "category=branch" "reason=x" "cmd_fingerprint=$ESC_FP" "created=$(date +%s)" "bogus=1"
+[ "$(esc_hook_run "$ESC_CMD")" = "2" ] || esc_malformed_block_ok=0
+[ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_malformed_consume_ok=0
+# (c) non-numeric created
+esc_write_token branch "category=branch" "reason=x" "cmd_fingerprint=$ESC_FP" "created=not-a-number"
+[ "$(esc_hook_run "$ESC_CMD")" = "2" ] || esc_malformed_block_ok=0
+[ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_malformed_consume_ok=0
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc_malformed_block_ok" = 1 ]; then
+  ok "125-4-block: malformed token (missing/unknown key, non-numeric created) → blocked (fail-safe, #479)"
+else
+  ng "125-4-block: a malformed token did NOT fail safe to block (#479)"
+fi
+if [ "$esc_malformed_consume_ok" = 1 ]; then
+  ok "125-4-consume: malformed token deleted on read — RED until Code (#479)"
+else
+  ng "125-4-consume: malformed token NOT consumed (#479)"
+fi
+
+# 125-5. FAIL-SAFE under python3-absent (honor part RED until Code). The reader is
+# pure-bash, so shadowing python3 off PATH must NOT change either verdict:
+#   (a) a VALID token still HONORS (allowed rc 0) — RED until Code;
+#   (b) a malformed token still fail-safe-BLOCKS — GREEN pre+post.
+ESC_NOPY=$(mktemp -d)
+# A PATH with only a python3 shim that fails — proves the reader doesn't shell out
+# to python3. Keep the real toolchain reachable via the shim dir prepended only.
+cat > "$ESC_NOPY/python3" <<'NOPY'
+#!/usr/bin/env bash
+echo "python3 disabled for this test" >&2
+exit 127
+NOPY
+chmod +x "$ESC_NOPY/python3"
+esc_pyfree_hook_run() {
+  local _cmd="$1"
+  (
+    cd "$ESC_REPO" || exit 1
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$_cmd" | jq -Rs .)" \
+      | PATH="$ESC_NOPY:$PATH" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$ESC_HOOK" >/dev/null 2>&1
+    printf '%s' "$?"
+  )
+}
+# (a) valid token, python3 shadowed → still honors.
+esc_write_token branch \
+  "category=branch" \
+  "reason=python-free honor" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(date +%s)"
+esc_rc5a=$(esc_pyfree_hook_run "$ESC_CMD")
+if [ "$esc_rc5a" = "0" ]; then
+  ok "125-5a: valid token honored with python3 off PATH (pure-bash reader) — RED until Code (#479)"
+else
+  ng "125-5a: token not honored when python3 absent (rc=$esc_rc5a) — RED until Code (#479)"
+fi
+rm -f "$ESC_TOKEN_DIR/branch.token"
+# (b) malformed token, python3 shadowed → still blocks.
+esc_write_token branch "category=branch" "reason=x" "created=$(date +%s)"
+esc_rc5b=$(esc_pyfree_hook_run "$ESC_CMD")
+if [ "$esc_rc5b" = "2" ]; then
+  ok "125-5b: malformed token still fail-safe-blocks with python3 absent (#479)"
+else
+  ng "125-5b: malformed token honored when python3 absent (rc=$esc_rc5b) (#479)"
+fi
+rm -f "$ESC_TOKEN_DIR/branch.token"
+rm -rf "$ESC_NOPY"
+
+# 125-6. Does NOT disarm — stale TTL / fingerprint-mismatch (GREEN pre; post the
+# reader must reject these specific tokens even though present).
+#   (a) created older than the 60s TTL → blocked.
+esc_write_token branch \
+  "category=branch" \
+  "reason=stale" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(( $(date +%s) - 120 ))"
+esc_rc6a=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc6a" = "2" ]; then
+  ok "125-6a: token older than 60s TTL does not disarm — blocked (#479)"
+else
+  ng "125-6a: stale (>60s) token wrongly honored (rc=$esc_rc6a) (#479)"
+fi
+rm -f "$ESC_TOKEN_DIR/branch.token"
+#   (b) cmd_fingerprint NOT a substring of the driven command → blocked.
+esc_write_token branch \
+  "category=branch" \
+  "reason=mismatch" \
+  "cmd_fingerprint=this fingerprint is not in the command" \
+  "created=$(date +%s)"
+esc_rc6b=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc6b" = "2" ]; then
+  ok "125-6b: fingerprint not a substring of the command does not disarm — blocked (#479)"
+else
+  ng "125-6b: fingerprint-mismatch token wrongly honored (rc=$esc_rc6b) (#479)"
+fi
+rm -f "$ESC_TOKEN_DIR/branch.token"
+
+# 125-7. Category-scoping (GREEN pre+post): a valid `branch` token does NOT disarm
+# a DIFFERENT category's block on the same command. Drive a commit with a bad
+# (non-CC) subject so the commit-format matcher blocks; the branch token must not
+# rescue it. The fingerprint is a substring of THIS command.
+ESC_BAD_CMD='git commit --allow-empty -m "not a conventional subject 9.9.9"'
+esc_write_token branch \
+  "category=branch" \
+  "reason=wrong-category" \
+  "cmd_fingerprint=not a conventional subject 9.9.9" \
+  "created=$(date +%s)"
+esc_rc7=$(esc_hook_run "$ESC_BAD_CMD")
+if [ "$esc_rc7" = "2" ]; then
+  ok "125-7: a branch token does not disarm a commit-format block (category-scoped) (#479)"
+else
+  ng "125-7: branch token leaked across categories (rc=$esc_rc7) (#479)"
+fi
+rm -f "$ESC_TOKEN_DIR/branch.token"
+
 # ---------- §124: escape docs state the in-harness reality, not a false "survives in-harness" claim (#478) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Both
 # SKIP_HOOKS escape forms (leading env-prefix + trailing `# claude-eng:skip=…`
