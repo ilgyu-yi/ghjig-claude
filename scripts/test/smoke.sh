@@ -8712,16 +8712,20 @@ s80_tmp=$(mktemp); grep -vxF "$S80_REPO" "$SMOKE_REG" > "$s80_tmp" 2>/dev/null |
 mv "$s80_tmp" "$SMOKE_REG"
 rm -rf "$S80_REPO"
 
-# 80d: the command file exists with the skill contract AND carries the EXACT
-# sentinel string the §5.0 contract / smoke 80c pin (red until the Code phase).
+# 80d: the command file exists with the skill contract AND documents the EXACT
+# in-agent seed-escape recipe the §5.0 contract pins. Post-#479 the working
+# in-agent escape is the file token (eng_skip.sh), NOT the trailing sentinel
+# (which the live Bash tool strips, #478) — so the pin follows the contract to
+# the eng_skip.sh seed recipe. (§80c still proves the sentinel works where a
+# command arrives verbatim — the smoke harness / a real shell.)
 BOOTSTRAP_CMD="$SHELL_ROOT/.claude/commands/bootstrap-repo.md"
 if [ -f "$BOOTSTRAP_CMD" ] \
    && grep -qE '^## Procedure' "$BOOTSTRAP_CMD" \
    && grep -qE '^## Forbidden' "$BOOTSTRAP_CMD" \
-   && grep -qF 'claude-eng:skip=branch reason=stage-0-bootstrap-seed-on-unborn-HEAD' "$BOOTSTRAP_CMD"; then
-  ok "80d: /bootstrap-repo command file carries Procedure/Forbidden + exact sentinel (#307)"
+   && grep -qF "scripts/eng_skip.sh branch 'chore: seed first commit (MISSION + README)'" "$BOOTSTRAP_CMD"; then
+  ok "80d: /bootstrap-repo command file carries Procedure/Forbidden + exact eng_skip seed recipe (#307, #479)"
 else
-  ng "80d: .claude/commands/bootstrap-repo.md missing skill contract or exact sentinel (#307)"
+  ng "80d: .claude/commands/bootstrap-repo.md missing skill contract or exact eng_skip seed recipe (#307, #479)"
 fi
 
 # 80e: SPEC §5.0 defines stage-0 as preceding /onboard and names the exception,
@@ -11807,6 +11811,27 @@ else
   ng "125-7: branch token leaked across categories (rc=$esc_rc7) (#479)"
 fi
 rm -f "$ESC_TOKEN_DIR/branch.token"
+
+# 125-9. WRITER round-trip — the documented writer `scripts/eng_skip.sh` produces
+# a token the reader honors for the matching command and that is consumed on read
+# (closes the writer side; §125-1..8 exercise the reader via printf tokens).
+rm -f "$ESC_TOKEN_DIR/branch.token"
+"$SHELL_ROOT/scripts/eng_skip.sh" branch "$ESC_FP" "round-trip via eng_skip" >/dev/null 2>&1
+esc_rc9=$(esc_hook_run "$ESC_CMD")
+if [ "$esc_rc9" = "0" ] && [ ! -e "$ESC_TOKEN_DIR/branch.token" ]; then
+  ok "125-9: eng_skip.sh writer round-trip — token honored + consumed (#479)"
+else
+  ng "125-9: eng_skip.sh writer token not honored/consumed (rc=$esc_rc9) (#479)"
+fi
+# 125-9b. WRITER footgun-reducer — eng_skip.sh refuses a <8-char fingerprint
+# (exit != 0) and writes NO token.
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if ! "$SHELL_ROOT/scripts/eng_skip.sh" branch "short" "x" >/dev/null 2>&1 \
+   && [ ! -e "$ESC_TOKEN_DIR/branch.token" ]; then
+  ok "125-9b: eng_skip.sh refuses a <8-char fingerprint and writes no token (#479)"
+else
+  ng "125-9b: eng_skip.sh wrote a token for a too-short fingerprint (footgun) (#479)"
+fi
 
 # ---------- §124: escape docs state the in-harness reality, not a false "survives in-harness" claim (#478) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Both
