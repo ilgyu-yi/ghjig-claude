@@ -254,6 +254,18 @@ while i < n:
         pad(c); i += 1
         while i < n and s[i] == " ": i += 1
         continue
+    if c == "&":
+        # Lone background "&" — pad it like the other separators UNLESS it is part
+        # of a redirect (immediately adjacent to ">" or "<": >&, &>, N>&M, <&, &>>),
+        # which is a redirect operator, not a separator (#476). "&&" is consumed by
+        # the two-char arm above, so a "&" reaching here is a genuine lone "&".
+        prev = s[i-1] if i > 0 else ""
+        nxt = s[i+1] if i + 1 < n else ""
+        if prev in (">", "<") or nxt in (">", "<"):
+            out.append(c); i += 1; continue
+        pad("&"); i += 1
+        while i < n and s[i] == " ": i += 1
+        continue
     out.append(c); i += 1
 sys.stdout.write("".join(out).strip())
 ' 2>/dev/null); then
@@ -264,7 +276,7 @@ sys.stdout.write("".join(out).strip())
 }
 
 # push_segments <cmd> — split <cmd> on unquoted command separators
-# (&& || ; | and newline) and print each segment containing a `git push` token,
+# (&& || ; | & and newline) and print each segment containing a `git push` token,
 # one per line (#366). The protected-push arm greps the protected-token pattern
 # per emitted segment, so a protected token in a SIBLING non-push segment
 # (`git push origin feat && gh pr create --base main`) is never matched against
@@ -272,7 +284,7 @@ sys.stdout.write("".join(out).strip())
 # heredoc body are not split points. Emits nothing when no segment has a push.
 push_segments() {
   printf '%s' "$1" | awk '
-    { nf = split($0, parts, /&&|\|\||;|\|/)
+    { nf = split($0, parts, /&&|\|\||;|\||&/)
       for (k = 1; k <= nf; k++) print parts[k] }
   ' | grep -E "${GIT_PREFIX}push\b"
 }
