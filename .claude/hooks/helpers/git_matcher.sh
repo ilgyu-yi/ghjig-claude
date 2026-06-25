@@ -288,3 +288,80 @@ push_segments() {
       for (k = 1; k <= nf; k++) print parts[k] }
   ' | grep -E "${GIT_PREFIX}push\b"
 }
+
+# directive_close_violation <text> — scan <text> for a GitHub auto-close keyword
+# (close/closes/closed, fix/fixes/fixed, resolve/resolves/resolved — case-insensitive,
+# optional `:`) immediately preceding an issue reference `#N`, and return success
+# (echoing the FIRST such `#N`) iff that `#N` is a DIRECTIVE Issue. GitHub auto-closes
+# a referenced Issue at merge when this grammar appears anywhere in a PR body OR a
+# commit message; for a Directive that bypasses /complete-directive's signal gate
+# (SPEC §5.13). This detector is SHARED by both the gh-pr-body arm and the
+# commit-message arm so the grammar can never drift between the two vectors (#490;
+# the #276 resolve_gh_issue_target anti-drift precedent).
+#
+# Per-`#N` FAIL-OPEN (parity with proposed-protect / initiative-readonly): if
+# is_directive_issue is undefined, or cannot resolve a given `#N` (gh down / no auth /
+# non-numeric → it returns non-zero), that `#N` is treated as "not a Directive" and
+# skipped — the matcher never blocks on an unresolved type. Returns 1 (no violation,
+# no output) when no referenced `#N` resolves to a Directive. Execution Issues
+# therefore never block (`Closes #<execution>` is the normal resolving trailer), and
+# a non-close mention (`Refs #N`, `advances #N`, prose) never matches the grammar.
+#
+# BSD/macOS-safe: a single `grep -ioE` extracts the keyword+`#N` pairs (a leading
+# non-alpha / line-start guard rejects substrings like "disclose #5"; the guard
+# char is dropped when the bare `#N` is re-extracted), then a bash loop calls the
+# predicate. No GNU-only `\b` / PCRE. The leading guard is intentionally permissive
+# (a digit-prefixed keyword still matches) — it errs toward BLOCKING, the fail-safe
+# direction for this high-asymmetry gate (§6.0 P1; a false block costs a rename).
+directive_close_violation() {
+  local text="$1" refs n
+  command -v is_directive_issue >/dev/null 2>&1 || return 1   # no predicate → fail-open
+  refs=$(printf '%s' "$text" \
+    | grep -ioE '(^|[^[:alpha:]])(clos(e|es|ed)|fix(es|ed)?|resolv(e|es|ed)):?[[:space:]]+#[0-9]+' \
+    | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+  [ -n "$refs" ] || return 1
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    if is_directive_issue "$n"; then
+      printf '%s' "$n"
+      return 0
+    fi
+  done <<< "$refs"
+  return 1
+}
+
+# extract_gh_pr_body <cmd> — echo the INLINE `--body`/`-b` value of a `gh pr`
+# command (create/edit). `--body-file`/`-F` (incl. the stdin `-F -` form) is
+# deliberately NOT read — a documented residual (SPEC §6.1): reading an arbitrary
+# file path would add an IO / path-resolution / TOCTOU surface disproportionate to
+# the vector. Used by the directive-close PR-body arm. Empty output when there is
+# no inline body (incl. the --body-file / stdin form). python3-absent → empty (the
+# arm then has nothing to scan → fail-open).
+extract_gh_pr_body() {
+  command -v python3 >/dev/null 2>&1 || { printf ''; return 0; }
+  printf '%s' "$1" | python3 -c '
+import sys, re
+cmd = sys.stdin.read()
+# --body / -b as a whole flag token (word-boundary), value introduced by = or
+# whitespace. "--body-file" starts with "--body" but is followed by "-", which the
+# (=|[ \t]+) group cannot match, so --body-file is correctly NOT read here.
+m = re.search(r"(?:(?<=\s)|^)(--body|-b)(=|[ \t]+)", cmd)
+if not m:
+    sys.exit(0)
+i, n = m.end(), len(cmd)
+if i < n and cmd[i] == "\x27":                       # single-quoted value
+    k = cmd.find("\x27", i + 1)
+    sys.stdout.write(cmd[i+1:k] if k != -1 else cmd[i+1:]); sys.exit(0)
+if i < n and cmd[i] == "\"":                         # double-quoted (backslash-aware)
+    k, buf = i + 1, []
+    while k < n:
+        if cmd[k] == "\\" and k + 1 < n:
+            buf.append(cmd[k+1]); k += 2; continue
+        if cmd[k] == "\"":
+            break
+        buf.append(cmd[k]); k += 1
+    sys.stdout.write("".join(buf)); sys.exit(0)
+bw = re.match(r"\S+", cmd[i:])                       # bareword value
+sys.stdout.write(bw.group(0) if bw else "")
+' 2>/dev/null
+}

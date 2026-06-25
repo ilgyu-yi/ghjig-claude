@@ -156,6 +156,73 @@ sys.exit(0)
   return 0
 }
 
+# extract_commit_message <raw_cmd> → echo the FULL commit message (every
+# -m/--message value joined by newlines + any top-level heredoc body), BOUNDED to
+# the `git commit` command (scans from the commit token, stops at the first
+# unquoted command separator). This is the COMPLEMENT of extract_commit_subject,
+# which returns only the subject LINE: GitHub auto-closes on a keyword anywhere in
+# the commit message body, so the directive-close matcher (#490) needs the whole
+# message, not just line 1. extract_commit_subject's subject-only contract is
+# unchanged (it is reused widely). Empty when there is no inline message (e.g. a
+# -F-only commit) — the caller then has nothing to scan (fail-open). The canonical
+# `-m "$(cat <<TAG … TAG)"` form is captured whole by the double-quoted -m value
+# read; the top-level heredoc branch covers a `git commit -F- <<TAG … TAG` form.
+extract_commit_message() {
+  command -v python3 >/dev/null 2>&1 || { printf ''; return 0; }
+  printf '%s' "$1" | python3 -c '
+import sys, re
+raw = sys.stdin.read()
+m = re.search(r"\bgit\b[^\n;&|]*?\bcommit\b", raw)   # bound start: one line, no separator
+if not m:
+    sys.exit(0)
+s = raw[m.end():]
+i, n = 0, len(s)
+pieces = []
+while i < n:
+    c = s[i]
+    if c in ";&|\n":                                 # unquoted top-level separator → end of cmd
+        break
+    hd = re.match(r"<<-?\s*([\x27\"]?)([A-Za-z_]\w*)\1", s[i:])
+    if hd:                                           # top-level heredoc (e.g. -F- <<TAG)
+        tag = hd.group(2)
+        rest = s[i+hd.end():]
+        nl = rest.find("\n")
+        if nl != -1:
+            collected = []
+            for ln in rest[nl+1:].split("\n"):
+                if ln.strip() == tag:
+                    break
+                collected.append(ln)
+            pieces.append("\n".join(collected))
+        i += hd.end()
+        continue
+    fm = re.match(r"(--message|-m)(=|[ \t]+)", s[i:])
+    if fm:
+        i += fm.end()
+        if i < n and s[i] == "\x27":                 # single-quoted value
+            k = s.find("\x27", i + 1)
+            if k == -1:
+                k = n
+            pieces.append(s[i+1:k]); i = k + 1
+        elif i < n and s[i] == "\"":                 # double-quoted (backslash-aware; spans newlines)
+            k, buf = i + 1, []
+            while k < n:
+                if s[k] == "\\" and k + 1 < n:
+                    buf.append(s[k+1]); k += 2; continue
+                if s[k] == "\"":
+                    break
+                buf.append(s[k]); k += 1
+            pieces.append("".join(buf)); i = k + 1
+        else:                                        # bareword value (to next whitespace)
+            bw = re.match(r"\S+", s[i:])
+            if bw:
+                pieces.append(bw.group(0)); i += len(bw.group(0))
+        continue
+    i += 1
+sys.stdout.write("\n".join(pieces))
+' 2>/dev/null
+}
+
 _codepoint_len() {
   if command -v python3 >/dev/null 2>&1; then
     printf '%s' "$1" | python3 -c 'import sys; print(len(sys.stdin.read()))'

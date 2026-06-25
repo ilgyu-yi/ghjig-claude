@@ -782,6 +782,38 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace initiative-readonly "$cmd"
     fi
 
+    # directive-close (#490) — block a GitHub close keyword + Directive #N in the
+    # INLINE --body/-b of `gh pr create`/`gh pr edit`. GitHub auto-closes a
+    # referenced Issue at merge when a close keyword (close/closes/closed,
+    # fix/fixes/fixed, resolve/resolves/resolved) precedes #N anywhere in the PR
+    # body; for a Directive that bypasses /complete-directive's signal gate
+    # (SPEC §5.13). Execution Issues are unaffected — their merge legitimately
+    # resolves them. The shared detector reads the INLINE body only; --body-file/-F
+    # (incl. stdin `-F -`, the /ship & /sync-pr path) is a documented residual
+    # (§6.1). Per-#N fail-open via is_directive_issue (an unresolved type skips that
+    # #N). The commit-message vector lives in the commit-format umbrella arm below.
+    if printf '%s' "$cmd" | grep -qE '\bgh\b[^|;&]*\bpr\b[^|;&]*\b(create|edit)\b'; then
+      decided=
+      if should_skip directive-close; then
+        decided=1
+      else
+        dc_hit=
+        if command -v extract_gh_pr_body >/dev/null 2>&1 && command -v directive_close_violation >/dev/null 2>&1; then
+          dc_body=$(extract_gh_pr_body "$raw_cmd")
+          if [ -n "$dc_body" ]; then
+            dc_hit=$(directive_close_violation "$dc_body") || dc_hit=
+          fi
+        fi
+        if [ -n "$dc_hit" ]; then
+          block directive-close "PR body has a close keyword referencing Directive #${dc_hit} — GitHub would auto-close it at merge, bypassing /complete-directive (signal-gated, SPEC §5.13). Directives close only via /complete-directive; use 'Refs #${dc_hit}' or 'advances #${dc_hit}', not a close keyword. Or SKIP_HOOKS=directive-close SKIP_REASON='<why>' for a sanctioned exception."
+        else
+          mark_allow directive-close
+          decided=1
+        fi
+      fi
+      [ -z "$decided" ] && pass_through_trace directive-close "$cmd"
+    fi
+
     # Force push — scoped to protected targets, with an explicit-target
     # requirement (#204). Force-push to a non-protected branch is the normal
     # rebase-pull tail (SPEC §13) and is allowed — but ONLY when the target
@@ -951,6 +983,20 @@ case "$tool" in
         err=$(check_commit_subject "$subj" 2>&1) || {
           should_skip commit-format && decided=1 || block commit-format "$err"
         }
+      fi
+      # directive-close (#490): block a close keyword + Directive #N anywhere in the
+      # commit MESSAGE (subject OR body — GitHub auto-closes on a keyword anywhere in
+      # the message, so a subject-only scan would miss a body trailer). The shared
+      # detector (helpers/git_matcher.sh) is fed the FULL message via
+      # extract_commit_message (the complement of the subject-only extract_commit_subject
+      # above). Its own escape category (directive-close), sibling to the umbrella's
+      # branch / commit-format / secret / format sub-checks.
+      # Per-#N fail-open; Execution Issues pass (`Closes #<execution>` is correct).
+      if command -v directive_close_violation >/dev/null 2>&1 && command -v extract_commit_message >/dev/null 2>&1; then
+        ccmsg=$(extract_commit_message "$raw_cmd")
+        if [ -n "$ccmsg" ] && dc_hit=$(directive_close_violation "$ccmsg"); then
+          should_skip directive-close && decided=1 || block directive-close "commit message has a close keyword referencing Directive #${dc_hit} — GitHub would auto-close it at merge, bypassing /complete-directive (signal-gated, SPEC §5.13). Use 'Refs #${dc_hit}' or 'advances #${dc_hit}', not a close keyword. Or SKIP_HOOKS=directive-close SKIP_REASON='<why>' for a sanctioned exception."
+        fi
       fi
       # Guarded like the sibling matchers (#213): if scan_staged_secrets is
       # undefined (secret_scan.sh failed to source — the session-restart
