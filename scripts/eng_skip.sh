@@ -38,12 +38,23 @@ if [ "${#fingerprint}" -lt 8 ]; then
   exit 2
 fi
 
+# Resolve the SAME token dir the hook reads (#483). The PreToolUse hook runs with
+# CLAUDE_PROJECT_DIR set, so its eng_state_dir → <repo>/.claude/eng-state; but a
+# Claude Code Bash-tool subprocess (this writer) often has CLAUDE_PROJECT_DIR
+# UNSET. Derive it from the git top-level when unset (== the project dir the hook
+# sees) so writer and reader agree. An already-set CLAUDE_PROJECT_DIR always wins.
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  _es_top=$(git rev-parse --show-toplevel 2>/dev/null) || _es_top=""
+  [ -n "$_es_top" ] && export CLAUDE_PROJECT_DIR="$_es_top"
+fi
 if command -v eng_state_dir >/dev/null 2>&1; then
   esd=$(eng_state_dir 2>/dev/null) || esd=""
 else
   esd=""
 fi
-[ -n "$esd" ] || esd="$SHELL_ROOT/.claude/state"
+# Aligned fallback (not .claude/state) — consistent with eng_state_dir's non-empty
+# form so the no-CLAUDE_PROJECT_DIR / non-repo case still agrees with the reader.
+[ -n "$esd" ] || esd="$SHELL_ROOT/.claude/eng-state"
 
 dir="$esd/escape"
 mkdir -p "$dir" || { echo "eng_skip: cannot create token dir $dir" >&2; exit 1; }

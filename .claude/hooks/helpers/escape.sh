@@ -32,7 +32,10 @@ should_skip() {
 _escape_token_honored() {
   local cat="$1" esd tok bind now
   esd=$(eng_state_dir 2>/dev/null) || esd=""
-  [ -n "$esd" ] || esd="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state"
+  # Aligned fallback (.claude/eng-state, not .claude/state) — consistent with
+  # eng_state_dir's non-empty form so the no-CLAUDE_PROJECT_DIR case agrees with
+  # the writer (#483).
+  [ -n "$esd" ] || esd="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/eng-state"
   [ -n "$esd" ] || return 1
   tok="$esd/escape/${cat}.token"
   [ -r "$tok" ] || return 1   # absent/unreadable → armed (fast path)
