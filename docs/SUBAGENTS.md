@@ -38,7 +38,7 @@ Phase A. Translates intent into SSOT changes (MISSION, README, CLAUDE.md, ARCHIT
 
 ### test-writer
 
-Phase B. Translates the Phase A doc into a failing test, confirms the failure is the intended picture, then hands off to the main assistant for Phase C.
+Phase B. Translates the Phase A doc into a failing test, confirms the failure is the intended picture, then hands off to the Phase-C author — the `implementer` subagent by default, via `/implement` (Directive #477; SPEC §4.12 / §5.28), with trivial / glue edits opting out to the main loop.
 
 - **When**: right after Phase A on `feat`, `docs`, and external-contract changes. `fix` runs reproduce-first instead (the bug repro plays the spec role).
 - **Input**: the Phase A doc/spec.
