@@ -11959,6 +11959,99 @@ else
   ng "125-10: out-of-range created wrongly honored (octal rc=$esc_rc10a overflow rc=$esc_rc10b) (#479)"
 fi
 
+# ---------- §125-NOOVERRIDE: writer/reader state-dir alignment in LIVE (no ENG_STATE_DIR_OVERRIDE) (#483) ----------
+# Phase B (Test), RED-first against current Code. The §125-1..10 arms above pin
+# ENG_STATE_DIR_OVERRIDE=$SMOKE_STATE on BOTH the printf writer and the reader,
+# so they never exercise the path resolution that LIVE actually takes — and that
+# masked #483: in LIVE the writer (scripts/eng_skip.sh, a Bash-tool subprocess)
+# has CLAUDE_PROJECT_DIR UNSET → eng_state_dir empty → it falls back to
+# $SHELL_ROOT/.claude/state/escape/<cat>.token, while the reader (the PreToolUse
+# hook) has CLAUDE_PROJECT_DIR SET → eng_state_dir=<repo>/.claude/eng-state →
+# reads <repo>/.claude/eng-state/escape/<cat>.token. The two diverge → the #479
+# channel is non-functional in LIVE.
+#
+# This arm reproduces the LIVE divergence WITHOUT re-masking it: NO override on
+# either side, and CLAUDE_PROJECT_DIR explicitly UNSET for the writer (forcing it
+# to DERIVE the project dir) while SET for the reader (the live hook condition).
+# Both run with cwd INSIDE a throwaway, self-contained git repo on a protected
+# branch, so `git rev-parse --show-toplevel` from inside resolves to that repo.
+#
+# Pre-Code RED: the writer with no CPD falls to $SHELL_ROOT/.claude/state/escape/
+# (the REAL shell root) while the reader looks under <fixture>/.claude/eng-state/
+# → token not found → BLOCKED (rc 2). Post-Code: eng_skip.sh derives
+# CLAUDE_PROJECT_DIR via git-toplevel when unset, and both empty-eng_state_dir
+# fallbacks align to .claude/eng-state → writer + reader agree → honored (rc 0).
+ESC_NOOV_REPO=$(cd "$(mktemp -d)" && pwd -P)
+(
+  cd "$ESC_NOOV_REPO" || exit 1
+  git init -q
+  git checkout -q -b release/9.9.9 2>/dev/null || git checkout -q release/9.9.9
+  esc_git commit --allow-empty -q -m "init"
+) || ng "125-NOOVERRIDE: protected fixture repo setup failed (#483)"
+# The reader runs WITHOUT the $SMOKE_STATE override, so it resolves its registry
+# per-project: eng_registry_file → CLAUDE_PROJECT_DIR/.claude/eng-state/registry.txt.
+# Register the fixture THERE (not just $SMOKE_REG, which the no-override reader
+# never reads) so the protected-branch matcher is in scope and actually FIRES —
+# otherwise the hook fails open (out-of-scope) and the honor assertion is vacuous.
+mkdir -p "$ESC_NOOV_REPO/.claude/eng-state"
+printf '%s\n' "$ESC_NOOV_REPO" > "$ESC_NOOV_REPO/.claude/eng-state/registry.txt"
+
+ESC_NOOV_FP='chore: release 9.9.9 no-override cut'
+ESC_NOOV_CMD='git commit --allow-empty -m "chore: release 9.9.9 no-override cut"'
+# The two divergent destinations: where the live writer (no CPD) falls back, and
+# where the live reader (CPD set) looks.
+ESC_NOOV_LIVE_WRITER_TOKEN="$SHELL_ROOT/.claude/state/escape/branch.token"
+ESC_NOOV_READER_DIR="$ESC_NOOV_REPO/.claude/eng-state/escape"
+
+# Non-vacuity guard: with NO token armed, the reader MUST block the protected
+# commit (rc 2). If it allows here, the matcher isn't firing (scope/branch wrong)
+# and the honor arm below would green on nothing.
+esc_noov_rc_pre=$(
+  cd "$ESC_NOOV_REPO" || exit 1
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' "$ESC_NOOV_CMD" | jq -Rs .)" \
+    | env -u ENG_STATE_DIR_OVERRIDE \
+        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$ESC_HOOK" >/dev/null 2>&1
+  printf '%s' "$?"
+)
+if [ "$esc_noov_rc_pre" = "2" ]; then
+  ok "125-NOOVERRIDE: no-override reader blocks the protected commit absent a token (matcher fires, non-vacuous) (#483)"
+else
+  ng "125-NOOVERRIDE: no-override reader did NOT block absent a token (rc=$esc_noov_rc_pre) — honor arm would be vacuous (#483)"
+fi
+
+# Writer: NO override, CLAUDE_PROJECT_DIR explicitly UNSET, cwd inside the fixture.
+# Post-Code eng_skip.sh must derive the project dir from git-toplevel → fixture.
+( cd "$ESC_NOOV_REPO" && env -u ENG_STATE_DIR_OVERRIDE -u CLAUDE_PROJECT_DIR \
+    CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+    "$SHELL_ROOT/scripts/eng_skip.sh" branch "$ESC_NOOV_FP" 'no-override probe' >/dev/null 2>&1 )
+
+# Reader: drive the protected-branch commit through the real PreToolUse hook with
+# ENG_STATE_DIR_OVERRIDE UNSET and CLAUDE_PROJECT_DIR=<fixture> (the live hook
+# condition), cwd in the fixture. The fingerprint is a substring of the command.
+esc_noov_rc=$(
+  cd "$ESC_NOOV_REPO" || exit 1
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' "$ESC_NOOV_CMD" | jq -Rs .)" \
+    | env -u ENG_STATE_DIR_OVERRIDE \
+        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" \
+        bash "$ESC_HOOK" >/dev/null 2>&1
+  printf '%s' "$?"
+)
+
+if [ "$esc_noov_rc" = "0" ] && [ ! -e "$ESC_NOOV_READER_DIR/branch.token" ]; then
+  ok "125-NOOVERRIDE: writer (no CPD) and reader (CPD set) resolve the same state dir — token honored + consumed (#483)"
+else
+  ng "125-NOOVERRIDE: writer/reader state-dir divergence — token NOT honored (rc=$esc_noov_rc) — RED until Code (#483)"
+fi
+# CLEANUP: the pre-Code writer (no CPD) writes into the REAL
+# $SHELL_ROOT/.claude/state/escape/ (outside $SMOKE_STATE) — remove any stray
+# token so no escape token is left in the real tree. Also drop the fixture token.
+rm -f "$ESC_NOOV_LIVE_WRITER_TOKEN"
+rm -f "$ESC_NOOV_READER_DIR/branch.token"
+rm -rf "$ESC_NOOV_REPO"
+
 # ---------- §124: escape docs state the in-harness reality, not a false "survives in-harness" claim (#478) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Both
 # SKIP_HOOKS escape forms (leading env-prefix + trailing `# claude-eng:skip=…`
