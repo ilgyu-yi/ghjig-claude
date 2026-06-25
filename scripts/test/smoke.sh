@@ -11538,6 +11538,30 @@ JQSHIM
   rm -rf "$S65K_DIR"
 fi
 
+# ---------- §124: escape docs state the in-harness reality, not a false "survives in-harness" claim (#478) ----------
+# Placed before §110 (the README floor guard, which runs last by design). Both
+# SKIP_HOOKS escape forms (leading env-prefix + trailing `# claude-eng:skip=…`
+# sentinel) are stripped before reaching the PreToolUse hook's tool_input.command
+# in the Claude Code Bash tool — the parsers are correct in isolation, but the
+# harness never delivers the prefix/sentinel. So the docs must NOT claim the
+# trailing sentinel "survives the live Claude Code Bash tool" / is the "reliable
+# in-harness escape" / works "in-harness"; they must state the stripped reality.
+# Both-granularity + non-vacuous: NG if any surface still asserts the false claim,
+# OR if the corrected "stripped before the hook" statement is absent, OR if a
+# scanned surface is missing.
+s124_surfaces="$SHELL_ROOT/.claude/CLAUDE.md $SHELL_ROOT/SPEC.md $SHELL_ROOT/.claude/hooks/helpers/escape.sh"
+s124_missing=0
+for _s124_f in $s124_surfaces; do [ -f "$_s124_f" ] || s124_missing=$((s124_missing + 1)); done
+# NEGATIVE arm — no surface may positively claim the trailing sentinel works in-harness.
+s124_false=$(grep -rElE 'survives the .{0,15}live Claude Code Bash tool|reliable in-harness escape|sentinel[^.]{0,40}in-harness' $s124_surfaces 2>/dev/null | wc -l | tr -d ' ')
+# POSITIVE arm — the corrected reality (both in-command forms stripped before the hook) must be present.
+s124_fixed=$(grep -rElE 'stripped before .{0,40}(hook|tool_input)|both .{0,40}forms .{0,25}stripped' $s124_surfaces 2>/dev/null | wc -l | tr -d ' ')
+if [ "$s124_missing" = 0 ] && [ "$s124_false" = 0 ] && [ "$s124_fixed" -ge 1 ]; then
+  ok "124: escape docs state the in-harness reality (both forms stripped); no false 'survives in-harness' claim (#478)"
+else
+  ng "124: escape docs still claim the trailing sentinel works in-harness, or lack the stripped-reality statement (missing=$s124_missing false=$s124_false fixed=$s124_fixed) (#478)"
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading

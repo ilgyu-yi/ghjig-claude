@@ -95,12 +95,21 @@ print(json.dumps({"env": env, "cmd": rest}))
 # and writes the sentinel-stripped command to <outvar>. No-op (outvar = input,
 # no exports) when absent.
 #
-# This is the form that survives the live Claude Code Bash tool: the harness
-# consumes a leading `VAR=val` env-prefix as the spawned subprocess's own
-# environment, so it never reaches `tool_input.command` (parse_env_prefix then
-# has nothing to read) — but a trailing `#`-comment stays inside the command and
-# is ignored by the executed shell. MUST be called on the RAW command BEFORE the
-# hook's whitespace-normalization + shlex pass, which would quote/mangle the `#`.
+# OBSERVED (this harness, 2026-06; the harness is a moving floor — re-verify):
+# NEITHER escape form reaches `tool_input.command` in the live Claude Code Bash
+# tool. The leading `VAR=val` env-prefix is consumed as the spawned subprocess's
+# own environment, AND the trailing `#`-comment is also stripped before the hook
+# sees it — so `should_skip` reads an empty `$SKIP_HOOKS` and the matcher still
+# blocks. The parser below is correct (it sets SKIP_HOOKS when fed the literal
+# string in isolation); the gap is purely harness command-delivery. There is
+# therefore no working in-harness escape: run a sanctioned guarded op in a real
+# terminal (no PreToolUse hook fires there) or via a non-protected branch +
+# rename. Full contract + recourse: SPEC §7. Restoring an in-agent channel is
+# tracked in #479. (The parsing contract below is still exercised by the smoke
+# harness and a real shell that passes the prefix verbatim.)
+#
+# MUST be called on the RAW command BEFORE the hook's whitespace-normalization
+# + shlex pass, which would quote/mangle the `#`.
 # The `claude-eng:skip=` namespace keeps an ordinary trailing comment from being
 # read as an escape; the sentinel is one-shot (it travels with the single
 # command — no persistent bypass state). All `[A-Za-z0-9,_-]` category chars
