@@ -1,11 +1,11 @@
 ---
-description: OPT-IN Phase-C author. Assemble an explicit manifest (the Plan + the failing Phase-B test + how to run it + the named relevant files + the directive-level learnings), spawn the implementer subagent on it, and absorb ONLY its structured return (commit/diff + plan-deviations + discoveries). Nothing auto-routes the Code phase here — invoked explicitly, pending Directive #477 signal-4. See SPEC §5.28.
+description: DEFAULT Phase-C author. Assemble an explicit manifest (the Plan + the failing Phase-B test + how to run it + the named relevant files + the directive-level learnings), spawn the implementer subagent on it, and absorb ONLY its structured return (commit/diff + plan-deviations + discoveries). /work-on routes the Code phase here by default; the opt-out is for trivial / glue edits. See SPEC §5.28.
 ---
 
 `/implement <issue#>` runs the Code phase (Phase C) in a write-capable `implementer` subagent (§4.12) instead of the main loop, so the within-Execution authoring churn stays out of the main assistant's context. See SPEC §5.28.
 
-## OPT-IN invariant (the #477 signal-4 gate)
-The **default Code-phase flow is unchanged**: the main assistant authors the implementation in its own loop. `/implement` is invoked **explicitly** — nothing auto-routes the Code phase to the subagent. This opt-in posture is deliberate, pending the Directive #477 signal-4 measurement; do not wire any automatic dispatch to it.
+## Default-with-opt-out invariant (Directive #477 signal-4)
+The Code phase routes here **by default**: `/work-on`'s Phase-C step dispatches `/implement`. The **opt-out** is for trivial / one-line / glue edits and the orchestrator's own glue (Directive #477 Non-goal 2), which the main assistant authors directly. The default-flip descopes the original A/B measurement gate — the context-narrowing hypothesis is adopted as operating policy on circumstantial evidence, hedged by **fail-open reversibility** (a missing implementer path degrades to main-loop authoring; the documented opt-out makes the default revertible). Auto-routing lives in the `/work-on` doc procedure only — **never** wire automatic dispatch into a Stop / PostToolUse hook.
 
 ## Manifest contract (input you assemble and pass)
 Before spawning, gather the explicit manifest — the subagent has **no access to this conversation**, so everything it needs must be in the manifest:

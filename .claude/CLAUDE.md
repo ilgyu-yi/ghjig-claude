@@ -42,7 +42,7 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 | 3+ file changes, schema/API/migration | `planner` (required) |
 | Doc writing / updating | `doc-writer` |
 | Test writing (Phase B) | `test-writer` |
-| Code-phase implementation (Phase C), opt-in | `implementer` (#477) |
+| Code-phase implementation (Phase C), default route | `implementer` (#477) |
 | Pre-commit / pre-PR review | `code-reviewer` |
 | Auth/input/deps/crypto changes | `security-reviewer` |
 | Rationale check on a proposed issue body | `issue-reviewer` |
