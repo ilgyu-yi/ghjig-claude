@@ -4,15 +4,77 @@
 
 should_skip() {
   local cat="$1"
-  [ -z "${SKIP_HOOKS:-}" ] && return 1
-  case ",${SKIP_HOOKS}," in
-    *",all,"*|*",${cat},"*)
-      local reason="${SKIP_REASON:-unspecified}"
-      audit_log escape "$cat" skip "$reason"
-      return 0
-      ;;
-  esac
+  if [ -n "${SKIP_HOOKS:-}" ]; then
+    case ",${SKIP_HOOKS}," in
+      *",all,"*|*",${cat},"*)
+        audit_log escape "$cat" skip "${SKIP_REASON:-unspecified}"
+        return 0
+        ;;
+    esac
+  fi
+  # File-token channel (#479): the out-of-command in-agent escape that survives
+  # the Claude Code Bash tool (which strips the leading env-prefix and the
+  # trailing sentinel before the hook reads tool_input.command; SPEC §7).
+  _escape_token_honored "$cat" && return 0
   return 1
+}
+
+# _escape_token_honored <category> — consult the per-category file token at
+# $(eng_state_dir)/escape/<cat>.token. Honored ONLY when every guard holds;
+# any doubt → fail-safe-to-block (return 1). PURE BASH (no python3 → no
+# interpreter-absent failure mode). One-shot: the token is consumed (deleted)
+# on honor AND on any stale/malformed reject (poison cleanup). Bound to the
+# current command via $ESCAPE_BIND_CMD (set only on the Bash tool path — the
+# Edit/Write arm has no command string, so the channel is Bash-only by design,
+# SPEC §7 / §5.0). The real narrowing guards are consume-once + the 60s TTL;
+# the fingerprint substring is an anti-footgun bind, not a security mechanism
+# (SPEC §6.1: hooks are mistake-prevention, not a security boundary).
+_escape_token_honored() {
+  local cat="$1" esd tok bind now
+  esd=$(eng_state_dir 2>/dev/null) || esd=""
+  [ -n "$esd" ] || esd="${CLAUDE_ENG_SHELL_ROOT:-}/.claude/state"
+  [ -n "$esd" ] || return 1
+  tok="$esd/escape/${cat}.token"
+  [ -r "$tok" ] || return 1   # absent/unreadable → armed (fast path)
+  local t_category="" t_reason="" t_fp="" t_created="" line key val
+  local seen_cat=0 seen_reason=0 seen_fp=0 seen_created=0 unknown=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    key="${line%%=*}"; val="${line#*=}"
+    case "$key" in
+      category)        t_category="$val"; seen_cat=1 ;;
+      reason)          t_reason="$val";   seen_reason=1 ;;
+      cmd_fingerprint) t_fp="$val";       seen_fp=1 ;;
+      created)         t_created="$val";  seen_created=1 ;;
+      *)               unknown=1 ;;
+    esac
+  done < "$tok"
+  bind="${ESCAPE_BIND_CMD:-}"
+  # Any malformation / missing key / category mismatch / empty bind → block + consume.
+  if [ "$unknown" -ne 0 ] \
+     || [ "${seen_cat}${seen_reason}${seen_fp}${seen_created}" != "1111" ] \
+     || [ -z "$t_category" ] || [ -z "$t_fp" ] || [ -z "$t_created" ] \
+     || [ "$t_category" != "$cat" ] \
+     || [ -z "$bind" ]; then
+    rm -f "$tok"; return 1
+  fi
+  # `created` must be a plausible base-10 epoch BEFORE it reaches arithmetic, or
+  # the TTL/future-date guards below silently fall through to HONOR (#479 N=3
+  # security review): a LEADING ZERO makes `$(( ))` parse it as octal (8/9 → an
+  # arithmetic error that reads as "not stale"), and a value >= 2^63 (≈20 digits)
+  # overflows bash 3.2 arithmetic and wraps negative (also "not stale"). Reject
+  # both here — digits only, no leading zero, <=11 digits (good past year 5138) —
+  # so any out-of-range created is fail-safe-to-block, never a spurious skip.
+  case "$t_created" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
+  [ "${#t_created}" -le 11 ] || { rm -f "$tok"; return 1; }
+  case "$bind" in *"$t_fp"*) : ;; *) rm -f "$tok"; return 1 ;; esac  # fingerprint not a substring → block
+  now=$(date +%s)
+  if [ "$t_created" -gt "$now" ] || [ "$(( now - t_created ))" -gt 60 ]; then
+    rm -f "$tok"; return 1   # future-dated or stale (TTL 60s) → block
+  fi
+  audit_log escape "$cat" skip "${t_reason:-unspecified} [token]"
+  rm -f "$tok"   # consume-on-read (one-shot)
+  return 0
 }
 
 # parse_env_prefix <cmd> <outvar>

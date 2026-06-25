@@ -38,15 +38,17 @@ Consume the fragment-contract substrate (SPEC §18) and produce a release PR. Th
 
 7. **--dry-run gate** — if `--dry-run` was passed, the helper stages everything (`git add VERSION CHANGELOG.md`; `git rm` already staged the removals) and exits 0. Smoke inspects via `git diff --cached`. The skill stops here in dry-run mode and prints `dry-run: changes staged; not committing`. Otherwise continue.
 
-8. **Branch + commit** — create `release/X.Y.Z`, then commit the staged diff:
+8. **Branch + commit** — create `release/X.Y.Z`, write the `branch`-category file-based skip token, then commit the staged diff:
    ```bash
    git checkout -b release/<X.Y.Z>
-   SKIP_HOOKS=branch SKIP_REASON='/release initial release-branch commit' \
-     git commit -m "chore: release <X.Y.Z>" -m "Consolidated $(N) fragments. See CHANGELOG.md ## [<X.Y.Z>]."
+   scripts/eng_skip.sh branch 'chore: release <X.Y.Z>' '/release branch commit'
+   git commit -m "chore: release <X.Y.Z>" -m "Consolidated $(N) fragments. See CHANGELOG.md ## [<X.Y.Z>]."
    ```
-   The subject is the **scopeless** `chore: release <X.Y.Z>`, not `chore(release): …`: the conventional-commit matcher (SPEC §6.1, `commit-format` category) permits only a `(#N)` scope or no scope (`conventional_commit.sh` `re_optional`), so a `(release)` scope is rejected — and the documented `SKIP_HOOKS=branch` escape covers only the `branch` category, *not* `commit-format`. Scopeless fits the repo's "scope = issue number" convention with zero hook change.
+   The token's fingerprint is the **commit subject** `chore: release <X.Y.Z>` (high-entropy, distinguishing — SPEC §7). The hook reads it at fire time, audits it, and consumes it. The in-harness-inert leading form `SKIP_HOOKS=branch SKIP_REASON='/release branch commit' git commit …` remains the **verbatim-shell** equivalent for a real terminal, but does **not** disarm the matcher in-harness (it is stripped before the hook).
 
-   The `SKIP_HOOKS=branch` escape is **structurally required**: the protected-branch matcher (SPEC §6.1, `helpers/git_matcher.sh` pattern `release/\S+`) blocks all direct commits on `release/X.Y.Z`, and this is the one purposeful commit `/release` makes. Audit-logged with the documented `SKIP_REASON`; `/audit` can filter on it to distinguish legitimate uses from drift.
+   The subject is the **scopeless** `chore: release <X.Y.Z>`, not `chore(release): …`: the conventional-commit matcher (SPEC §6.1, `commit-format` category) permits only a `(#N)` scope or no scope (`conventional_commit.sh` `re_optional`), so a `(release)` scope is rejected — and the `branch` escape covers only the `branch` category, *not* `commit-format`. Scopeless fits the repo's "scope = issue number" convention with zero hook change.
+
+   The `branch` escape is **structurally required**: the protected-branch matcher (SPEC §6.1, `helpers/git_matcher.sh` pattern `release/\S+`) blocks all direct commits on `release/X.Y.Z`, and this is the one purposeful commit `/release` makes. Audit-logged with the documented reason; `/audit` can filter on it to distinguish legitimate uses from drift.
 
 9. **Reviewer gate** (`unattended` mode only) — invoke `code-reviewer` (SPEC §4.5) against the staged release diff before opening the PR. On `block` verdict, stop with the reason and leave the branch in place for the maintainer to inspect. On `refine`, surface the feedback; the helper does not auto-revise (the release diff is deterministic). On `ship`, proceed. Skip in `attended` mode (the human reviews the PR after creation). Escape: `SKIP_HOOKS=release-review SKIP_REASON='<why>'`.
 
@@ -98,7 +100,7 @@ Re-running `gh release create` on an existing tag fails with a clear `release al
 
 ## Escapes
 
-- `SKIP_HOOKS=branch SKIP_REASON='/release initial release-branch commit'` — structurally required for step 8 (the one purposeful commit on the `release/X.Y.Z` branch). Audit-logged. Reuse outside `/release` invocations is a smell — `/audit` should filter on the documented reason string.
+- `scripts/eng_skip.sh branch 'chore: release <X.Y.Z>' '/release branch commit'` — the `branch` file-based skip token (SPEC §7), structurally required for step 8 (the one purposeful commit on the `release/X.Y.Z` branch). Audit-logged + consumed on read. Reuse outside `/release` invocations is a smell — `/audit` should filter on the documented reason string. (The leading `SKIP_HOOKS=branch SKIP_REASON='/release branch commit'` form is the verbatim-shell equivalent for a real terminal; it does not land in-harness.)
 - `SKIP_HOOKS=release-review SKIP_REASON='<why>'` — bypass the reviewer gate at step 9. Audit-logged.
 
 ## Forbidden

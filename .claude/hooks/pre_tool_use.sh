@@ -118,6 +118,12 @@ case "$tool" in
     parse_skip_sentinel "$raw_cmd" raw_cmd
     cmd="$raw_cmd"
 
+    # Bind the file-token escape channel (#479) to THIS command: should_skip's
+    # token reader honors a token only when its cmd_fingerprint is a substring
+    # of $ESCAPE_BIND_CMD. Set only here on the Bash path — the Edit/Write arm
+    # has no command string, so the channel is Bash-only by design (SPEC §7).
+    export ESCAPE_BIND_CMD="$raw_cmd"
+
     # Normalize multiline backslash-continuation and stray newlines so the
     # matchers see a single logical command. Collapse `\\\n` first, then
     # remaining newlines, then runs of whitespace. See SPEC §6.1

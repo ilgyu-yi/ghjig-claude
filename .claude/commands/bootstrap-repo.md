@@ -11,13 +11,14 @@ Outputs a default branch (`main`) carrying a single seed commit — `MISSION.md`
 
 The protected-branch gate (SPEC §6.1) is **name-based** (`PROTECTED_BRANCH_PATTERN`). On an unborn HEAD, `git symbolic-ref --short HEAD` returns `main` (rc=0) while `git rev-parse --verify HEAD` fails, so `is_protected_branch()` matches by name and the seed commit — plus the Edit/Write that authors `MISSION.md`/`README.md` on that branch — is blocked. That is **correct, desirable behavior for the general case**; `/bootstrap-repo` does **not** weaken the gate. It owns a single, **scoped, audit-logged** bypass for *this one seed commit only*, via the existing `branch` escape (SPEC §7).
 
-Because this skill runs **in-harness** (the live Bash tool consumes a leading `VAR=` env-prefix before the hook sees it), the seed commit uses the **trailing-sentinel** escape form — the leading `SKIP_HOOKS=branch` form would be stripped before the hook and would not disarm the matcher. The exact, audit-greppable invocation is:
+Because this skill runs **in-harness** (the live Bash tool strips both in-command escape forms before the hook sees them, #478), the seed commit uses the **file-based skip token** (SPEC §7) — the in-agent channel the harness cannot strip. Write a `branch`-category token whose fingerprint is the seed-commit subject, immediately before the commit:
 
 ```
-git commit -m "chore: seed first commit (MISSION + README)"  # claude-eng:skip=branch reason=stage-0-bootstrap-seed-on-unborn-HEAD
+scripts/eng_skip.sh branch 'chore: seed first commit (MISSION + README)' 'stage-0-bootstrap-seed-on-unborn-HEAD'
+git commit -m "chore: seed first commit (MISSION + README)"
 ```
 
-The bypass routes through `should_skip branch` and lands in `audit.jsonl` — never silent. This generalizes the shell's own-repo first-commit exception (SPEC §16 item 15) to target repos: both are the same chicken-and-egg (a first commit cannot ride a flow that presupposes a prior commit), and both keep the bypass observable in the audit log.
+The hook reads the token at fire time, audits it, and **consumes** it; the bypass routes through `should_skip branch` and lands in `audit.jsonl` — never silent. (Running the seed commit in a **real terminal** is the fallback.) This generalizes the shell's own-repo first-commit exception (SPEC §16 item 15) to target repos: both are the same chicken-and-egg (a first commit cannot ride a flow that presupposes a prior commit), and both keep the bypass observable in the audit log.
 
 ## Procedure
 
@@ -35,12 +36,13 @@ The bypass routes through `should_skip branch` and lands in `audit.jsonl` — ne
    ```
    Why `cp` and not Write: the Edit/Write protected-branch arm (SPEC §6.1) blocks writes on the unborn-HEAD `main`, and a trailing sentinel cannot disarm it (an Edit/Write tool call has no command string to carry the sentinel). A `cp` into the registered target path carries no protected-branch check and is in-scope, so it is the correct seeding path. The templates carry `{{ today }}` / `{{ repo_name }}` placeholders — these are drafts for the user to complete after bootstrap; substitute them now only if the values are unambiguous (e.g. `{{ repo_name }}` from `basename "$PWD"`), otherwise leave them for `/onboard`'s SSOT step to flag.
 
-4. **Seed commit** — stage exactly the two seed files and commit with the exact escape sentinel:
+4. **Seed commit** — stage exactly the two seed files, write the `branch` file token (fingerprint = the seed-commit subject), then commit:
    ```bash
    git add MISSION.md README.md
-   git commit -m "chore: seed first commit (MISSION + README)"  # claude-eng:skip=branch reason=stage-0-bootstrap-seed-on-unborn-HEAD
+   scripts/eng_skip.sh branch 'chore: seed first commit (MISSION + README)' 'stage-0-bootstrap-seed-on-unborn-HEAD'
+   git commit -m "chore: seed first commit (MISSION + README)"
    ```
-   The message is a `chore` (no issue # required — there is no issue tracker state yet).
+   The token is one-shot (consumed on read, 60s TTL — SPEC §7); running the commit in a real terminal is the fallback. The message is a `chore` (no issue # required — there is no issue tracker state yet).
 
 5. **Audit** — the seed commit's bypass is *already* recorded by the `branch` escape's `should_skip` path (this is the load-bearing audit guarantee — never silent). Additionally emit an explicit stage-0 record by sourcing the hook runtime and calling `audit_log info bootstrap-repo seeded "branch=main remote=<origin-url-or-none> files=MISSION.md,README.md"` (run via Bash: `. "$CLAUDE_ENG_SHELL_ROOT/.claude/hooks/hookrt.sh"` then the `audit_log` call), the same pattern `/file-directive` etc. use.
 
@@ -66,5 +68,5 @@ The skill's seed commit *is* the documented `branch` escape (audit-logged). No a
 - Running on a repo that already has a default branch / prior commits — step 1 refuses.
 - Using the `branch` escape for anything other than the single seed commit — the exception is scoped to stage-0, not a general bypass.
 - Seeding anything beyond `MISSION.md` + `README.md` — `.github/`, labels, and substrate belong to `/onboard` and `/onboard-dir-mode`.
-- Bypassing the protected-branch gate with the leading `SKIP_HOOKS=branch` form in-harness — it is stripped before the hook; use the trailing sentinel.
+- Bypassing the protected-branch gate with either in-command form in-harness — both are stripped before the hook; use the `scripts/eng_skip.sh branch` file token (SPEC §7).
 - Force-pushing or pushing a bare/`HEAD` refspec — name the branch (`origin main`) explicitly.
