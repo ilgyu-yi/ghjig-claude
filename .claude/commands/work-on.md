@@ -3,7 +3,7 @@ description: Take an issue, create branch + draft PR, invoke planner — all in 
 argument-hint: <issue#> [--base <branch>]
 ---
 
-Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default `main`). Do the following in order:
+Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default: the repo's resolved default branch — see step 3; #504). Do the following in order:
 
 1. `gh issue view <#> --json title,body,labels` — read the issue. Print it and give the user a brief summary.
 2. **Acceptance criteria check** — if the issue body has no criteria or is vague, ask the user to fix it and stop. **Don't start work with an ambiguous goal.**
