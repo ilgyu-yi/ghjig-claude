@@ -78,7 +78,7 @@ Pointer index — every contract below lives in full in SPEC §6.1 (PreToolUse m
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
 - **shell-root resolution** — hooks resolve the shell via `$CLAUDE_ENG_SHELL_ROOT` else self-locate through the per-project `.claude/eng-shell-root` binding symlink, so a plain `claude` in a target needs no global env (SPEC §3.2.1).
 - **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `eng-state/` (`eng_state_dir`/`eng_registry_file`); missing/empty registry fails open (SPEC §3.2.2).
-- **SessionStart banner** — surfaces the one detectable silent-no-op (`hookrt.sh` missing) via a once-per-session banner naming the fix (SPEC §6.5(c)).
+- **SessionStart banner** — surfaces the detectable silent-no-op states (runtime `hookrt.sh` missing; and a present-but-empty scope registry that silently disarms enforcement, #502) via a once-per-session banner naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source (hook-to-helper and helper-to-helper) goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).
 - **pass-through invariant** — every matcher reaches a decided state per fire; happy paths `mark_allow` silently, anomalous silent fall-through is caught by `pass_through_trace` (SPEC §6.1).
 - **audit observability** — records carry an additive `source` field (`test` only via the harness-owned, uninjectable marker) and reviewers emit a categorized reject record; both observability surfaces, not gates (SPEC §6.1).
