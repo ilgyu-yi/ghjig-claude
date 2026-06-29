@@ -2746,6 +2746,38 @@ else
   ng "destructive: bare relative in-scope should pass, exit=$exit_code (#27)"
 fi
 
+# §27m (#505 / Directive #498): a FLAGLESS `mv`/`cp` whose DEST is out-of-registry
+# clobbers outside scope, yet the destructive prefilter required a force/recursive
+# flag to enter — so flagless `mv in /out` slipped past. Gate flagless mv/cp too.
+[ "$(hook_run 'mv ./workspace /var/tmp/ce-out')" = "2" ] \
+  && ok "27m: flagless mv to out-of-scope dest blocked (#505)" \
+  || ng "27m: flagless mv to out-of-scope dest not gated (clobber bypass) (#505)"
+[ "$(hook_run 'cp ./workspace /var/tmp/ce-out')" = "2" ] \
+  && ok "27m2: flagless cp to out-of-scope dest blocked (#505)" \
+  || ng "27m2: flagless cp to out-of-scope dest not gated (#505)"
+[ "$(hook_run 'mv ./a ./b')" = "0" ] \
+  && ok "27m3: flagless mv within registry allowed (no over-block) (#505)" \
+  || ng "27m3: flagless in-scope mv wrongly blocked (#505)"
+# unforced single-operand rm must STILL be allowed (the #212 design — only mv/cp
+# gain the flagless dest-check, not rm).
+[ "$(hook_run 'rm ./workspace')" = "0" ] \
+  && ok "27m4: unforced single rm still not gated (no #212 regression) (#505)" \
+  || ng "27m4: unforced rm wrongly gated — #212 regression (#505)"
+
+# §505s (#505): documented-residual locks. (a) .shellsecretignore must state the
+# scanner has NO coverage on its whitelisted paths (operators must not assume it);
+# (b) SPEC §6.1 must document the destructive find/truncate/redirect residuals.
+if grep -qiE 'not (scanned|covered)|no(t| ) coverage|scanner (is )?off' "$SHELL_ROOT/.shellsecretignore" 2>/dev/null; then
+  ok "505s: .shellsecretignore documents the no-coverage caveat (#505)"
+else
+  ng "505s: .shellsecretignore lacks the explicit no-coverage caveat (#505)"
+fi
+if grep -qiE '(-delete|truncate|redirect)[^#]*#505|#505[^#]*(-delete|truncate|redirect)' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "505s2: SPEC §6.1 documents the destructive find/truncate/redirect residuals (#505)"
+else
+  ng "505s2: SPEC does not document the destructive residuals (#505)"
+fi
+
 # 18c. `../` relative escape from $TMP/fake → out of scope → block.
 relative_escape='rm -rf ../etc/passwd'
 exit_code=$(hook_run "$relative_escape")
@@ -4833,6 +4865,23 @@ m1_marker_fail() {
   && ok "44m: marker resolver unresolvable → rc 2 (fail-open) (#249)" \
   || ng "44m: marker fail-open rc wrong (#249)"
 
+# 505d (#505 / Directive #498): the line-1 parent markers must tolerate a trailing
+# CRLF \r (Windows editor / paste), else a parented Issue mis-resolves as
+# marker-ABSENT — letting label-parent-consistency mislabel it standalone.
+m1d_marker() {  # $1=body → echoes issue_has_parent_marker rc
+  ( export CLAUDE_ENG_SHELL_ROOT="$TMP/m1root5"; mkdir -p "$CLAUDE_ENG_SHELL_ROOT/.claude/state"
+    m1_body="$1"
+    gh() { case "$*" in *'issue view'*'--json body'*) printf '%s\n' "$m1_body" ;; *) return 0 ;; esac; }
+    . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
+    issue_has_parent_marker 700; echo $? )
+}
+[ "$(m1d_marker "$(printf 'Parent Directive: #42\r')")" = 0 ] \
+  && ok "505d: CRLF-terminated 'Parent Directive: #N' still recognized (#505)" \
+  || ng "505d: CRLF \\r breaks the Parent Directive marker → mis-resolve (#505)"
+[ "$(m1d_marker 'Parent Directive: #42')" = 0 ] \
+  && ok "505d2: LF 'Parent Directive: #N' still recognized (regression) (#505)" \
+  || ng "505d2: LF Parent Directive marker regressed (#505)"
+
 # Cleanup: remove cache entries created by §44 so they don't leak.
 rm -f "$DP_CACHE/smoke-owner__smoke-repo__91" "$DP_CACHE/smoke-owner__smoke-repo__92" "$DP_CACHE/smoke-owner__smoke-repo__93" "$DP_CACHE/smoke-owner__smoke-repo__94" "$DP_CACHE/smoke-owner__smoke-repo__95"
 # Remove the test target from the registry so other tests aren't affected.
@@ -6010,6 +6059,16 @@ pt55_run "gh issue close 100" >/dev/null 2>&1
 case $? in
   2) ok "55a: trusted filer + close without --reason → block (rc=2) (#95)" ;;
   *) ng "55a: expected rc=2 (block) got rc=$? (#95)" ;;
+esac
+
+# §55m (#505 / Directive #498): the EQUALS form `--reason=completed` (gh accepts
+# it) on a trusted filer must ALLOW — the matcher's tf_completed check only
+# recognized the space form, falsely blocking a legitimate completed-close and
+# pushing the user toward SKIP_HOOKS.
+pt55_run "gh issue close 100 --reason=completed" >/dev/null 2>&1
+case $? in
+  0) ok "55m: trusted filer + --reason=completed (equals form) → allow (#505)" ;;
+  *) ng "55m: --reason=completed equals form falsely blocked (rc=$?) (#505)" ;;
 esac
 
 # §55b: trusted filer + close --reason completed → allow (rc=0).
