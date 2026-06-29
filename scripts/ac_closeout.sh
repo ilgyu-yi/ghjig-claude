@@ -51,19 +51,24 @@ while IFS= read -r n; do
 
   # No trailing space required (#218): a degenerate `- [ ]` (no content) is what
   # the merge gate (ac_closeout_gate.sh) blocks on, so the remedy must detect it
-  # too — else the gate blocks with no remedy (deadlock).
-  ac_lines=$(printf '%s\n' "$body" | grep -E '^- \[[ x~]\]' || true)
+  # too — else the gate blocks with no remedy (deadlock). #500: the gate's
+  # unchecked-AC detection was broadened to all common task-list bullets
+  # (`-`/`*`/`+` and ordered `N.`, optionally indented); the remedy MUST track
+  # the same family in lockstep, or a non-`-` checkbox issue deadlocks (gate
+  # blocks, remedy finds no AC lines → posts no marker).
+  ac_lines=$(printf '%s\n' "$body" | grep -E '^[[:space:]]*([-*+]|[0-9]+\.)[[:space:]]+\[[ x~]\]' || true)
   if [ -z "$ac_lines" ]; then
     echo "ac_closeout: issue #$n has no AC list; skipping." >&2
     continue
   fi
 
-  # Build the comment: header + each AC line, with `- [ ]` converted to
-  # `- [x]`. Preserves `- [~]` (N/A) and already-ticked items verbatim.
+  # Build the comment: header + each AC line, with an unchecked `[ ]` converted
+  # to `[x]` while preserving the original bullet/indent (#500). Preserves
+  # `[~]` (N/A) and already-ticked items verbatim.
   comment="## AC closeout (resolved by PR #${pr})"$'\n\n'
   while IFS= read -r ac; do
     [ -z "$ac" ] && continue
-    ticked=$(printf '%s' "$ac" | sed -E 's/^- \[ \]/- [x]/')
+    ticked=$(printf '%s' "$ac" | sed -E 's/^([[:space:]]*([-*+]|[0-9]+\.)[[:space:]]+)\[ \]/\1[x]/')
     comment="${comment}${ticked}"$'\n'
   done <<< "$ac_lines"
   comment="${comment}"$'\n'"Posted by scripts/ac_closeout.sh per SPEC §5.7.1 step 7.6."

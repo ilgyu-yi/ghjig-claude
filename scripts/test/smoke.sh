@@ -3481,6 +3481,24 @@ else
   ng "500e: URL-form PR mis-resolved to the fallback → bypass (rc=$rc500e) (#500)"
 fi
 
+# 500f (URL inside a value-flag — security-review finding): a `/pull/N` that
+# appears as the VALUE of `--body`/`--subject`/etc. must NOT be read as the PR
+# selector. `gh pr merge --body <…/pull/777> 5 --merge` must evaluate PR 5 (the
+# real positional), not 777. PR 5 → issue 100 (unchecked, no marker) → block;
+# 777 → pr_issues_777 (empty) → would wrongly allow. RED before the skip_next
+# fix (the `*/pull/*` arm matched the --body value → extracted 777 → allow).
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"          # PR 5 (default arm) → dirty issue
+: > "$GH38_STATE/pr_issues_777"                     # 777 → no linked issues
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+: > "$GH38_STATE/issue_comments"; : > "$GH38_STATE/issue_comments_trusted"
+out500f=$(gh38_run "gh pr merge --body https://github.com/o/r/pull/777 5 --merge"); rc500f=$?
+if [ "$rc500f" = 2 ] && printf '%s' "$out500f" | grep -q 'ac-closeout'; then
+  ok "500f: /pull/N inside a --body value is not read as the PR; PR 5 evaluated → block (#500)"
+else
+  ng "500f: /pull/N in a --body value mis-resolved the PR → bypass (rc=$rc500f) (#500)"
+fi
+
 rm -rf "$GH38_DIR"
 
 # ---------- 39. matcher pass-through audit invariant (#33) ----------
@@ -8369,6 +8387,18 @@ if ! grep -qF 're-running with the same date does nothing' "$SHELL_ROOT/scripts/
   ok "72c: migrate_v3.sh header no longer claims false snapshot idempotency (#218)"
 else
   ng "72c: migrate_v3.sh header still claims snapshot idempotency it never had (#218)"
+fi
+# 72d (#500): ac_closeout.sh's detect + tick must track the gate's broadened
+# bullet family (`-`/`*`/`+` and ordered `N.`), or a non-`-` checkbox issue
+# deadlocks (gate blocks on it, remedy finds no AC lines → posts no marker).
+# Script-content assertion (parity with §72a-c): the `([-*+]|[0-9]+\.)` family
+# fragment must appear in BOTH the detection grep and the tick sed (>=2).
+AC_SH2="$SHELL_ROOT/scripts/ac_closeout.sh"
+s72d=$(grep -cF '([-*+]|[0-9]+\.)' "$AC_SH2" 2>/dev/null | tr -d ' '); [ -z "$s72d" ] && s72d=0
+if [ "$s72d" -ge 2 ]; then
+  ok "72d: ac_closeout.sh detect+tick track the gate's broadened bullet family (no deadlock) (#500)"
+else
+  ng "72d: ac_closeout.sh still dash-only — deadlocks on non-dash checkbox issues the gate blocks (found=$s72d) (#500)"
 fi
 
 # ---------- 73. Initiative-tier enforcement matchers (#251, M1.2) ----------

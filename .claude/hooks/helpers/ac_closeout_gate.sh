@@ -17,7 +17,7 @@
 
 extract_pr_from_merge_cmd() {
   local cmd="$1"
-  local rest token
+  local rest token skip_next=""
   # Strip up to and including `gh pr merge`; the remainder is the argv.
   # No `\b` — BSD sed (macOS) doesn't recognize it. The grep matcher in
   # pre_tool_use.sh already validated that `gh pr merge` is present as a
@@ -34,7 +34,12 @@ extract_pr_from_merge_cmd() {
   local _opts=$-
   set -f
   for token in $rest; do
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
     case "$token" in
+      # #500: value-taking flags consume their next token — mirror
+      # parse_gh_merge_argv exactly, so a `/pull/N` inside a --body/--subject
+      # VALUE is not mis-read as the PR selector (security-review finding).
+      --body|-b|--body-file|--subject|-t|--match-head-commit|--author-email|--repo|-R) skip_next=1; continue ;;
       -*) continue ;;
       */pull/*)   # #500: a PR URL selector (`…/pull/N`) — gh accepts it for
                   # `gh pr merge`. Take the digits after the LAST `/pull/`; the
