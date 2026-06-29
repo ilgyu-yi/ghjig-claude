@@ -28,7 +28,7 @@ Close a `discussion`-labeled Issue. Per SPEC §5.19 the tier has exactly two clo
 
    ### 4b. `--no-action "<reason>"` (no-action path)
    - Reason must be non-empty. Empty → error and stop.
-   - Post comment on `<issue-#>`: `no-action: <reason>` (single line).
+   - Post comment on `<issue-#>` via `--body-file` (#504): write `no-action: <reason>` (single line) to a temp file, then `gh issue comment <issue-#> --body-file <file>`. Never inline `--body` with the free-text reason — a backtick / `$(...)` / quote would corrupt the comment or execute at assembly (the dir-mode `--body-file` bar). Keep the leading `no-action:` marker line the step-3 idempotency check parses. (The `--promoted-to` path posts only the numeric `promoted to #<M>`, so it carries no free text and needs no `--body-file`.)
    - Close: `gh issue close <issue-#> --reason "not planned"` (the **space** form — `gh` accepts only `{completed|not planned|duplicate}` and rejects the underscore `not_planned`).
 
 5. **Audit log** — `audit_log info discussion-resolve created "discussion: #<issue-#> path=<promoted|no-action> [target=#<M>]"`.

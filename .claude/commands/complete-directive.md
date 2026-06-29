@@ -46,6 +46,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
    Closed via /complete-directive.
    ```
+   Post this comment via `--body-file` (#504): write the rendered block to a temp file, then `gh issue comment <issue-#> --body-file <file>`. Never inline `--body` — the `<signal text>` is copied from the Directive body and may contain backticks / code (Success signals may reference code reality), which inline interpolation would execute or corrupt. Mirrors the dir-mode `--body-file` bar (`/reflect`, `/revise-directive`, `/consume-initiative`).
 
 6. **Close the Issue** — `gh issue close <issue-#> --reason completed`.
 

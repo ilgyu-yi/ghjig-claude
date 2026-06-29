@@ -1195,7 +1195,7 @@ No automatic changes. All recommendations require human review and execution.
    git push -u origin HEAD
    gh pr create --draft --base "<base>" --title "<type>(#<#>): <subject>" --body "<template>"
    ```
-   First-line trailer: use `Closes #<#>` when `<base> == main`; otherwise use `Refs #<#>` (per §10.4 — the issue closes only when work reaches `main`).
+   First-line trailer: use `Closes #<#>` when `<base>` is the repo's **default branch** (resolved via `gh repo view --json defaultBranchRef`, not a hardcoded `main` — #504); otherwise use `Refs #<#>` (per §10.4 — the issue closes only when work reaches the default branch, which is `main` on most repos but `master`/other elsewhere).
 
    If the planner's Phase A isn't ready to commit (e.g. blocked on clarification), defer the PR — keep the issue + plan in conversation. **Never fall back to an empty seed commit just to open the draft PR.**
 9. Insert plan + checklist + ship gate sections in the PR body.

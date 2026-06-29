@@ -7,7 +7,7 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default `m
 
 1. `gh issue view <#> --json title,body,labels` — read the issue. Print it and give the user a brief summary.
 2. **Acceptance criteria check** — if the issue body has no criteria or is vague, ask the user to fix it and stop. **Don't start work with an ambiguous goal.**
-3. **Resolve target base** — let `BASE` = `--base` arg (default `main`). Then `git fetch origin && git checkout "$BASE" && git pull --ff-only`. If `BASE != main` and the named branch isn't reachable locally or remotely, fail loudly — `/work-on` does NOT auto-create alternate bases. See SPEC §10.5 for the topic-branch pattern.
+3. **Resolve target base** — resolve the repo's **default branch** `DEFAULT=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)` (fallback `main` if unresolvable; #504), then let `BASE` = `--base` arg (default `$DEFAULT`, NOT a hardcoded `main` — a `master`/`release`-default target must resolve correctly). Then `git fetch origin && git checkout "$BASE" && git pull --ff-only`. If `BASE != $DEFAULT` and the named branch isn't reachable locally or remotely, fail loudly — `/work-on` does NOT auto-create alternate bases. See SPEC §10.5 for the topic-branch pattern.
 4. Create branch:
    - `USER=$(gh api user --jq .login)`
    - `TYPE` = from issue label or user confirmation (one of feat/fix/docs/refactor/perf/test/style/build/ci/chore/revert)
@@ -27,9 +27,11 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default `m
    ```
    # …edit the SSOTs identified by the plan (MISSION, README, CLAUDE.md, ARCHITECTURE, ADR)…
    git add <changed SSOTs>
-   # First-line trailer is `Closes #<#>` when BASE == main; otherwise `Refs #<#>`.
-   # The issue should auto-close only when work reaches main (SPEC §10.4 / §10.5).
-   TRAILER="Closes #<#>"; [ "$BASE" != "main" ] && TRAILER="Refs #<#>"
+   # First-line trailer is `Closes #<#>` when BASE is the default branch; else `Refs #<#>`.
+   # The issue should auto-close only when work reaches the default branch (SPEC §10.4 / §10.5).
+   # Compare against the resolved $DEFAULT (step 3), NOT a hardcoded `main` (#504) — else a
+   # master/release-default target wrongly carries `Refs` and the issue never auto-closes.
+   TRAILER="Closes #<#>"; [ "$BASE" != "$DEFAULT" ] && TRAILER="Refs #<#>"
    # Co-Authored-By trailer is toggleable (SPEC §10.2). Source the helper
    # and conditionally include the line — the `${COAUTHOR:+…}` expansion
    # injects the leading blank line ONLY when the trailer is enabled, so
