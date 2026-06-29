@@ -12076,7 +12076,7 @@ else
   ng "124: escape docs still claim the trailing sentinel works in-harness, or lack the stripped-reality statement (missing=$s124_missing false=$s124_false fixed=$s124_fixed) (#478)"
 fi
 
-# ---------- §126: implementer subagent (Phase C) opt-in channel contract (#486 / Directive #477) ----------
+# ---------- §126: implementer subagent (Phase C) default-route channel contract (#486 / Directive #477 / #492) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Phase B
 # (Test) for EI-1 under Directive #477. The Doc phase already landed the contract
 # into .claude/agents/implementer.md, .claude/commands/implement.md, SPEC, and
@@ -12109,7 +12109,8 @@ fi
 
 # §126b — /implement command must document manifest assembly (plan + failing test +
 # named files), spawning the implementer subagent, absorbing ONLY the structured
-# return, and the OPT-IN invariant (explicitly not the default / not auto-routed).
+# return, and the DEFAULT-with-opt-out invariant (#492 default-flip; see the inline
+# note below for the flip from the superseded opt-in lock).
 S126_CMD="$SHELL_ROOT/.claude/commands/implement.md"
 if [ ! -f "$S126_CMD" ]; then
   ng "126b: .claude/commands/implement.md missing — /implement contract absent (#486)"
