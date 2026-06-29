@@ -3359,7 +3359,7 @@ fi
 
 trap - EXIT INT TERM
 
-# 38f (#499 / Directive #498): a leading gh GLOBAL FLAG before `pr merge` must not
+# 38g (#499 / Directive #498): a leading gh GLOBAL FLAG before `pr merge` must not
 # bypass the ac-closeout entry anchor (pre_tool_use.sh :336). The tight
 # `\bgh[[:space:]]+pr[[:space:]]+merge` anchor missed `gh --repo o/r pr merge`;
 # the #499 fix widens it (same leading-global-flag-run form as merge-strategy).
@@ -3369,11 +3369,11 @@ gh38_reset
 printf '100\n' > "$GH38_STATE/pr_issues"
 printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
 : > "$GH38_STATE/issue_comments"
-out38f=$(gh38_run "gh --repo o/r pr merge 200 --merge"); rc38f=$?
-if [ "$rc38f" = 2 ] && printf '%s' "$out38f" | grep -q 'ac-closeout'; then
-  ok "38f: leading --repo before 'pr merge' → ac-closeout still blocks unchecked AC (#499)"
+out38g=$(gh38_run "gh --repo o/r pr merge 200 --merge"); rc38g=$?
+if [ "$rc38g" = 2 ] && printf '%s' "$out38g" | grep -q 'ac-closeout'; then
+  ok "38g: leading --repo before 'pr merge' → ac-closeout still blocks unchecked AC (#499)"
 else
-  ng "38f: leading --repo bypassed ac-closeout (rc=$rc38f) (#499)"
+  ng "38g: leading --repo bypassed ac-closeout (rc=$rc38g) (#499)"
 fi
 
 rm -rf "$GH38_DIR"
