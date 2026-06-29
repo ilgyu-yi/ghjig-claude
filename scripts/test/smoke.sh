@@ -2911,7 +2911,15 @@ cat > "$GH38_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
   *"pr view"*"closingIssuesReferences"*)
-    cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null
+    # #500: branch on the PR number in the query so a URL-resolved PR (777) and
+    # the current-branch fallback PR (5) return DIFFERENT linked issues — needed
+    # to observe the extract_pr_from_merge_cmd URL-divergence fix. Uses 777 (NOT
+    # the 200 the existing §38a-e/§31/§499 cases use) so those fall through to the
+    # flat pr_issues file unchanged.
+    case "$*" in
+      *" 777 "*|*"pull/777"*) cat "$GH_SHIM_STATE/pr_issues_777" 2>/dev/null ;;
+      *) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
+    esac
     ;;
   *"pr view"*"--json number"*)
     cat "$GH_SHIM_STATE/pr_number" 2>/dev/null
@@ -2920,7 +2928,14 @@ case "$*" in
     cat "$GH_SHIM_STATE/issue_body" 2>/dev/null
     ;;
   *"issue view"*"--json comments"*)
-    cat "$GH_SHIM_STATE/issue_comments" 2>/dev/null
+    # #500: when the gate's query filters comments by authorAssociation (the
+    # trusted-author marker fix), serve the trusted-only file; otherwise (the
+    # pre-fix `.comments[].body` query) serve the flat file. This models the
+    # gh-side jq select that the shell mock cannot itself execute.
+    case "$*" in
+      *authorAssociation*) cat "$GH_SHIM_STATE/issue_comments_trusted" 2>/dev/null ;;
+      *) cat "$GH_SHIM_STATE/issue_comments" 2>/dev/null ;;
+    esac
     ;;
   *"issue comment"*)
     : "${GH_SHIM_STATE:?}"
@@ -2954,6 +2969,7 @@ gh38_run() {
 gh38_reset() {
   rm -f "$GH38_STATE"/pr_issues "$GH38_STATE"/pr_number \
         "$GH38_STATE"/issue_body "$GH38_STATE"/issue_comments \
+        "$GH38_STATE"/issue_comments_trusted "$GH38_STATE"/pr_issues_777 \
         "$GH38_STATE"/post_log "$GH38_STATE"/posted_body
 }
 
@@ -2970,11 +2986,15 @@ else
   ng "ac-closeout: should have blocked (rc=$rc38a) (#29)"
 fi
 
-# 38b: allow when `^## AC closeout` marker comment already exists.
+# 38b: allow when the canonical `## AC closeout (resolved by PR #N)` marker
+# comment already exists. #500: the gate now requires the marker from a TRUSTED
+# author, so the trusted-filtered comment set must also carry it (the mock serves
+# issue_comments_trusted for the authorAssociation-filtered query).
 gh38_reset
 printf '100\n' > "$GH38_STATE/pr_issues"
 printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
 printf '## AC closeout (resolved by PR #200)\nbody...\n' > "$GH38_STATE/issue_comments"
+printf '## AC closeout (resolved by PR #200)\n' > "$GH38_STATE/issue_comments_trusted"
 out38b=$(gh38_run "gh pr merge 200 --merge")
 rc38b=$?
 if [ "$rc38b" = 0 ]; then
@@ -3374,6 +3394,91 @@ if [ "$rc38g" = 2 ] && printf '%s' "$out38g" | grep -q 'ac-closeout'; then
   ok "38g: leading --repo before 'pr merge' → ac-closeout still blocks unchecked AC (#499)"
 else
   ng "38g: leading --repo bypassed ac-closeout (rc=$rc38g) (#499)"
+fi
+
+# ---- §500a-500e (#500 / Directive #498): ac-closeout integrity ----
+# Three independent bypasses of the closeout gate, all in ac_closeout_gate.sh.
+# Placed in the §38 block (before the GH38 teardown) so the gh38 shim is live.
+# Labelled 500a-e (not 38h-l) to avoid colliding with the pre-existing §38j/ss38*
+# labels.
+
+# 500a (checkbox-form gap): an unchecked AC written as `* [ ]` (not `- [ ]`) must
+# still be DETECTED → block. RED before the fix (only `^- \[ \]` was recognized,
+# so the issue looked AC-clean and the merge was allowed).
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '* [ ] do the thing\n' > "$GH38_STATE/issue_body"
+: > "$GH38_STATE/issue_comments"; : > "$GH38_STATE/issue_comments_trusted"
+out500a=$(gh38_run "gh pr merge 200 --merge"); rc500a=$?
+if [ "$rc500a" = 2 ] && printf '%s' "$out500a" | grep -q 'ac-closeout'; then
+  ok "500a: '* [ ]' unchecked AC detected → block (checkbox-form gap, #500)"
+else
+  ng "500a: '* [ ]' unchecked AC not detected → bypass (rc=$rc500a) (#500)"
+fi
+
+# 500b (forged non-canonical marker): a comment that merely STARTS with
+# `## AC closeout` but is not the canonical machine shape must NOT satisfy the
+# gate → block. RED before the fix (`^## AC closeout` matched any heading).
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+printf '## AC closeout-totally-fake lol\n' > "$GH38_STATE/issue_comments"
+printf '## AC closeout-totally-fake lol\n' > "$GH38_STATE/issue_comments_trusted"
+out500b=$(gh38_run "gh pr merge 200 --merge"); rc500b=$?
+if [ "$rc500b" = 2 ] && printf '%s' "$out500b" | grep -q 'ac-closeout'; then
+  ok "500b: forged non-canonical '## AC closeout-…' does not satisfy the gate → block (#500)"
+else
+  ng "500b: forged non-canonical marker bypassed the gate (rc=$rc500b) (#500)"
+fi
+
+# 500c (untrusted-author marker): a canonical marker posted by an UNTRUSTED author
+# must NOT satisfy the gate. The mock returns the canonical marker for the flat
+# (pre-fix) query but an EMPTY trusted-filtered set, modelling the author filter
+# → block. RED before the fix (no author filter; flat query saw the marker).
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+printf '## AC closeout (resolved by PR #200)\n' > "$GH38_STATE/issue_comments"
+: > "$GH38_STATE/issue_comments_trusted"   # untrusted author → filtered out
+out500c=$(gh38_run "gh pr merge 200 --merge"); rc500c=$?
+if [ "$rc500c" = 2 ] && printf '%s' "$out500c" | grep -q 'ac-closeout'; then
+  ok "500c: canonical marker from an untrusted author does not satisfy the gate → block (#500)"
+else
+  ng "500c: untrusted-author marker bypassed the gate (rc=$rc500c) (#500)"
+fi
+
+# 500d (no over-block GUARD — must stay green): a canonical marker from a TRUSTED
+# author still satisfies the gate → ALLOW. Guards against over-blocking the
+# legitimate closeout path.
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+printf '## AC closeout (resolved by PR #200)\n' > "$GH38_STATE/issue_comments"
+printf '## AC closeout (resolved by PR #200)\n' > "$GH38_STATE/issue_comments_trusted"
+out500d=$(gh38_run "gh pr merge 200 --merge"); rc500d=$?
+if [ "$rc500d" = 0 ]; then
+  ok "500d: canonical marker from a trusted author still allows merge (no over-block, #500)"
+else
+  ng "500d: canonical trusted marker wrongly blocked (rc=$rc500d: $out500d) (#500)"
+fi
+
+# 500e (PR-URL target divergence): `gh pr merge <URL>/pull/777` must evaluate PR
+# 777 (extract_pr_from_merge_cmd parses the URL), NOT fall back to the current
+# branch's PR. PR 777 → issue 300 (unchecked, no marker) → block; the fallback
+# PR (5) is clean. RED before the fix (URL token skipped → fallback → allow).
+# Uses 777 (not 200) so the mock's per-PR branch doesn't collide with the
+# PR-200 cases above.
+gh38_reset
+printf '300\n' > "$GH38_STATE/pr_issues_777"   # PR 777's linked issue (unchecked)
+: > "$GH38_STATE/pr_issues"                      # fallback PR 5 → no linked issues
+printf '5\n' > "$GH38_STATE/pr_number"           # current-branch fallback PR
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+: > "$GH38_STATE/issue_comments"; : > "$GH38_STATE/issue_comments_trusted"
+out500e=$(gh38_run "gh pr merge https://github.com/o/r/pull/777 --merge"); rc500e=$?
+if [ "$rc500e" = 2 ] && printf '%s' "$out500e" | grep -q 'ac-closeout'; then
+  ok "500e: URL-form PR resolves to #777 (not the fallback) → block on its unchecked AC (#500)"
+else
+  ng "500e: URL-form PR mis-resolved to the fallback → bypass (rc=$rc500e) (#500)"
 fi
 
 rm -rf "$GH38_DIR"
