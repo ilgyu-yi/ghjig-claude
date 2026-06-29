@@ -4549,6 +4549,38 @@ else
   ng "43-reason-required: /block-directive must declare --reason in both argument-hint and procedure (#80)"
 fi
 
+# ---- §504a-d (#504 / Directive #498): skill --body-file holdouts + work-on
+# default-branch. Source-grep locks (parity with the §43 dir-mode contract locks).
+S504_BD="$SHELL_ROOT/.claude/commands/block-directive.md"
+S504_RD="$SHELL_ROOT/.claude/commands/resolve-discussion.md"
+S504_CD="$SHELL_ROOT/.claude/commands/complete-directive.md"
+S504_WO="$SHELL_ROOT/.claude/commands/work-on.md"
+# 504a: /block-directive posts the block comment via --body-file, not inline --body.
+if grep -qF -- '--body-file' "$S504_BD" 2>/dev/null && ! grep -qE 'gh issue comment[^`]*--body "## Blocked' "$S504_BD" 2>/dev/null; then
+  ok "504a: /block-directive posts the block comment via --body-file (#504)"
+else
+  ng "504a: /block-directive still uses inline --body for the free-text block comment (#504)"
+fi
+# 504b: /resolve-discussion no-action path posts via --body-file.
+if grep -qF -- '--body-file' "$S504_RD" 2>/dev/null; then
+  ok "504b: /resolve-discussion uses --body-file for the free-text no-action comment (#504)"
+else
+  ng "504b: /resolve-discussion no-action comment still inline --body (#504)"
+fi
+# 504c: /complete-directive step 5 posts the closing comment via --body-file.
+if grep -qF -- '--body-file' "$S504_CD" 2>/dev/null; then
+  ok "504c: /complete-directive posts the closing comment via --body-file (#504)"
+else
+  ng "504c: /complete-directive closing comment not specified via --body-file (#504)"
+fi
+# 504d: /work-on resolves the default branch for the Closes/Refs trailer (not a
+# hardcoded `main`), so a master/release-default target routes the trailer right.
+if grep -qE 'defaultBranchRef' "$S504_WO" 2>/dev/null && ! grep -qE '\[ "\$BASE" != "main" \]' "$S504_WO" 2>/dev/null; then
+  ok "504d: /work-on resolves the default branch for Closes/Refs (not literal main) (#504)"
+else
+  ng "504d: /work-on still hardcodes 'main' for the Closes/Refs trailer (#504)"
+fi
+
 # 43-archive-marker (#80): /revise-directive must name the archive comment
 # marker exactly as §5.16 specifies.
 if grep -qF "## Pre-revision body — archived" "$SHELL_ROOT/.claude/commands/revise-directive.md" 2>/dev/null; then
