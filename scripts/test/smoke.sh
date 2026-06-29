@@ -3854,6 +3854,57 @@ fi
 trap - EXIT INT TERM
 rm -rf "$SS40_DIR"
 
+# ---------- §502: SessionStart registry-zeroed detector (#502 / Directive #498) ----------
+# A present-but-EMPTY per-project registry silently disables all enforcement
+# (in_scope fails open); session_start.sh now surfaces it (banner + audit warn)
+# so the disarmed state is no longer traceless. ENG_STATE_DIR_OVERRIDE points
+# eng_registry_file at a controlled dir. Mirrors the §40 banner harness.
+SS502_TMPDIR=$(mktemp -d); SS502_STATE=$(mktemp -d)
+ss502_run() {  # $1 = session_id → echoes registry-zeroed banner count
+  ( cd "$TMP/fake" || exit 0
+    CLAUDE_ENG_SHELL_ROOT="$SHELL_ROOT" CLAUDE_SESSION_ID="$1" \
+    CLAUDE_PROJECT_DIR="$SS502_STATE" ENG_STATE_DIR_OVERRIDE="$SS502_STATE" \
+    TMPDIR="$SS502_TMPDIR" \
+      bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
+  ) | grep -c 'registry-zeroed.*Fix:' || true
+}
+# 502a: present-but-EMPTY registry → banner fires (was traceless).
+: > "$SS502_STATE/registry.txt"
+[ "$(ss502_run "smoke-502a-$$")" = 1 ] \
+  && ok "502a: empty registry → registry-zeroed banner fires (#502)" \
+  || ng "502a: empty registry did not surface the silent-disable (#502)"
+# 502b: registry WITH content → silent (no false fire).
+printf '%s\n' "$TMP/fake" > "$SS502_STATE/registry.txt"
+[ "$(ss502_run "smoke-502b-$$")" = 0 ] \
+  && ok "502b: non-empty registry → detector silent (#502)" \
+  || ng "502b: non-empty registry wrongly fired the detector (#502)"
+# 502c: ABSENT registry → silent (normal unregistered / pre-registration case).
+rm -f "$SS502_STATE/registry.txt"
+[ "$(ss502_run "smoke-502c-$$")" = 0 ] \
+  && ok "502c: absent registry → detector silent (transparent unregistered case) (#502)" \
+  || ng "502c: absent registry wrongly fired the detector (#502)"
+# 502e: the PERSISTENT half — an empty registry must write a queryable
+# `registry-zeroed` audit record (not just the ephemeral stderr banner), else
+# the disarmed state stays traceless in the LOG (the audit_log arity bug). Fresh
+# empty-registry run, then grep the audit aggregate under the override dir.
+: > "$SS502_STATE/registry.txt"
+ss502_run "smoke-502e-$$" >/dev/null 2>&1
+if grep -rqs 'registry-zeroed' "$SS502_STATE" 2>/dev/null; then
+  ok "502e: empty registry writes a persistent 'registry-zeroed' audit record (#502)"
+else
+  ng "502e: no persistent registry-zeroed audit record — disarmed state traceless in the log (#502)"
+fi
+rm -rf "$SS502_TMPDIR" "$SS502_STATE"
+# 502d: SPEC §6.5(c) documents the registry-zeroed detector AND the
+# binding-repoint residual + the §1.4 "no fail-open flip" decision.
+if grep -qiE 'registry-zeroed detector' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qiE 'binding-symlink repoint|repoint.*binding' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qiE 'NOT a fail-open|not a fail-open' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "502d: SPEC §6.5(c) documents the registry detector + binding-repoint residual + §1.4 decision (#502)"
+else
+  ng "502d: SPEC missing the #502 detector/residual/§1.4 documentation (#502)"
+fi
+
 # ---------- 41. scripts/setup_project.sh idempotency + scope guards (#43) ----------
 # PR #43 introduces scripts/setup_project.sh — an idempotent bootstrap for the
 # GitHub Project substrate (SPEC §1.7). The script:

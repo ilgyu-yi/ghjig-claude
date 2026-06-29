@@ -42,6 +42,30 @@ safe_source "$SHELL_ROOT/.claude/hooks/helpers/branch_guard.sh"  branch       ||
 # §6.5(d) friction advisory below stays consistent with them.
 safe_source "$SHELL_ROOT/scripts/lib/audit_log_path.sh"          friction-advisory || true
 
+# Registry-zeroed detector (#502 / Directive #498). The per-project scope-guard
+# registry going EMPTY — `: > registry.txt`, `truncate`, or a delete-then-touch —
+# silently turns ALL enforcement off: the global `in_scope` gate fails open on an
+# empty/absent registry (by design, SPEC §3.2.2 / §6.1 / §773). That fail-open is
+# DELIBERATELY UNCHANGED here (no SPEC §1.4 flip — the empty-registry transparency
+# is the guardrail-not-sandbox posture); this only makes the zeroed STATE
+# OBSERVABLE rather than traceless (#502 AC5). A present-but-EMPTY registry is the
+# distinguishable "armed-then-disarmed" signal; an ABSENT registry is the normal
+# pre-registration / unregistered-cwd transparent case and does NOT fire. Loud
+# once-per-session banner (debounced) + audit warn, mirroring the hookrt banner.
+# (The binding-symlink-repoint disable stays a documented residual — SPEC §6.5(c)
+#  — because this detector is itself reached THROUGH the binding.)
+_ce_reg=$(eng_registry_file 2>/dev/null || true)
+if [ -n "$_ce_reg" ] && [ -f "$_ce_reg" ] && ! grep -q '[^[:space:]]' "$_ce_reg" 2>/dev/null; then
+  # Banner FIRST (the user-visible AC5 signal), debounced once per session.
+  _reg_stamp="${TMPDIR:-/tmp}/claude-eng-banner-regzero.${CLAUDE_SESSION_ID:-$PPID}"
+  if [ ! -d "$_reg_stamp" ] && mkdir "$_reg_stamp" 2>/dev/null; then
+    printf '[claude-eng-shell] WARN registry-zeroed: scope-guard registry %s is EMPTY — hook enforcement is OFF (fails open on an empty registry). Fix: re-register this project (`scripts/register.sh`) or `git`-restore the registry, then restart the session.\n' "$_ce_reg" >&2
+  fi
+  # Audit record in a SUBSHELL so any audit_log misbehavior (e.g. a `set -u`
+  # abort on an unusual env) cannot kill this hook before/after the banner.
+  ( audit_log warn registry-zeroed notice "per-project registry present-but-empty → enforcement OFF (in_scope fails open): $_ce_reg" ) >/dev/null 2>&1 || true
+fi
+
 # 1) Shell self-sync check — always runs regardless of target cwd.
 # Gated by .claude/state/last-shell-fetched stamp (SESSION_START_FETCH_TTL
 # seconds, default 21600 = 6 h). Fetch is bounded by
