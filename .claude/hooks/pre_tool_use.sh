@@ -256,7 +256,12 @@ case "$tool" in
     # subcommands don't false-positive — `\b` alone would have matched
     # `merge-queue` because `-` is a non-word boundary. Matches the
     # backmerge matcher's anchor style at line 142.
-    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
+    # #499: tolerate a leading gh GLOBAL-FLAG run (`gh --repo o/r pr merge`,
+    # `gh -R o/r …`, `gh --repo=o/r …`) so a global flag before the subcommand
+    # can't bypass the gate. Each leading token is `-X`/`--xxx[=val]` with an
+    # optional non-flag value (`o/r`); `pr merge` must stay ADJACENT after the
+    # run, so the word `merge` buried in a `pr create` body/title still misses.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
       decided=
       if should_skip ac-closeout; then
         decided=1
@@ -333,7 +338,10 @@ case "$tool" in
     # allow; any strategy when base != default branch → allow (topic-branch
     # consolidation, §10.5). Independent of the ac-closeout arm above (own
     # `should_skip` category; both fire on `gh pr merge`, each decides on its own).
-    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'; then
+    # #499: same leading global-flag-run widening as the ac-closeout anchor above
+    # (`pr merge` must stay ADJACENT after the run so a `pr create` body whose
+    # text contains `merge` is not over-blocked).
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
       decided=
       # Strategy + PR via a gh-flag-aware token walk (parse_gh_merge_argv, #290):
       # strategy is the explicit flag token (so `--merge` inside a --body value
@@ -456,7 +464,10 @@ case "$tool" in
     # Fail-open if is_trusted_filer is unavailable or can't resolve (gh
     # down, no auth) — the underlying action proceeds under the existing
     # attended/unattended rules.
-    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+issue[[:space:]]+(close|edit)\b'; then
+    # #499: tolerate a leading gh global-flag run (`gh -R o/r issue close`,
+    # `gh --repo o/r issue …`) before the subcommand — same widening as the
+    # `gh pr merge` anchors above; `issue (close|edit)` stays ADJACENT.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+(close|edit)\b'; then
       decided=
       if should_skip trusted-filer-mutate; then
         decided=1
@@ -480,7 +491,9 @@ case "$tool" in
         # unchanged so a quoted selector keeps its quotes — the `["']?` is what
         # matches it in that fallback path. The declassify arm only confirms it's
         # `gh issue edit <selector>`; it does not use the number.
-        tfm_edit_sel_re='gh[[:space:]]+issue[[:space:]]+edit[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
+        # #499: tolerate a leading gh global-flag run (`gh --repo o/r issue edit`)
+        # before the subcommand — same widening as the entry anchor.
+        tfm_edit_sel_re='gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+edit[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
         if [[ "$cmd" =~ $tfm_edit_sel_re ]] \
            && [[ "$cmd" =~ $tfm_declassify_re ]]; then
           block trusted-filer-mutate "Removing the 'directive' label declassifies an Issue and bypasses dir-mode review. Human-confirm required always (SPEC §1.5 filer-aware invariants). Or SKIP_HOOKS=trusted-filer-mutate SKIP_REASON='<why>' for legitimate edge cases."
@@ -496,7 +509,10 @@ case "$tool" in
         #     through to the trusted-filer check — block close-without-`--reason
         #     completed` on Issues authored by trusted filers (OWNER / MEMBER /
         #     MAINTAINER / COLLABORATOR).
-        elif tfm_close_sel_re='gh[[:space:]]+issue[[:space:]]+close[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
+        # #499: tolerate a leading gh global-flag run (`gh -R o/r issue close`)
+        # before the subcommand. The flag-run adds two capture groups ahead of
+        # the selector, so the selector value is BASH_REMATCH[3] below (not [1]).
+        elif tfm_close_sel_re='gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+close[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
              [[ "$cmd" =~ $tfm_close_sel_re ]]; then
           # Normalize the selector to a pure issue number (#223): gh accepts a
           # URL or quoted number, but is_trusted_filer / the cache key / the
@@ -506,7 +522,7 @@ case "$tool" in
           # 100, matching gh's target) then its leading digits; otherwise strip
           # to digits. Pure parameter expansion — no second `=~`, so no
           # BASH_REMATCH clobber.
-          tf_sel="${BASH_REMATCH[1]}"
+          tf_sel="${BASH_REMATCH[3]}"
           case "$tf_sel" in
             */issues/*) tf_issue="${tf_sel##*/issues/}"; tf_issue="${tf_issue%%[!0-9]*}" ;;
             *)          tf_issue="${tf_sel//[^0-9]/}" ;;

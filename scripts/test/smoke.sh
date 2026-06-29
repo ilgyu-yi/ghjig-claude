@@ -3359,6 +3359,23 @@ fi
 
 trap - EXIT INT TERM
 
+# 38g (#499 / Directive #498): a leading gh GLOBAL FLAG before `pr merge` must not
+# bypass the ac-closeout entry anchor (pre_tool_use.sh :336). The tight
+# `\bgh[[:space:]]+pr[[:space:]]+merge` anchor missed `gh --repo o/r pr merge`;
+# the #499 fix widens it (same leading-global-flag-run form as merge-strategy).
+# Placed in §38 (before the GH38 teardown below) so the gh38 shim is live. RED
+# before the fix (leading-flag form → ac-closeout never enters → allow).
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+: > "$GH38_STATE/issue_comments"
+out38g=$(gh38_run "gh --repo o/r pr merge 200 --merge"); rc38g=$?
+if [ "$rc38g" = 2 ] && printf '%s' "$out38g" | grep -q 'ac-closeout'; then
+  ok "38g: leading --repo before 'pr merge' → ac-closeout still blocks unchecked AC (#499)"
+else
+  ng "38g: leading --repo bypassed ac-closeout (rc=$rc38g) (#499)"
+fi
+
 rm -rf "$GH38_DIR"
 
 # ---------- 39. matcher pass-through audit invariant (#33) ----------
@@ -6662,6 +6679,28 @@ case $? in
   *) ng "62e3: expected rc=2 (block) for --reason duplicate, got rc=$? (#216)" ;;
 esac
 
+# §62g/§62h (#499 / Directive #498): a leading gh GLOBAL FLAG before `issue close`
+# must not bypass the trusted-filer-mutate entry anchor (pre_tool_use.sh :459).
+# The tight `\bgh[[:space:]]+issue[[:space:]]+(close|edit)` anchor missed
+# `gh -R o/r issue close` / `gh --repo o/r issue close`; the #499 fix widens it to
+# tolerate a leading global-flag run. Placed inside §62 (before the cleanup
+# below) so the fresh s62 mock/target is in scope. §62g is RED before the fix
+# (leading flag → arm never enters → allow); §62h is the no-over-block guard.
+# §62g: leading -R before `issue close` (no --reason) on the discussion/OWNER
+# Issue must BLOCK (rc=2), exactly as the bare §62c form does.
+s62_close_run "gh -R o/r issue close 999"
+case $? in
+  2) ok "62g: leading -R before 'issue close' → trusted-filer still blocks (#499)" ;;
+  *) ng "62g: leading -R bypassed trusted-filer-mutate, got rc=$? (#499)" ;;
+esac
+# §62h: leading --repo + a valid `--reason completed` close must still ALLOW (rc=0)
+# — the widened anchor must not over-block the compliant completed-close path.
+s62_close_run "gh --repo mock/repo issue close 999 --reason completed"
+case $? in
+  0) ok "62h: leading --repo + --reason completed still allowed (no over-block) (#499)" ;;
+  *) ng "62h: leading-flag completed close wrongly blocked, got rc=$? (#499)" ;;
+esac
+
 # Cleanup §62.
 sp_tmp_reg=$(mktemp); grep -vxF "$S62_TARGET" "$SMOKE_REG" > "$sp_tmp_reg" 2>/dev/null || true
 mv "$sp_tmp_reg" "$SMOKE_REG"
@@ -8734,6 +8773,30 @@ s78m4=$(printf "cat <<'EOF'\ngh pr merge 200 --squash\nEOF\n")
 [ "$(pt78_run 'true && gh pr merge 200 --squash')" = 2 ] \
   && ok "78m-8: &&-chained real merge still blocked (#340)" \
   || ng "78m-8: &&-chained real merge slipped the gate (#340)"
+
+# --- 78n-78r (#499 / Directive #498): a leading gh GLOBAL FLAG before `pr merge`
+# must not bypass the merge-strategy entry anchor (pre_tool_use.sh :259). The
+# tight `\bgh[[:space:]]+pr[[:space:]]+merge` anchor missed `gh --repo o/r pr
+# merge`; the #499 fix widens it to tolerate a leading global-flag run while
+# keeping `pr merge` ADJACENT (so it must NOT over-match a `merge` word in a
+# `pr create` body). Placed in §78 (before the PT78 teardown below) so the pt78
+# shim is live — reusing pt78_run at end-of-file is unreliable. RED before the
+# fix (leading-flag forms returned allow); 78r is the over-block guard.
+[ "$(pt78_run 'gh --repo o/r pr merge 200 --squash')" = 2 ] \
+  && ok "78n: leading --repo <val> before 'pr merge' → squash still blocked (#499)" \
+  || ng "78n: leading --repo bypassed merge-strategy (#499)"
+[ "$(pt78_run 'gh -R o/r pr merge 200 --squash')" = 2 ] \
+  && ok "78o: leading -R <val> before 'pr merge' → squash still blocked (#499)" \
+  || ng "78o: leading -R bypassed merge-strategy (#499)"
+[ "$(pt78_run 'gh --repo=o/r pr merge 200 --squash')" = 2 ] \
+  && ok "78p: leading --repo=val (equals form) before 'pr merge' → squash still blocked (#499)" \
+  || ng "78p: leading --repo=val bypassed merge-strategy (#499)"
+[ "$(pt78_run 'gh --repo o/r pr merge 200 --merge')" = 0 ] \
+  && ok "78q: leading --repo + --merge still allowed (no over-block) (#499)" \
+  || ng "78q: leading-flag --merge wrongly blocked (#499)"
+[ "$(pt78_run 'gh pr create --title fix --body "see the pr merge discussion thread"')" = 0 ] \
+  && ok "78r: 'merge' inside a pr-create body does NOT trip merge-strategy (over-block guard) (#499)" \
+  || ng "78r: widened anchor over-blocks a pr-create whose body contains 'merge' (#499)"
 
 rm -rf "$PT78_DIR"
 

@@ -23,7 +23,9 @@ extract_pr_from_merge_cmd() {
   # pre_tool_use.sh already validated that `gh pr merge` is present as a
   # token (with end-anchor so `merge-queue` doesn't slip past), so plain
   # `.*gh[[:space:]]+pr[[:space:]]+merge` is sufficient.
-  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+pr[[:space:]]+merge//p')
+  # #499: also strip a leading gh global-flag run (`gh --repo o/r pr merge …`)
+  # so the argv after `pr merge` is captured for the leading-flag forms.
+  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge//p')
   # Collapse runs of whitespace so word-split picks tokens cleanly.
   rest=$(printf '%s' "$rest" | tr -s '[:space:]')
   # `set -f` disables pathname expansion so a literal `*` in cmd args
@@ -76,7 +78,8 @@ _ac_run_gh() {
 # so the caller takes the conservative base-resolution path.
 parse_gh_merge_argv() {
   local cmd="$1" rest
-  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+pr[[:space:]]+merge//p')
+  # #499: strip a leading gh global-flag run too (see extract_pr_from_merge_cmd).
+  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge//p')
   local -a toks=()
   if command -v python3 >/dev/null 2>&1; then
     local _out
@@ -158,7 +161,11 @@ is_pr_merge_command() {
   # The `gh … pr … merge` command words must survive stripping (mirrors the
   # coarse entry grep). Present on the residue → a real merge; absent → the words
   # appeared only as DATA (heredoc body / quoted value / commit message).
-  printf '%s' "$stripped" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)' && return 0
+  # #499: tolerate a leading gh global-flag run before `pr merge` (the entry
+  # anchor in pre_tool_use.sh was widened the same way); `pr merge` must stay
+  # ADJACENT after the run so a `pr create` body containing `merge` is not read
+  # as a merge command.
+  printf '%s' "$stripped" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)' && return 0
   return 1
 }
 
