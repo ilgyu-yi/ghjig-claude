@@ -30,7 +30,7 @@ Not reviewer-gated by `activation-reviewer` — blocking is an annotation, not a
    ```
    `audit_log info directive-block skipped "already-blocked: directive=#<N>"`. Stop.
 
-4. **Post the block comment** — `gh issue comment <issue-#> --body "## Blocked: <reason>"`. Capture the comment URL for audit.
+4. **Post the block comment** — write `## Blocked: <reason>` to a temp file and post via `gh issue comment <issue-#> --body-file <file>` (#504). Never inline `--body "## Blocked: <reason>"` — a backtick / `$(...)` / quote in the free-text reason would corrupt the comment or execute at assembly time; this mirrors the dir-mode `--body-file` bar (`/revise-directive`, `/consume-initiative`, `/activate` refile). Preserve the leading `## Blocked: ` marker line the step-3 idempotency check greps for. Capture the comment URL for audit.
 
 5. **Add the `status:blocked` label**:
    ```bash
