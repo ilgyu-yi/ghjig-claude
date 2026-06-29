@@ -1529,6 +1529,35 @@ else
   ng "matcher: git -p commit bypasses commit-format (#37)"
 fi
 
+# ---- §503a-e (#503 / Directive #498): GIT_PREFIX must tolerate an UNLISTED
+# leading git global flag, else the verb match fails and the push isn't gated.
+# `--no-lazy-fetch` (git 2.38+) is a real global flag absent from the allowlist.
+# Uses the §37 hook_run harness (live $TMP/fake, non-protected branch).
+[ "$(hook_run 'git --no-lazy-fetch push origin main')" = "2" ] \
+  && ok "503a: unlisted global flag (--no-lazy-fetch) before push → protected-push still blocked (#503)" \
+  || ng "503a: --no-lazy-fetch bypassed protected-push (GIT_PREFIX allowlist gap) (#503)"
+[ "$(hook_run 'git --no-lazy-fetch push --force origin main')" = "2" ] \
+  && ok "503b: unlisted global flag before a force-push to protected → still blocked (#503)" \
+  || ng "503b: --no-lazy-fetch bypassed force-push to protected (#503)"
+# 503c (no-regression): a LISTED value-flag (`-c <kv>`) still consumes its value
+# and the protected-push still fires (the broadening must not break value-flags).
+[ "$(hook_run 'git -c http.proxy=x push origin main')" = "2" ] \
+  && ok "503c: listed value-flag (-c <kv>) before push still blocked (no regression) (#503)" \
+  || ng "503c: -c value-flag form regressed (#503)"
+# 503d (no over-block): an unlisted global flag before a push to a NON-protected
+# branch is still allowed.
+[ "$(hook_run 'git --no-lazy-fetch push origin feature')" = "0" ] \
+  && ok "503d: --no-lazy-fetch push to non-protected branch still allowed (no over-block) (#503)" \
+  || ng "503d: --no-lazy-fetch push to non-protected wrongly blocked (#503)"
+# 503e (documented residual): the `-c alias.<x>=<verb>` rename bypass (invoking a
+# gated verb under an alias name) is contrived and not closed; SPEC §6.1 must
+# name it as an explicit residual so it isn't a silent gap. Source-grep.
+if grep -qiE 'alias[^`]{0,40}(bypass|residual|rename)|-c alias' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "503e: SPEC §6.1 documents the '-c alias.<x>=<verb>' bypass as a residual (#503)"
+else
+  ng "503e: SPEC does not document the -c alias rename bypass residual (#503)"
+fi
+
 # 37x (#209): `git commit --allow-empty` must NOT skip the commit umbrella.
 # Pre-#209 the matcher ENTRY excluded --allow-empty, so an empty commit bypassed
 # branch + commit-format + secret + lint in one flag. A malformed subject proves
