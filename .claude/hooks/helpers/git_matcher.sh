@@ -47,8 +47,15 @@ PROTECTED_BRANCH_PATTERN='main|master|release/\S+'
 #   --no-advice                  — suppress advice hints
 #   --exec-path[=<path>]         — git exec path
 #   --config-env=<name>=<envvar> — config from env
+#   <any other --long-flag[=val] or -X short flag> (#503) — a generic trailing
+#     alternative so an UNLISTED valid git global flag (e.g. `--no-lazy-fetch`,
+#     git 2.38+) no longer drops the whole `git <verb>` match. The value-taking
+#     entries above stay FIRST so POSIX leftmost-longest still consumes their
+#     space-separated value (`-c <kv>`); only a space-separated value of an
+#     UNLISTED flag is a residual. The `-c alias.<x>=<verb>` rename bypass is a
+#     separate, documented §6.1 residual (the alias name is not the gated verb).
 # shellcheck disable=SC2034  # consumed via interpolation in pre_tool_use.sh
-GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|--work-tree=\S+|--bare|--namespace=\S+|--literal-pathspecs|--icase-pathspecs|--no-optional-locks|--no-replace-objects|--no-advice|--exec-path(=\S+)?|--config-env=\S+))*\s+'
+GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|--work-tree=\S+|--bare|--namespace=\S+|--literal-pathspecs|--icase-pathspecs|--no-optional-locks|--no-replace-objects|--no-advice|--exec-path(=\S+)?|--config-env=\S+|--[A-Za-z][A-Za-z0-9-]*(=\S+)?|-[A-Za-z]))*\s+'
 
 # strip_command_data <cmd> [mode] — print <cmd> with heredoc bodies removed
 # (and, in the default "full" mode, quoted string literals removed too) so a
