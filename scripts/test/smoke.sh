@@ -12863,6 +12863,35 @@ EOF
                 || ng "128l: expected fail-open allow(0) on gh failure (commit); got rc=$rc (#490)"
 fi
 
+# ---------- §129: recall routing disposition (#520) ----------
+# Two arms. Arm (a) is RED-first — it scopes to the recall.md `description:` FRONTMATTER
+# (the #520 Code lever), which is rewritten in the Code commit, so it stays NG until then
+# even though the body prose already mentions "have we" / "before planning". Arm (b) is a
+# regression-lock on the CLAUDE.md norm authored in the SAME Doc commit (green-at-Doc,
+# §126a/§127a-style, NOT RED-first) and pins the thin SPEC §5.25 POINTER, not restated
+# prose (§9 thin-pointer). NON-VACUOUS: a missing file fails LOUD.
+S129_RECALL="$SHELL_ROOT/.claude/commands/recall.md"
+S129_CLAUDE="$SHELL_ROOT/.claude/CLAUDE.md"
+if [ ! -f "$S129_RECALL" ] || [ ! -f "$S129_CLAUDE" ]; then
+  ng "129: recall-routing file missing — cannot assert routing disposition (#520)"
+else
+  # arm (a): the description: frontmatter line is trigger-oriented — "Use when" + a
+  # user-ask shape + a self-identified/pre-plan shape, all WITHIN the description value.
+  s129_desc=$(grep -E '^description:' "$S129_RECALL" 2>/dev/null | head -1)
+  s129_usewhen=$(printf '%s' "$s129_desc" | grep -ciE 'use when' | tr -d ' ')
+  s129_userask=$(printf '%s' "$s129_desc" | grep -ciE 'have we|what did we decide' | tr -d ' ')
+  s129_selfid=$(printf '%s' "$s129_desc" | grep -ciE 'before planning|decided this before|before a decision|internally' | tr -d ' ')
+  # arm (b): CLAUDE.md recall-routing norm token + the thin SPEC §5.25 pointer.
+  s129_norm=$(grep -ciE 'recall routing|recall-shaped' "$S129_CLAUDE" 2>/dev/null | tr -d ' ')
+  s129_ptr=$(grep -ciE 'SPEC §5\.25' "$S129_CLAUDE" 2>/dev/null | tr -d ' ')
+  if [ "$s129_usewhen" -ge 1 ] && [ "$s129_userask" -ge 1 ] && [ "$s129_selfid" -ge 1 ] \
+     && [ "$s129_norm" -ge 1 ] && [ "$s129_ptr" -ge 1 ]; then
+    ok "129: recall-routing disposition — trigger-oriented recall.md description (user-asked + self-identified) + thin CLAUDE.md norm → SPEC §5.25 (#520)"
+  else
+    ng "129: recall-routing disposition incomplete (usewhen=$s129_usewhen userask=$s129_userask selfid=$s129_selfid norm=$s129_norm ptr=$s129_ptr) (#520)"
+  fi
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading

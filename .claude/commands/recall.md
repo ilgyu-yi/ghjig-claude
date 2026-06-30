@@ -1,5 +1,5 @@
 ---
-description: Episodic retrieval over the project's own decision record (closed issues / merged PRs / ADRs). Pointers only.
+description: Use when the user asks a recall question ("have we addressed X before?", "what did we decide about Y?") OR when you internally hit a "have we decided this before?" beat before planning or a decision. Episodic retrieval over the project's own decision record (closed issues / merged PRs / ADRs); pointers only.
 argument-hint: <topic>
 ---
 
