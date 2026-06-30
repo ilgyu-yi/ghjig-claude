@@ -12892,6 +12892,29 @@ else
   fi
 fi
 
+# ---------- §130: SPEC §9.1-9.4 describe-and-point (no inlined template body) (#522) ----------
+# RED-first: §9.1-9.4 historically INLINED the mission/issue/pr_body/adr template bodies —
+# a second copy that drifted from the authoritative .claude/templates/* files. De-inline to
+# the §9.6-9.8 describe+name-the-file pattern. This locks each §9.1-9.4 subsection to NAME
+# its local template file. Block-scoped to §9.1..§9.5 so a path reference elsewhere in SPEC
+# cannot green it vacuously. Distinct from §106 (which guards the §9.6-9.8 target-copy specs).
+# NON-VACUOUS: SPEC.md missing → loud NG.
+S130_SPEC="$SHELL_ROOT/SPEC.md"
+if [ ! -f "$S130_SPEC" ]; then
+  ng "130: SPEC.md missing — cannot assert §9.1-9.4 describe-and-point (#522)"
+else
+  s130_block=$(awk '/^### 9\.1 /{f=1} /^### 9\.5 /{f=0} f' "$S130_SPEC")
+  s130_mission=$(printf '%s' "$s130_block" | grep -cE '\.claude/templates/mission\.md' | tr -d ' ')
+  s130_issue=$(printf '%s' "$s130_block" | grep -cE '\.claude/templates/issue\.md' | tr -d ' ')
+  s130_pr=$(printf '%s' "$s130_block" | grep -cE '\.claude/templates/pr_body\.md' | tr -d ' ')
+  s130_adr=$(printf '%s' "$s130_block" | grep -cE '\.claude/templates/adr\.md' | tr -d ' ')
+  if [ "$s130_mission" -ge 1 ] && [ "$s130_issue" -ge 1 ] && [ "$s130_pr" -ge 1 ] && [ "$s130_adr" -ge 1 ]; then
+    ok "130: SPEC §9.1-9.4 name their .claude/templates/{mission,issue,pr_body,adr}.md (describe-and-point, no inlined body) (#522)"
+  else
+    ng "130: SPEC §9.1-9.4 not all pointing to their template file (mission=$s130_mission issue=$s130_issue pr_body=$s130_pr adr=$s130_adr) (#522)"
+  fi
+fi
+
 # ---------- §110: README assertion-count floor (#409) ----------
 # README's "Verify" block advertises an assertion count as "<N>+". A count that
 # OVERSTATES coverage (claims more than the suite runs) is the misleading
