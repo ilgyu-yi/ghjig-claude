@@ -12593,6 +12593,28 @@ else
   fi
 fi
 
+# ---------- §126e: implementer fail-open reversibility degradation lock (#517, promoted from discussion #496 Gap 2) ----------
+# Regression lock (NOT RED-first — the contract already lives in the docs; this pins it
+# against silent removal, §126a-style). The fail-open reversibility safety valve —
+# "a missing implementer path degrades to main-loop authoring" — was leaned on IN LIEU
+# OF the descoped A/B measurement (Directive #477), yet §126a-c never asserted it.
+# Locked across all three documenting surfaces. NON-VACUOUS: any missing file fails LOUD.
+S126E_CMD="$SHELL_ROOT/.claude/commands/implement.md"
+S126E_WORKON="$SHELL_ROOT/.claude/commands/work-on.md"
+S126E_AGENT="$SHELL_ROOT/.claude/agents/implementer.md"
+if [ ! -f "$S126E_CMD" ] || [ ! -f "$S126E_WORKON" ] || [ ! -f "$S126E_AGENT" ]; then
+  ng "126e: implementer fail-open file missing — cannot assert degradation contract (#517)"
+else
+  s126e_cmd=$(grep -ciE 'fail-open reversibility|degrades? to main-loop authoring' "$S126E_CMD" 2>/dev/null | tr -d ' ')
+  s126e_workon=$(grep -ciE 'fail-open reversibility|degrades? to main-loop authoring' "$S126E_WORKON" 2>/dev/null | tr -d ' ')
+  s126e_agent=$(grep -ciE 'fail-open reversibility|degrades? to main-loop authoring' "$S126E_AGENT" 2>/dev/null | tr -d ' ')
+  if [ "$s126e_cmd" -ge 1 ] && [ "$s126e_workon" -ge 1 ] && [ "$s126e_agent" -ge 1 ]; then
+    ok "126e: fail-open reversibility degradation contract documented across implement.md / work-on.md / implementer.md (#517)"
+  else
+    ng "126e: fail-open degradation contract missing a surface (implement=$s126e_cmd work-on=$s126e_workon implementer=$s126e_agent) (#517)"
+  fi
+fi
+
 # ---------- §127: directive-level coding-memory loop contract (#488 / Directive #477) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Phase B
 # (Test) for EI-2 under Directive #477. The Doc phase already landed the contract
