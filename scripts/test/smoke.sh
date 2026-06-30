@@ -12563,6 +12563,36 @@ else
   fi
 fi
 
+# ---------- §126d: implementer tree-safety hardening (#516, promoted from discussion #497) ----------
+# RED-first (Phase B for #516): three Code-phase tokens absent until the #516 Code commit —
+#   (1) implementer.md — affirmative path-scoped-add rule (never `git add -A`/`-u`; stage only manifest-named paths)
+#   (2) implement.md   — pre-dispatch clean-tree surface/warn, explicitly NOT a hard block
+#   (3) work-on.md     — the stale "pre-commit review checkpoint" wording replaced by "pre-ready"
+# NON-VACUOUS: any missing file fails LOUD rather than greening on nothing scanned.
+S126D_AGENT="$SHELL_ROOT/.claude/agents/implementer.md"
+S126D_CMD="$SHELL_ROOT/.claude/commands/implement.md"
+S126D_WORKON="$SHELL_ROOT/.claude/commands/work-on.md"
+if [ ! -f "$S126D_AGENT" ] || [ ! -f "$S126D_CMD" ] || [ ! -f "$S126D_WORKON" ]; then
+  ng "126d: implementer tree-safety file missing — cannot assert hardening (#516)"
+else
+  # (1) path-scoped-add: forbids -A/-u AND names manifest-scoped staging.
+  s126d_noaddall=$(grep -ciE 'never.{0,40}git add -[Au]' "$S126D_AGENT" 2>/dev/null | tr -d ' ')
+  s126d_scoped=$(grep -ciE 'manifest-named path|only the manifest' "$S126D_AGENT" 2>/dev/null | tr -d ' ')
+  # (2) pre-dispatch surface/warn, explicitly not a hard block.
+  s126d_surface=$(grep -ciE 'dirty .{0,12}tree|clean[ -]tree' "$S126D_CMD" 2>/dev/null | tr -d ' ')
+  s126d_notblock=$(grep -ciE 'not a hard block|surface/warn' "$S126D_CMD" 2>/dev/null | tr -d ' ')
+  # (3) wording: "pre-commit review checkpoint" gone (want 0), "pre-ready" present.
+  s126d_precommit=$(grep -ciE 'pre-commit review checkpoint' "$S126D_WORKON" 2>/dev/null | tr -d ' ')
+  s126d_preready=$(grep -ciE 'pre-ready' "$S126D_WORKON" 2>/dev/null | tr -d ' ')
+  if [ "$s126d_noaddall" -ge 1 ] && [ "$s126d_scoped" -ge 1 ] \
+     && [ "$s126d_surface" -ge 1 ] && [ "$s126d_notblock" -ge 1 ] \
+     && [ "$s126d_precommit" = 0 ] && [ "$s126d_preready" -ge 1 ]; then
+    ok "126d: implementer tree-safety hardened — path-scoped-add rule + pre-dispatch surface/warn + pre-ready wording (#516)"
+  else
+    ng "126d: tree-safety hardening incomplete (noaddall=$s126d_noaddall scoped=$s126d_scoped surface=$s126d_surface notblock=$s126d_notblock precommit=$s126d_precommit[want 0] preready=$s126d_preready) (#516)"
+  fi
+fi
+
 # ---------- §127: directive-level coding-memory loop contract (#488 / Directive #477) ----------
 # Placed before §110 (the README floor guard, which runs last by design). Phase B
 # (Test) for EI-2 under Directive #477. The Doc phase already landed the contract
