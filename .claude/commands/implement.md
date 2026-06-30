@@ -16,6 +16,9 @@ Before spawning, gather the explicit manifest — the subagent has **no access t
 
 If the Plan or the failing test is missing, the manifest is incomplete — finish Phase A/B first; do not spawn against a partial manifest. The `directive-level learnings` field is optional — its absence does not make the manifest incomplete.
 
+## Pre-dispatch clean-tree precondition
+Before spawning, **surface/warn on a dirty working tree** (`git status`). In the normal flow the tree is clean once the Phase-A Doc and Phase-B Test commits have landed, so a dirty tree signals uncommitted glue the implementer's path-scoped add (§4.12) must not sweep into the Code commit. This is a **surface/warn, not a hard block** — a legitimately dirty tree must not stall the flow, and the fail-open posture (a missing implementer path degrades to main-loop authoring) is unchanged.
+
 ## Spawn
 Invoke `subagent_type: implementer` with the assembled manifest. It iterates (reads, tries approaches, runs the test + adjacent regression + lint/smoke) entirely in its own ephemeral context.
 
