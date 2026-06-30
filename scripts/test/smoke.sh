@@ -12589,7 +12589,7 @@ else
      && [ "$s126d_precommit" = 0 ] && [ "$s126d_preready" -ge 1 ]; then
     ok "126d: implementer tree-safety hardened — path-scoped-add rule + pre-dispatch surface/warn + pre-ready wording (#516)"
   else
-    ng "126d: tree-safety hardening incomplete (noaddall=$s126d_noaddall scoped=$s126d_scoped surface=$s126d_surface notblock=$s126d_notblock precommit=$s126d_precommit[want 0] preready=$s126d_preready) (#516)"
+    ng "126d: tree-safety hardening incomplete (noaddall=$s126d_noaddall scoped=$s126d_scoped surface=$s126d_surface notblock=$s126d_notblock precommit=${s126d_precommit}[want 0] preready=$s126d_preready) (#516)"
   fi
 fi
 
