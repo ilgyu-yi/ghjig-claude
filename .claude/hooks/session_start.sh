@@ -7,7 +7,7 @@ set -uo pipefail
 # env is back-filled below — so the old banner only false-fired. The residual
 # genuine no-op (binding symlink missing/broken) is structurally undetectable
 # here: this hook is itself invoked through that binding
-# (${CLAUDE_PROJECT_DIR}/.claude/ghjig-shell-root/...), so a broken binding means
+# (${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/...), so a broken binding means
 # this script never runs. See SPEC §6.5(c). The hookrt-missing banner below stays.
 
 SHELL_ROOT="${GHJIG_SHELL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"

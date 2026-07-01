@@ -3,9 +3,9 @@
 # Source and call inject_into "$TARGET".
 #
 # Per-project binding (#312, Directive #311): inject_into drops an untracked
-# `.claude/ghjig-shell-root` symlink → the canonical shell root and points the
+# `.claude/ghjig-root` symlink → the canonical shell root and points the
 # target's `settings.local.json` at `settings.injected.json` (whose hook
-# commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-shell-root/...). Both are added
+# commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/...). Both are added
 # to the target's .git/info/exclude. Net effect: a plain `claude` in the target
 # resolves the shell with no global GHJIG_SHELL_ROOT env. See SPEC §3.2.1.
 
@@ -18,9 +18,9 @@ inject_into() {
   mkdir -p "$target/.claude/agents" "$target/.claude/commands"
 
   # Per-project binding symlink (#312, Directive #311): lets hooks resolve the
-  # canonical shell root via $CLAUDE_PROJECT_DIR/.claude/ghjig-shell-root, so a
+  # canonical shell root via $CLAUDE_PROJECT_DIR/.claude/ghjig-root, so a
   # plain `claude` works with NO global GHJIG_SHELL_ROOT env. Idempotent.
-  ln -sfn "$GHJIG_SHELL_ROOT" "$target/.claude/ghjig-shell-root"
+  ln -sfn "$GHJIG_SHELL_ROOT" "$target/.claude/ghjig-root"
 
   # settings.local.json — Claude Code's this-clone-only slot. Points at the
   # target-facing settings.injected.json, whose hook commands resolve via the
@@ -55,7 +55,7 @@ inject_into() {
     if ! grep -qxF '.claude/settings.local.json' "$excl"; then
       printf '\n# GHJig-Claude injection\n.claude/settings.local.json\n' >> "$excl"
     fi
-    grep -qxF '.claude/ghjig-shell-root' "$excl" || printf '.claude/ghjig-shell-root\n' >> "$excl"
+    grep -qxF '.claude/ghjig-root' "$excl" || printf '.claude/ghjig-root\n' >> "$excl"
     grep -qxF '.claude/ghjig-state' "$excl" || printf '.claude/ghjig-state\n' >> "$excl"
   fi
 

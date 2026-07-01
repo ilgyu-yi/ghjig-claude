@@ -80,7 +80,7 @@ Pointer index — every contract below lives in full in SPEC §6.1 (PreToolUse m
 - **sensitive-file** — Edit/Write on `.env`, `*.pem`, `credentials*`, `id_rsa*`, `id_ed25519*` blocked, including under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except the two carve-outs `$GHJIG_SHELL_ROOT/` and `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
-- **shell-root resolution** — hooks resolve the shell via `$GHJIG_SHELL_ROOT` else self-locate through the per-project `.claude/ghjig-shell-root` binding symlink, so a plain `claude` in a target needs no global env (SPEC §3.2.1).
+- **shell-root resolution** — hooks resolve the shell via `$GHJIG_SHELL_ROOT` else self-locate through the per-project `.claude/ghjig-root` binding symlink, so a plain `claude` in a target needs no global env (SPEC §3.2.1).
 - **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `ghjig-state/` (`ghjig_state_dir`/`ghjig_registry_file`); missing/empty registry fails open (SPEC §3.2.2).
 - **SessionStart banner** — surfaces the detectable silent-no-op states (runtime `hookrt.sh` missing; and a present-but-empty scope registry that silently disarms enforcement, #502) via a once-per-session banner naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source (hook-to-helper and helper-to-helper) goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).

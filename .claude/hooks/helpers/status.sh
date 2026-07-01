@@ -212,7 +212,7 @@ EOF
   # else legacy-shared — surfaces the §1.7 shared-code/per-project-state model.
   STATUS_SHELL_ROOT="${GHJIG_SHELL_ROOT:-}"
   if [ -z "$STATUS_SHELL_ROOT" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-    STATUS_SHELL_ROOT=$(readlink "$CLAUDE_PROJECT_DIR/.claude/ghjig-shell-root" 2>/dev/null || true)
+    STATUS_SHELL_ROOT=$(readlink "$CLAUDE_PROJECT_DIR/.claude/ghjig-root" 2>/dev/null || true)
   fi
   local _esd; _esd=$(ghjig_state_dir 2>/dev/null || true)
   [ -n "$_esd" ] && STATUS_STATE_LOCALITY="project-local" || STATUS_STATE_LOCALITY="legacy-shared"

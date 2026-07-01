@@ -88,7 +88,7 @@ if [ $# -gt 0 ] && [ -d "$1" ]; then
         ;;
     esac
   fi
-  # Binding-health check (#334): an injected target whose `.claude/ghjig-shell-root`
+  # Binding-health check (#334): an injected target whose `.claude/ghjig-root`
   # binding is missing or dangling silently no-ops every hook when launched with no
   # global env, and nothing surfaces it — the SessionStart banner cannot fire (the
   # hook runs THROUGH the broken binding). This launcher runs BEFORE the session and
@@ -96,8 +96,8 @@ if [ $# -gt 0 ] && [ -d "$1" ]; then
   # (`-e` follows the link: false for a missing OR dangling symlink, true when it
   # resolves.) See SPEC §6.5(c) — #318 removed the SessionStart inject-consistency
   # banner because it structurally could not detect this case.
-  if [ -L "$target_path/.claude/settings.local.json" ] && [ ! -e "$target_path/.claude/ghjig-shell-root" ]; then
-    printf "[GHJig-Claude] WARN binding-health: '%s' is injected but its .claude/ghjig-shell-root binding is missing or broken — hooks will silently no-op. Fix: '%s/scripts/register.sh' '%s' to repair the binding.\n" \
+  if [ -L "$target_path/.claude/settings.local.json" ] && [ ! -e "$target_path/.claude/ghjig-root" ]; then
+    printf "[GHJig-Claude] WARN binding-health: '%s' is injected but its .claude/ghjig-root binding is missing or broken — hooks will silently no-op. Fix: '%s/scripts/register.sh' '%s' to repair the binding.\n" \
       "$target_path" "$GHJIG_SHELL_ROOT" "$target_path" >&2
   fi
   cd "$target_path"

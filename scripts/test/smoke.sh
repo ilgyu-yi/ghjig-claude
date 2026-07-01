@@ -2389,10 +2389,10 @@ if grep -q 'Adopting it on your repo' "$README_MD" 2>/dev/null; then
 else
   ng "readme: missing the 'Adopting it on your repo' runbook section (#409)"
 fi
-if grep -q 'ghjig-shell-root' "$README_MD" 2>/dev/null; then
-  ok "readme: Footprint names the ghjig-shell-root binding symlink (#409)"
+if grep -q 'ghjig-root' "$README_MD" 2>/dev/null; then
+  ok "readme: Footprint names the ghjig-root binding symlink (#409)"
 else
-  ng "readme: Footprint must name the ghjig-shell-root binding symlink (#409)"
+  ng "readme: Footprint must name the ghjig-root binding symlink (#409)"
 fi
 if grep -qi 'gh auth' "$README_MD" 2>/dev/null && grep -q 'project' "$README_MD" 2>/dev/null; then
   ok "readme: Prerequisites name gh auth + the dir-mode project scope (#409)"
@@ -9331,20 +9331,20 @@ fi
 
 # ---------- 82. per-project binding + hook self-location (#312, Directive #311) ----------
 # The shell must be resolvable per project WITHOUT the global GHJIG_SHELL_ROOT
-# env: a project-local untracked `.claude/ghjig-shell-root` symlink → canonical root,
+# env: a project-local untracked `.claude/ghjig-root` symlink → canonical root,
 # hooks invoked via that symlink self-locate their root from BASH_SOURCE (pwd -P),
 # and the injected `settings.local.json` symlinks to `settings.injected.json` whose
-# hook commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-shell-root/... . The shell's
+# hook commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/... . The shell's
 # OWN settings.json stays $GHJIG_SHELL_ROOT-based (dogfood unchanged).
 
 # 82a: with GHJIG_SHELL_ROOT UNSET, a hook invoked through the project-local
-# ghjig-shell-root symlink self-locates the canonical root and still enforces —
+# ghjig-root symlink self-locates the canonical root and still enforces —
 # a protected-branch commit is blocked (rc=2). (Red until the self-location code.)
 S82_PROJ=$(cd "$(mktemp -d)" && pwd -P)
 ( cd "$S82_PROJ" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }) \
     && git commit -q --allow-empty -m init 2>/dev/null ) || true
 mkdir -p "$S82_PROJ/.claude"
-ln -sfn "$SHELL_ROOT" "$S82_PROJ/.claude/ghjig-shell-root"
+ln -sfn "$SHELL_ROOT" "$S82_PROJ/.claude/ghjig-root"
 printf '%s\n' "$S82_PROJ" >> "$SMOKE_REG"   # in_scope needs it registered
 
 s82_hook_noenv() {
@@ -9354,12 +9354,12 @@ s82_hook_noenv() {
       | env -u GHJIG_SHELL_ROOT bash "$2" >/dev/null 2>&1
     printf '%s' "$?" )
 }
-s82_rc=$(s82_hook_noenv "$S82_PROJ" "$S82_PROJ/.claude/ghjig-shell-root/.claude/hooks/pre_tool_use.sh" \
+s82_rc=$(s82_hook_noenv "$S82_PROJ" "$S82_PROJ/.claude/ghjig-root/.claude/hooks/pre_tool_use.sh" \
   'git commit -m "chore: x"')
 if [ "$s82_rc" = "2" ]; then
-  ok "82a: env-unset hook via ghjig-shell-root symlink self-locates + enforces (protected commit blocked) (#312)"
+  ok "82a: env-unset hook via ghjig-root symlink self-locates + enforces (protected commit blocked) (#312)"
 else
-  ng "82a: env-unset hook should self-locate via ghjig-shell-root + block protected commit (rc=$s82_rc) (#312)"
+  ng "82a: env-unset hook should self-locate via ghjig-root + block protected commit (rc=$s82_rc) (#312)"
 fi
 
 # unregister + remove the fixture
@@ -9367,18 +9367,18 @@ s82_tmp=$(mktemp); grep -vxF "$S82_PROJ" "$SMOKE_REG" > "$s82_tmp" 2>/dev/null |
 mv "$s82_tmp" "$SMOKE_REG"
 rm -rf "$S82_PROJ"
 
-# 82b: inject_into creates `.claude/ghjig-shell-root` resolving to the canonical
+# 82b: inject_into creates `.claude/ghjig-root` resolving to the canonical
 # root, adds it to .git/info/exclude, and is idempotent (no duplicate exclude line).
 S82B=$(cd "$(mktemp -d)" && pwd -P)
 ( cd "$S82B" && git init -q ) || true
 inject_into "$S82B" >/dev/null 2>&1
 inject_into "$S82B" >/dev/null 2>&1   # second run — idempotency
-s82b_link=$(cd "$S82B/.claude/ghjig-shell-root" 2>/dev/null && pwd -P)
-s82b_excl=$(grep -c '^\.claude/ghjig-shell-root$' "$S82B/.git/info/exclude" 2>/dev/null || true)
-if [ -L "$S82B/.claude/ghjig-shell-root" ] && [ "$s82b_link" = "$SHELL_ROOT" ] && [ "$s82b_excl" = "1" ]; then
-  ok "82b: inject creates ghjig-shell-root → canonical root + idempotent .git/info/exclude (#312)"
+s82b_link=$(cd "$S82B/.claude/ghjig-root" 2>/dev/null && pwd -P)
+s82b_excl=$(grep -c '^\.claude/ghjig-root$' "$S82B/.git/info/exclude" 2>/dev/null || true)
+if [ -L "$S82B/.claude/ghjig-root" ] && [ "$s82b_link" = "$SHELL_ROOT" ] && [ "$s82b_excl" = "1" ]; then
+  ok "82b: inject creates ghjig-root → canonical root + idempotent .git/info/exclude (#312)"
 else
-  ng "82b: inject must create ghjig-shell-root→root (got '$s82b_link') + single exclude line (got $s82b_excl) (#312)"
+  ng "82b: inject must create ghjig-root→root (got '$s82b_link') + single exclude line (got $s82b_excl) (#312)"
 fi
 
 # 82c: inject points settings.local.json at settings.injected.json (not settings.json).
@@ -9391,29 +9391,29 @@ fi
 rm -rf "$S82B"
 
 # 82d: settings.injected.json exists and ALL 5 hook commands use the
-# ${CLAUDE_PROJECT_DIR}/.claude/ghjig-shell-root/.claude/hooks/ form (count-guarded to 5).
+# ${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/.claude/hooks/ form (count-guarded to 5).
 S82_INJ="$SHELL_ROOT/.claude/settings.injected.json"
-s82d_n=$(grep -cE '\$\{?CLAUDE_PROJECT_DIR\}?/\.claude/ghjig-shell-root/\.claude/hooks/' "$S82_INJ" 2>/dev/null || true)
+s82d_n=$(grep -cE '\$\{?CLAUDE_PROJECT_DIR\}?/\.claude/ghjig-root/\.claude/hooks/' "$S82_INJ" 2>/dev/null || true)
 if [ -f "$S82_INJ" ] && [ "$s82d_n" = "5" ]; then
-  ok "82d: settings.injected.json routes all 5 hook commands via \$CLAUDE_PROJECT_DIR/ghjig-shell-root (#312)"
+  ok "82d: settings.injected.json routes all 5 hook commands via \$CLAUDE_PROJECT_DIR/ghjig-root (#312)"
 else
-  ng "82d: settings.injected.json must route 5 hook commands via \$CLAUDE_PROJECT_DIR/ghjig-shell-root (got $s82d_n) (#312)"
+  ng "82d: settings.injected.json must route 5 hook commands via \$CLAUDE_PROJECT_DIR/ghjig-root (got $s82d_n) (#312)"
 fi
 
 # 82e: dogfood guard (R1, #533 — supersedes the prior env-var-based rule from
 # #312) — the shell's OWN settings.json routes all 5 hook commands via
 # ${CLAUDE_PROJECT_DIR}/.claude/hooks/ DIRECTLY (project dir == shell root), with
-# NO *_SHELL_ROOT env var on the hook hot path and NO ghjig-shell-root symlink
+# NO *_SHELL_ROOT env var on the hook hot path and NO ghjig-root symlink
 # hop (that hop is the injected-target form, §82d). Decoupling the hot path from
 # the env var is what keeps enforcement armed through an in-place rename of it.
 S82_OWN="$SHELL_ROOT/.claude/settings.json"
 s82e_n=$(grep -cE '\$\{?CLAUDE_PROJECT_DIR\}?/\.claude/hooks/' "$S82_OWN" 2>/dev/null || true)
 if [ "$s82e_n" = "5" ] \
-   && ! grep -q 'ghjig-shell-root' "$S82_OWN" \
+   && ! grep -q 'ghjig-root' "$S82_OWN" \
    && ! grep -q '_SHELL_ROOT' "$S82_OWN"; then
   ok "82e: shell's own settings.json routes all 5 hook commands via \${CLAUDE_PROJECT_DIR} directly — no env var, no symlink hop (R1, #533)"
 else
-  ng "82e: shell's own settings.json must route 5 hook commands via \${CLAUDE_PROJECT_DIR} directly (got $s82e_n), no ghjig-shell-root, no *_SHELL_ROOT (R1, #533)"
+  ng "82e: shell's own settings.json must route 5 hook commands via \${CLAUDE_PROJECT_DIR} directly (got $s82e_n), no ghjig-root, no *_SHELL_ROOT (R1, #533)"
 fi
 
 # ---------- 83. per-project audit + cache isolation (EI-2a, #314, Directive #311) ----------
@@ -9715,7 +9715,7 @@ else
 fi
 
 # ---------- 88. bin/ghjig binding-health check (#334) ----------
-# An injected target (settings.local.json is a symlink) whose .claude/ghjig-shell-root
+# An injected target (settings.local.json is a symlink) whose .claude/ghjig-root
 # binding is missing/dangling silently no-ops all hooks; bin/ghjig warns at
 # launch (the detector the #318-removed SessionStart banner structurally couldn't
 # be). Tested against a fake shell root + a stub `claude` on PATH so the tail
@@ -9731,7 +9731,7 @@ S88_VALIDROOT=$(cd "$(mktemp -d)" && pwd -P)   # a real dir for a healthy bindin
 s88_run() { ( cd "$S88_FAKE" || exit; PATH="$S88_STUB:$PATH" "$S88_FAKE/bin/ghjig" "$1" 2>&1 >/dev/null ); }
 s88_reg() { printf '%s\n' "$1" >> "$S88_FAKE/.claude/state/registry.txt"; }   # pre-register → skip prompt
 
-# 88a: injected (settings.local.json symlink) + MISSING ghjig-shell-root → warn.
+# 88a: injected (settings.local.json symlink) + MISSING ghjig-root → warn.
 S88_A=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_A/.claude"
 ln -sfn /dev/null "$S88_A/.claude/settings.local.json"
 s88_reg "$S88_A"
@@ -9739,10 +9739,10 @@ printf '%s' "$(s88_run "$S88_A")" | grep -q 'WARN binding-health' \
   && ok "88a: injected + missing binding → warn (#334)" \
   || ng "88a: should warn on missing binding (#334)"
 
-# 88b: injected + HEALTHY ghjig-shell-root (resolves) → silent.
+# 88b: injected + HEALTHY ghjig-root (resolves) → silent.
 S88_B=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_B/.claude"
 ln -sfn /dev/null "$S88_B/.claude/settings.local.json"
-ln -sfn "$S88_VALIDROOT" "$S88_B/.claude/ghjig-shell-root"
+ln -sfn "$S88_VALIDROOT" "$S88_B/.claude/ghjig-root"
 s88_reg "$S88_B"
 printf '%s' "$(s88_run "$S88_B")" | grep -q 'WARN binding-health' \
   && ng "88b: healthy binding should be silent (#334)" \
@@ -9755,11 +9755,11 @@ printf '%s' "$(s88_run "$S88_C")" | grep -q 'WARN binding-health' \
   && ng "88c: non-injected should be silent (#334)" \
   || ok "88c: non-injected dir → silent (#334)"
 
-# 88d: injected + DANGLING ghjig-shell-root (symlink to a missing target) → warn
+# 88d: injected + DANGLING ghjig-root (symlink to a missing target) → warn
 # (the subtle half of `! -e`, which follows the link).
 S88_D=$(cd "$(mktemp -d)" && pwd -P); mkdir -p "$S88_D/.claude"
 ln -sfn /dev/null "$S88_D/.claude/settings.local.json"
-ln -sfn "$S88_D/.claude/nonexistent-binding-target-$$" "$S88_D/.claude/ghjig-shell-root"
+ln -sfn "$S88_D/.claude/nonexistent-binding-target-$$" "$S88_D/.claude/ghjig-root"
 s88_reg "$S88_D"
 printf '%s' "$(s88_run "$S88_D")" | grep -q 'WARN binding-health' \
   && ok "88d: injected + dangling binding → warn (#334)" \
@@ -13210,6 +13210,7 @@ s533_forbidden=(
   "eng""_skip"
   "eng""_state_dir"
   "eng""_registry_file"
+  "ghjig""-shell-root"
 )
 # Bare command / display token, matched case-insensitively — a strict superset
 # that also catches the display name, the bin/ path form, the skip sentinel, and
