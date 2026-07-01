@@ -3,15 +3,28 @@
 # (closed issues / merged PRs / ADRs) for the /recall skill. SPEC §5.25.
 #
 # Public:
-#   recall_pointers <topic> — print POINTERS ONLY, one per line: a tag
+#   recall_pointers <topic> [--deep] — print POINTERS ONLY, one per line: a tag
 #     (#<n> | PR#<n> | ADR-NNNN) + the one-line title. NEVER a body.
 #
-# Pointers-only is STRUCTURAL, not advisory: the gh arms project
+# Pointers-only is STRUCTURAL, not advisory: the light gh arms project
 # `--json number,title`, so a body is never fetched into reach (a later edit
 # adding `body` to the projection is the one regression path — smoke §111 pins
 # against it). Bounded by RECALL_LIMIT (default 5) per substrate. Fail-open: a
 # gh/grep error degrades to whatever substrate still answers and prints a single
 # "decision record unavailable" notice — never an error exit, never a body dump.
+#
+# Two-tier (#524). The LIGHT tier (default) is the title/H1 sweep above and is
+# byte-for-byte unchanged when `--deep` is absent. The DEEP tier — gated ONLY by
+# the `--deep` sentinel, itself routed ONLY on explicit user intent (see
+# commands/recall.md) — additionally scans the COMMENT bodies of the light-tier
+# candidate issues. It fetches `gh issue view <n> --json comments` for those
+# bounded candidates, then greps the fetched bodies LOCALLY with a FIXED-STRING
+# match (`grep -qF`, not regex / not `gh search`, so dotted-version tokens like
+# `3.12` survive). The grep is a PREDICATE (match / no-match): the deep arm emits
+# ONLY the `#<n> title` pointer of a matched issue — NEVER the matched comment
+# text. Bounded by RECALL_LIMIT. Fail-open per candidate: any gh/grep error on a
+# candidate degrades to the light-tier result — never errors, never partial-dumps
+# a body. Smoke §111 (AC4) / §131 (AC1+mechanism) pin the structure.
 
 # ADR directory — the local half of the decision record. Scoped to the PROJECT
 # repo (the cwd's git toplevel), NOT the shell root: the gh arms resolve to the
@@ -25,7 +38,16 @@ _recall_adr_dir() {
 }
 
 recall_pointers() {
-  local topic="$1"
+  local topic="" deep=0 arg
+  # Parse args: the topic plus an optional `--deep` sentinel (order-independent).
+  # `--deep` routes ONLY on explicit user intent (commands/recall.md), never the
+  # pre-planning reflex — absent it, the LIGHT tier below is byte-for-byte unchanged.
+  for arg in "$@"; do
+    case "$arg" in
+      --deep) deep=1 ;;
+      *) [ -z "$topic" ] && topic="$arg" ;;
+    esac
+  done
   local limit="${RECALL_LIMIT:-5}"
   if [ -z "$topic" ]; then
     printf 'recall: usage: /recall <topic>\n'
@@ -35,9 +57,9 @@ recall_pointers() {
   local any=0 repo
   repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || repo=""
 
+  local issues=""
   if [ -n "$repo" ]; then
     # Closed issues — pointers only via field projection (never a body).
-    local issues
     issues=$(gh search issues "$topic" --repo "$repo" --state closed \
       --limit "$limit" --json number,title --jq '.[] | "#\(.number) \(.title)"' 2>/dev/null)
     if [ -n "$issues" ]; then printf '%s\n' "$issues"; any=1; fi
@@ -68,6 +90,35 @@ recall_pointers() {
         count=$((count + 1)); any=1
       fi
     done
+  fi
+
+  # DEEP tier (#524) — gated ONLY by --deep (explicit user intent). Off by
+  # default: absent the flag this whole block is skipped, so the light tier above
+  # is byte-for-byte unchanged and NO `gh issue view` fetch fires. When on, scan
+  # the COMMENT bodies of the light candidate issues: fetch each candidate's
+  # comments, grep LOCALLY with a FIXED-STRING predicate (`grep -qF`, so dotted
+  # tokens like 3.12 survive), and emit ONLY the pointer of a matched issue —
+  # never the matched comment text. Bounded by RECALL_LIMIT; fail-open per candidate.
+  if [ "$deep" = 1 ] && [ -n "$repo" ] && [ -n "$issues" ]; then
+    local line num bodies dcount=0
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      [ "$dcount" -ge "$limit" ] && break
+      num=$(printf '%s' "$line" | grep -oE '^#[0-9]+' | grep -oE '[0-9]+')
+      [ -n "$num" ] || continue
+      # Comment bodies for this candidate — fetched, never printed. Fail-open:
+      # a gh error yields an empty set and the candidate is silently skipped.
+      bodies=$(gh issue view "$num" --repo "$repo" --json comments \
+        --jq '.comments[].body' 2>/dev/null) || bodies=""
+      [ -n "$bodies" ] || continue
+      # PREDICATE, not printer: match/no-match on the FIXED string only.
+      if printf '%s' "$bodies" | grep -qF -- "$topic"; then
+        printf '%s\n' "$line"   # pointer only — never the matched comment body
+        dcount=$((dcount + 1)); any=1
+      fi
+    done <<EOF
+$issues
+EOF
   fi
 
   [ "$any" = 1 ] || printf 'recall: no matches in the decision record for "%s"\n' "$topic"
