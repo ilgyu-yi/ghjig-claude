@@ -12932,8 +12932,8 @@ else
   fi
 fi
 
-# ---------- §131: /recall deep-tier comment sweep mechanism (#524) ----------
-# RED-first: the deep tier does not exist yet. Two arms, both offline.
+# ---------- §131: /recall deep-tier comment sweep mechanism (#524, #526) ----------
+# RED-first (#524); arm (d) is the #526 RED extension. All arms offline.
 #   Arm (a) STATIC — the four mechanism invariants pinned by inspecting the helper
 #     source (matching §111's static-grep discipline; a live gh comment fetch would
 #     be flaky): (AC1/mechanism) a `--deep`-gated branch exists, it fetches
@@ -13017,9 +13017,44 @@ else
   s131c_dupes=$(printf '%s\n' "$s131c_out" | grep -c '#517')
   [ "$s131c_dupes" = 1 ] || { s131=0; s131_why="${s131_why}deep-double-print(#517x$s131c_dupes);"; }
   unset -f gh s131c_run 2>/dev/null
+
+  # arm (d) (#526): WITH --deep — a MULTI-TOKEN natural-language topic whose tokens
+  # do NOT co-occur in any single issue must still reach a candidate. The stub
+  # returns 0 for the whole-phrase candidate search (GitHub free-text AND semantics),
+  # so the CURRENT code (no per-token fallback) never reaches #8 and this is RED.
+  # The fix's stage-1 token-aware fallback re-queries per high-signal token, so the
+  # token "interpreter" surfaces #8 and its comment matches. Assert surfaced + deduped.
+  gh() {
+    case "$*" in
+      *'repo view'*) printf 'smoke-owner/smoke-repo\n' ;;
+      # whole-phrase candidate search (light --state closed AND deep no-state) → 0 (AND).
+      *'search issues'*'operational interpreter version choice'*) : ;;
+      # per-token fallback: only the high-signal token "interpreter" hits a candidate.
+      *'search issues'*'interpreter'*) printf '#8 python interpreter version\n' ;;
+      *'search issues'*) : ;;   # other tokens (operational/version/choice) → 0
+      *'search prs'*) : ;;
+      *'issue view 8 '*|*'issue view 8') printf 'we settled the interpreter question in this thread\n' ;;
+      *'issue view'*) : ;;
+      *) return 0 ;;
+    esac
+  }
+  s131d_run() {
+    RECALL_LIMIT=5; export RECALL_LIMIT
+    . "$S131_HELPER"
+    recall_pointers "operational interpreter version choice" --deep 2>/dev/null
+  }
+  s131d_out=$(s131d_run)
+  # (1) multi-token phrase whose whole-phrase search returns 0 still surfaces #8 via
+  # the per-token candidate fallback (the stage-1/stage-2 symmetry restoration).
+  printf '%s\n' "$s131d_out" | grep -q '#8 ' || { s131=0; s131_why="${s131_why}deep-multitoken-not-surfaced;"; }
+  # (2) still pointers-only + deduped: #8 appears exactly once, comment text absent.
+  s131d_dupes=$(printf '%s\n' "$s131d_out" | grep -c '#8 ')
+  [ "$s131d_dupes" = 1 ] || { s131=0; s131_why="${s131_why}deep-multitoken-double-print(#8x$s131d_dupes);"; }
+  printf '%s' "$s131d_out" | grep -q 'settled the interpreter question' && { s131=0; s131_why="${s131_why}deep-multitoken-comment-leaked;"; }
+  unset -f gh s131d_run 2>/dev/null
 fi
 if [ "$s131" = 1 ]; then
-  ok "131: /recall deep tier is --deep-gated (off by default), fetches candidate comments (--json comments), fixed-string greps (grep -F), RECALL_LIMIT-bounded (#524)"
+  ok "131: /recall deep tier is --deep-gated (off by default), fetches candidate comments (--json comments), fixed-string greps (grep -F), RECALL_LIMIT-bounded (#524); candidate gate is token-aware — a multi-token phrase whose whole-phrase search returns 0 still reaches candidates via per-token fallback, deduped + pointers-only (#526)"
 else
   ng "131: /recall deep-tier mechanism absent/violated:$s131_why (#524)"
 fi
