@@ -11069,11 +11069,19 @@ else
   grep -q 'docs/ADRs' "$s111_helper" || { s111=0; s111_why="${s111_why}no-adr-arm;"; }
   # (d) fail-open: a record-unavailable fallback line exists
   grep -q 'decision record unavailable' "$s111_helper" || { s111=0; s111_why="${s111_why}no-fail-open;"; }
+  # (f) AC4 (#524) — deep tier is pointers-only STRUCTURALLY: it may project
+  # `--json comments` to reach a comment body, but the matched comment TEXT is a
+  # PREDICATE never a PRINTER. Pin it two ways: (i) the deep grep must feed a test
+  # (`grep -qF` / `grep -Fq`) not a raw `grep -F` whose stdout is the body, and
+  # (ii) inside the `--deep`-gated region the emitted line is only the `#<n> title`
+  # pointer shape. RED now: no deep branch exists → no comments projection.
+  grep -qE -- '--json[[:space:]]+[A-Za-z,]*comments' "$s111_helper" || { s111=0; s111_why="${s111_why}no-deep-comments-projection;"; }
+  grep -qE 'grep[[:space:]]+-([A-Za-z]*q[A-Za-z]*F|[A-Za-z]*F[A-Za-z]*q)' "$s111_helper" || { s111=0; s111_why="${s111_why}deep-grep-not-predicate;"; }
 fi
 # (e) command file delegates to the helper
 grep -q 'recall_pointers' "$s111_cmd" 2>/dev/null || { s111=0; s111_why="${s111_why}cmd-no-delegate;"; }
 if [ "$s111" = 1 ]; then
-  ok "111: /recall helper is pointers-only (number,title, no body projection) + bounded (RECALL_LIMIT=5) + covers issues/prs/ADRs + fail-open (#422)"
+  ok "111: /recall helper is pointers-only (number,title, no body projection) + bounded (RECALL_LIMIT=5) + covers issues/prs/ADRs + fail-open (#422) + deep tier is pointers-only (comment grep is a predicate, not a printer) (#524)"
 else
   ng "111: /recall contract violated:$s111_why (#422)"
 fi
@@ -12881,14 +12889,23 @@ else
   s129_usewhen=$(printf '%s' "$s129_desc" | grep -ciE 'use when' | tr -d ' ')
   s129_userask=$(printf '%s' "$s129_desc" | grep -ciE 'have we|what did we decide' | tr -d ' ')
   s129_selfid=$(printf '%s' "$s129_desc" | grep -ciE 'before planning|decided this before|before a decision|internally' | tr -d ' ')
+  # arm (a2): AC2 (#524) — trigger asymmetry. The deep comment sweep must be
+  # routable from EXPLICIT user intent yet EXCLUDED from the pre-planning reflex.
+  # Pin the description carries a deep-trigger token (deep / comment / --deep) AND
+  # ties it to explicit user intent (explicit / only / never … reflex). RED now:
+  # the current single-tier description names neither. Scoped to the description
+  # value so body prose cannot green it vacuously.
+  s129_deeptok=$(printf '%s' "$s129_desc" | grep -ciE 'deep|comment|--deep' | tr -d ' ')
+  s129_explicit=$(printf '%s' "$s129_desc" | grep -ciE 'explicit|only on|never .*reflex|not .*reflex' | tr -d ' ')
   # arm (b): CLAUDE.md recall-routing norm token + the thin SPEC §5.25 pointer.
   s129_norm=$(grep -ciE 'recall routing|recall-shaped' "$S129_CLAUDE" 2>/dev/null | tr -d ' ')
   s129_ptr=$(grep -ciE 'SPEC §5\.25' "$S129_CLAUDE" 2>/dev/null | tr -d ' ')
   if [ "$s129_usewhen" -ge 1 ] && [ "$s129_userask" -ge 1 ] && [ "$s129_selfid" -ge 1 ] \
+     && [ "$s129_deeptok" -ge 1 ] && [ "$s129_explicit" -ge 1 ] \
      && [ "$s129_norm" -ge 1 ] && [ "$s129_ptr" -ge 1 ]; then
-    ok "129: recall-routing disposition — trigger-oriented recall.md description (user-asked + self-identified) + thin CLAUDE.md norm → SPEC §5.25 (#520)"
+    ok "129: recall-routing disposition — trigger-oriented recall.md description (user-asked + self-identified + deep-on-explicit-intent-only) + thin CLAUDE.md norm → SPEC §5.25 (#520, #524)"
   else
-    ng "129: recall-routing disposition incomplete (usewhen=$s129_usewhen userask=$s129_userask selfid=$s129_selfid norm=$s129_norm ptr=$s129_ptr) (#520)"
+    ng "129: recall-routing disposition incomplete (usewhen=$s129_usewhen userask=$s129_userask selfid=$s129_selfid deeptok=$s129_deeptok explicit=$s129_explicit norm=$s129_norm ptr=$s129_ptr) (#520, #524)"
   fi
 fi
 
@@ -12913,6 +12930,98 @@ else
   else
     ng "130: SPEC §9.1-9.4 not all pointing to their template file (mission=$s130_mission issue=$s130_issue pr_body=$s130_pr adr=$s130_adr) (#522)"
   fi
+fi
+
+# ---------- §131: /recall deep-tier comment sweep mechanism (#524) ----------
+# RED-first: the deep tier does not exist yet. Two arms, both offline.
+#   Arm (a) STATIC — the four mechanism invariants pinned by inspecting the helper
+#     source (matching §111's static-grep discipline; a live gh comment fetch would
+#     be flaky): (AC1/mechanism) a `--deep`-gated branch exists, it fetches
+#     candidate comments via `gh issue view ... --json comments`, greps LOCALLY
+#     with a FIXED-STRING match (`grep -F`, so dotted tokens like 3.12 are safe),
+#     and stays bounded by RECALL_LIMIT.
+#   Arm (b) BEHAVIORAL — OFF BY DEFAULT: with the flag ABSENT the output is
+#     byte-identical to the light tier (no comment fetch fires). `gh` is stubbed to
+#     a deterministic light-only responder that RECORDS any `issue view` call (the
+#     deep-only fetch); a fired marker on the no-flag run is a leak. Mirrors the
+#     §44i/§44j function-mock precedent (no network).
+S131_HELPER="$SHELL_ROOT/.claude/hooks/helpers/recall.sh"
+s131=1; s131_why=""
+if [ ! -f "$S131_HELPER" ]; then
+  s131=0; s131_why="${s131_why}helper-missing;"
+else
+  # arm (a): static mechanism invariants (AC1 + mechanism)
+  grep -qE -- '--deep' "$S131_HELPER" || { s131=0; s131_why="${s131_why}no-deep-flag-branch;"; }
+  grep -qE -- 'gh issue view.*--json[[:space:]]+[A-Za-z,]*comments' "$S131_HELPER" \
+    || grep -qE -- '--json[[:space:]]+[A-Za-z,]*comments' "$S131_HELPER" \
+    || { s131=0; s131_why="${s131_why}no-comment-fetch;"; }
+  grep -qE 'grep[[:space:]]+-[A-Za-z]*F' "$S131_HELPER" || { s131=0; s131_why="${s131_why}no-fixed-string-grep;"; }
+  grep -q 'RECALL_LIMIT' "$S131_HELPER" || { s131=0; s131_why="${s131_why}deep-not-bounded;"; }
+
+  # arm (b): OFF-by-default — flag-absent output must not fetch comments.
+  # `gh` is stubbed as a NAMED function then called in $(...) (the §44i precedent:
+  # a `case` block cannot be defined inline inside command substitution on bash 3.2).
+  s131_marker="$TMP/s131-deep-fetch-fired"
+  # #524-shaped candidate: a closed issue whose TITLE surfaces via search, so the
+  # light tier answers it; the issue-view arm (deep-only fetch) drops the marker.
+  gh() {
+    case "$*" in
+      *'repo view'*) printf 'smoke-owner/smoke-repo\n' ;;
+      *'search issues'*) printf '#517 pin toolchain to a fixed version\n' ;;
+      *'search prs'*) : ;;
+      *'issue view'*) : > "$s131_marker" ;;
+      *) return 0 ;;
+    esac
+  }
+  s131_run() {  # no flag → light tier only; must not touch the issue-view arm
+    RECALL_LIMIT=5
+    export RECALL_LIMIT s131_marker
+    . "$S131_HELPER"
+    recall_pointers "toolchain" 2>/dev/null
+  }
+  rm -f "$s131_marker" 2>/dev/null
+  s131_out=$(s131_run)
+  # OFF by default: no comment fetch on the flag-absent invocation.
+  [ -f "$s131_marker" ] && { s131=0; s131_why="${s131_why}deep-fetch-fired-without-flag;"; }
+  # light-tier output still carries the #517-shaped pointer (search-surfaced case, AC1).
+  printf '%s' "$s131_out" | grep -q '#517' || { s131=0; s131_why="${s131_why}light-pointer-missing;"; }
+  rm -f "$s131_marker" 2>/dev/null
+  unset -f gh s131_run 2>/dev/null
+
+  # arm (c): WITH --deep — the deep tier must (1) surface a NEW open-issue comment
+  # pointer the closed-only light tier cannot reach, and (2) NEVER double-print a
+  # closed issue the light tier already surfaced (dedup). #524 code-review fix.
+  # Stub distinguishes the light call (--state closed) from the deep call (no
+  # state → open+closed) so the deep candidate set is strictly broader.
+  gh() {
+    case "$*" in
+      *'repo view'*) printf 'smoke-owner/smoke-repo\n' ;;
+      *'search issues'*'--state closed'*) printf '#517 pin toolchain to a fixed version\n' ;;
+      *'search issues'*) printf '#517 pin toolchain to a fixed version\n#8 python interpreter version\n' ;;
+      *'search prs'*) : ;;
+      *'issue view 8 '*|*'issue view 8') printf 'settled on python 3.14 over 3.12\n' ;;
+      *'issue view 517 '*|*'issue view 517') printf 'python discussed in this thread too\n' ;;
+      *'issue view'*) : ;;
+      *) return 0 ;;
+    esac
+  }
+  s131c_run() {
+    RECALL_LIMIT=5; export RECALL_LIMIT
+    . "$S131_HELPER"
+    recall_pointers "python" --deep 2>/dev/null
+  }
+  s131c_out=$(s131c_run)
+  # (1) NEW value: open issue #8 (unreachable by the closed-only light tier) surfaced.
+  printf '%s\n' "$s131c_out" | grep -q '#8 ' || { s131=0; s131_why="${s131_why}deep-open-not-surfaced;"; }
+  # (2) DEDUP / no double-print: the closed issue #517 appears exactly once.
+  s131c_dupes=$(printf '%s\n' "$s131c_out" | grep -c '#517')
+  [ "$s131c_dupes" = 1 ] || { s131=0; s131_why="${s131_why}deep-double-print(#517x$s131c_dupes);"; }
+  unset -f gh s131c_run 2>/dev/null
+fi
+if [ "$s131" = 1 ]; then
+  ok "131: /recall deep tier is --deep-gated (off by default), fetches candidate comments (--json comments), fixed-string greps (grep -F), RECALL_LIMIT-bounded (#524)"
+else
+  ng "131: /recall deep-tier mechanism absent/violated:$s131_why (#524)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------
