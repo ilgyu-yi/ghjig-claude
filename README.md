@@ -87,7 +87,7 @@ Every mechanism aims at the same lever: keep the slice of context the model reas
 
 ## Subagents
 
-Nine: `explorer`, `planner`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`. The five reviewers (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human-confirm checkpoints in `unattended` mode. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
+Ten: `explorer`, `planner`, `plan-challenger`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`. The five reviewers (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human-confirm checkpoints in `unattended` mode; `plan-challenger` (×2, distinct axes) adversarially challenges the planner's base plan for `plan-reviewer` to judge. See [docs/SUBAGENTS.md](docs/SUBAGENTS.md) for when to use each.
 
 ## What the hooks enforce
 

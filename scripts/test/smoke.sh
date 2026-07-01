@@ -2614,18 +2614,30 @@ else
   ng "review: file-issue.md missing rationale check or MISSION fit anchor (#45)"
 fi
 
+# INVERTED for #530: the old "beats the alternatives" self-authored-list
+# wording is gone. work-on.md now describes the adversarial contest — the
+# approach check confirms the winning candidate from the contest record
+# {A / B1 / B2 / verdict}, judged by plan-reviewer. Re-anchor to the contest.
 if grep -qi 'approach check' "$WORK_ON_CMD" 2>/dev/null \
-   && grep -q 'beats the alternatives' "$WORK_ON_CMD" 2>/dev/null; then
-  ok "review: work-on.md mentions approach check + beats-alternatives (#45)"
+   && grep -qF 'contest record' "$WORK_ON_CMD" 2>/dev/null \
+   && grep -qF '{A, B1, B2}' "$WORK_ON_CMD" 2>/dev/null; then
+  ok "review: work-on.md approach check confirms the winning contest candidate {A, B1, B2} (#45/#530)"
 else
-  ng "review: work-on.md missing approach check or beats-alternatives anchor (#45)"
+  ng "review: work-on.md missing approach check or contest-record/{A, B1, B2} anchor (#45/#530)"
 fi
 
-if grep -q 'Alternatives considered' "$PLANNER_AGENT" 2>/dev/null \
-   && grep -qi 'mandatory' "$PLANNER_AGENT" 2>/dev/null; then
-  ok "review: planner.md mandates Alternatives considered (#45)"
+# INVERTED for #530: the planner NO LONGER authors `## Alternatives
+# considered`, and the old "mandatory" alternatives rule is gone. Assert the
+# absence of the old contract AND that the contest record now lives elsewhere
+# (the `/work-on` flow assembles it — the interested party no longer controls
+# the choice set).
+if ! grep -qi 'mandatory' "$PLANNER_AGENT" 2>/dev/null \
+   && grep -qF 'not** author' "$PLANNER_AGENT" 2>/dev/null \
+   && grep -qiF 'contest record' "$PLANNER_AGENT" 2>/dev/null \
+   && grep -qF 'one base Plan A' "$PLANNER_AGENT" 2>/dev/null; then
+  ok "review: planner.md no longer authors Alternatives; contest record lives elsewhere (#45/#530)"
 else
-  ng "review: planner.md missing Alternatives considered or mandatory wording (#45)"
+  ng "review: planner.md still mandates alternatives, or missing 'no longer author'/'contest record'/'one base Plan A' anchor (#45/#530)"
 fi
 
 # Template carries the section the planner is required to emit — otherwise
@@ -8929,7 +8941,7 @@ fi
 # parent's uncommitted work when sharing the tree. Belt-and-suspenders to the
 # canonical worktree-isolation invocation (SPEC §1.5).
 s77_missing=""
-for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer explorer; do
+for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer plan-challenger explorer; do
   f="$SHELL_ROOT/.claude/agents/$a.md"
   if ! { [ -f "$f" ] \
          && grep -qiF 'Working-tree discipline' "$f" \
@@ -8938,7 +8950,7 @@ for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan
   fi
 done
 if [ -z "$s77_missing" ]; then
-  ok "77: all 6 read-only Bash subagents carry the read-only-git working-tree constraint (#285)"
+  ok "77: all 7 read-only Bash subagents carry the read-only-git working-tree constraint (#285, +plan-challenger #530)"
 else
   ng "77: working-tree-discipline constraint missing from:$s77_missing (#285)"
 fi
@@ -13066,6 +13078,93 @@ if [ "$s131" = 1 ]; then
   ok "131: /recall deep tier is --deep-gated (off by default), fetches candidate comments (--json comments), fixed-string greps (grep -F), RECALL_LIMIT-bounded (#524); candidate gate is token-aware — a multi-token phrase whose whole-phrase search returns 0 still reaches candidates via per-token fallback, deduped + pointers-only (#526)"
 else
   ng "131: /recall deep-tier mechanism absent/violated:$s131_why (#524)"
+fi
+
+# ---------- 132. adversarial-pairing plan review contest (#530) ----------
+# Pins the #530 contract: planner produces one base Plan A + NO alternatives;
+# /work-on runs an axis selector and dispatches TWO mutually-blind
+# plan-challenger agents on distinct axes; plan-reviewer judges {A, B1, B2}.
+# All greps are non-vacuous (each anchor is a distinctive token that is TRUE
+# only under the #530 contract) and loud-fail if the target file is missing.
+s132=1; s132_why=""
+S132_CHALLENGER="$SHELL_ROOT/.claude/agents/plan-challenger.md"
+S132_REVIEWER="$SHELL_ROOT/.claude/agents/plan-reviewer.md"
+S132_SPEC="$SHELL_ROOT/SPEC.md"
+S132_WORKON="$SHELL_ROOT/.claude/commands/work-on.md"
+S132_PRBODY="$SHELL_ROOT/.claude/templates/pr_body.md"
+
+# (a) plan-challenger.md exists AND carries the adversarial mandate.
+if [ -f "$S132_CHALLENGER" ]; then
+  grep -qiF 'beat Plan A' "$S132_CHALLENGER" || { s132=0; s132_why="${s132_why}challenger-no-beat-mandate;"; }
+  grep -qiF 'concession' "$S132_CHALLENGER" \
+    && grep -qiF 'names the axis' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-no-concession-names-axis;"; }
+  grep -qiF 'fake-diff' "$S132_CHALLENGER" || { s132=0; s132_why="${s132_why}challenger-no-fake-diff;"; }
+  grep -qF 'performance' "$S132_CHALLENGER" \
+    && grep -qF 'security' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-axis-menu-missing-perf-or-sec;"; }
+  grep -qF '§4.9.3' "$S132_CHALLENGER" || { s132=0; s132_why="${s132_why}challenger-no-4.9.3-selfprompt;"; }
+  grep -qiF 'Working-tree discipline' "$S132_CHALLENGER" \
+    && grep -qiF 'read-only git' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-no-worktree-discipline;"; }
+else
+  s132=0; s132_why="${s132_why}challenger-file-missing;"
+fi
+
+# (b) plan-reviewer.md judges the contest with the guards + unchanged grammar.
+if [ -f "$S132_REVIEWER" ]; then
+  grep -qF '{A, B1, B2}' "$S132_REVIEWER" \
+    || grep -qiF 'judge' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-judge-candidates;"; }
+  grep -qiF 'lazy' "$S132_REVIEWER" || { s132=0; s132_why="${s132_why}reviewer-no-lazy-concession;"; }
+  grep -qiF 'fake-diff' "$S132_REVIEWER" || { s132=0; s132_why="${s132_why}reviewer-no-fake-diff;"; }
+  grep -qiF 'shared-blindspot' "$S132_REVIEWER" || { s132=0; s132_why="${s132_why}reviewer-no-shared-blindspot;"; }
+  grep -qF 'VERDICT: ship' "$S132_REVIEWER" \
+    && grep -qF 'VERDICT: refine' "$S132_REVIEWER" \
+    && grep -qF 'VERDICT: block' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-verdict-grammar-changed;"; }
+else
+  s132=0; s132_why="${s132_why}reviewer-file-missing;"
+fi
+
+# (c) SPEC §4.8 carries the §4.11-distinction argument — BOTH legs. Losing
+# either leg silently would gut the load-bearing "why default, not gated"
+# rationale, so pin both distinctive phrases.
+if [ -f "$S132_SPEC" ]; then
+  grep -qiF 'generation diversity' "$S132_SPEC" || { s132=0; s132_why="${s132_why}spec-no-generation-diversity;"; }
+  grep -qiF 'vote redundancy' "$S132_SPEC" || { s132=0; s132_why="${s132_why}spec-no-vote-redundancy;"; }
+  grep -qiF 'acting context' "$S132_SPEC" || { s132=0; s132_why="${s132_why}spec-no-acting-context;"; }
+else
+  s132=0; s132_why="${s132_why}spec-file-missing;"
+fi
+
+# (d) work-on.md wires the axis selector + parallel challenger dispatch + judge.
+if [ -f "$S132_WORKON" ]; then
+  grep -qiF 'Axis selection' "$S132_WORKON" || { s132=0; s132_why="${s132_why}workon-no-axis-selection;"; }
+  grep -qiF 'plan-challenger' "$S132_WORKON" \
+    && grep -qiF 'parallel' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-parallel-challenger-dispatch;"; }
+  grep -qF '{A, B1, B2}' "$S132_WORKON" || { s132=0; s132_why="${s132_why}workon-no-judge-{A,B1,B2};"; }
+else
+  s132=0; s132_why="${s132_why}workon-file-missing;"
+fi
+
+# (e) pr_body.md `## Alternatives considered` is now the contest record.
+if [ -f "$S132_PRBODY" ]; then
+  grep -qF '## Alternatives considered' "$S132_PRBODY" || { s132=0; s132_why="${s132_why}prbody-no-alternatives-section;"; }
+  grep -qiF 'Contest record' "$S132_PRBODY" || { s132=0; s132_why="${s132_why}prbody-no-contest-record;"; }
+  grep -qF 'B1' "$S132_PRBODY" \
+    && grep -qF 'B2' "$S132_PRBODY" \
+    && grep -qiF 'Verdict' "$S132_PRBODY" \
+    || { s132=0; s132_why="${s132_why}prbody-no-A/B1/B2/verdict;"; }
+else
+  s132=0; s132_why="${s132_why}prbody-file-missing;"
+fi
+
+if [ "$s132" = 1 ]; then
+  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530)"
+else
+  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------

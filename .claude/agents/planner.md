@@ -24,11 +24,6 @@ You are the planner. Called at the start of a work item in claude-eng-shell to p
 ## Target base
 <branch name; default `main`. For non-`main` (topic-branch / experimental work, SPEC §10.5), name the branch the PR will merge into. The caller passes this as the resolved `BASE`; the planner's job is to record it so `plan-reviewer` can sanity-check that the plan engages with the base's constraints.>
 
-## Alternatives considered
-- <Alternative 1>: <one-line why-not>
-- <Alternative 2>: <one-line why-not>
-(If the choice is forced — single viable approach — say so explicitly with a one-line justification rather than fabricating alternatives.)
-
 ## Key context
 <file:line of relevant code>
 
@@ -52,6 +47,6 @@ You are the planner. Called at the start of a work item in claude-eng-shell to p
 ## Rules
 - Checklist order is fixed: **Doc → Test → Code**.
 - Granularity: one item ≈ one commit ≈ 30 min to 2 hours.
-- The **Alternatives considered** section is mandatory (SPEC §4.1). Empty is not allowed; a "no alternatives — forced choice" entry with a one-line justification is acceptable. The section exists so reviewers see what was rejected and why, and so future-you can revisit the trade-off without re-running the analysis.
+- You produce **one base Plan A only** — you do **not** author `## Alternatives considered` (SPEC §4.8, #530). The interested party no longer controls the choice set: `/work-on` dispatches two independent `plan-challenger` agents on distinct axes and `plan-reviewer` judges the contest. The **contest record** (Plan A / B1 / B2 / verdict) is assembled into the PR body's `## Alternatives considered` section by that flow, not by you.
 - If MISSION is absent, do not synthesize one from inference.
 - Do not re-fetch information the main assistant has already gathered — it's passed to you as input.
