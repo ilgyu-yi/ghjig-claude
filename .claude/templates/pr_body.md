@@ -10,9 +10,11 @@
 <From planner output>
 
 ## Alternatives considered
-- <Alternative 1>: <one-line why-not>
-- <Alternative 2>: <one-line why-not>
-(If forced choice — single viable approach — say so explicitly with a one-line justification.)
+<Contest record (SPEC §4.8, #530) — NOT a self-authored list. The planner produced Plan A; two independent, mutually-blind `plan-challenger` agents challenged it on distinct axes; `plan-reviewer` judged the contest.>
+- **Plan A** (base): <one-line summary of the chosen plan>
+- **B1** (axis: <assigned axis>): <dominates-A / genuine non-dominating alternative / reasoned concession — one line>
+- **B2** (axis: <assigned axis>): <dominates-A / genuine non-dominating alternative / reasoned concession — one line>
+- **Verdict**: <winner (A-stands / B1 / B2) or surfaced trade-off — the `plan-reviewer` VERDICT one-liner>
 
 ## Key context
 <file:line — only things currently shaping decisions, curated>
