@@ -24,7 +24,7 @@ Produces the implementation plan + Doc/Test/Code-ordered checklist that becomes 
 
 - **When**: invoked by `/work-on` before any edits. Skippable for typo / one-line fix per CLAUDE.md §1.2 relaxation rules.
 - **Input**: issue body, target `MISSION.md`, target `CLAUDE.md`, resolved base branch.
-- **Output**: plan markdown with mandatory `## Alternatives considered` and `## Target base` sections. The checklist is what the PR body's `## Checklist` consumes.
+- **Output**: plan markdown (base Plan A) with a mandatory `## Target base` section. The planner no longer authors `## Alternatives considered` — that is now the **contest record** produced by the `plan-challenger`/`plan-reviewer` flow (SPEC §4.8, #530). The checklist is what the PR body's `## Checklist` consumes.
 - **Spec**: SPEC §4.1.
 
 ### doc-writer
@@ -76,12 +76,20 @@ Rationale check on a proposed Issue body before `gh issue create`. Filed Issues 
 - **Output**: `ship` / `refine: <one-line>` / `block: <reason>` — verifies (a) MISSION fit, (b) why-now, (c) existing-coverage.
 - **Spec**: SPEC §4.7.
 
+### plan-challenger
+
+Adversarial rival-author (read-only). Dispatched by `/work-on` **×2, mutually blind, parallel + worktree-isolated**, one per caller-assigned axis, to try to **beat** the planner's base Plan A. Returns dominates-A / a genuine non-dominating alternative / a reasoned concession (names the axis + why A held; never a fake-diff). It never authors the merged plan — it produces a rival for `plan-reviewer` to judge.
+
+- **When**: after `planner` runs and the `/work-on` axis selector assigns axes, before `plan-reviewer`.
+- **Input**: base Plan A + the assigned axis + issue body + MISSION.
+- **Spec**: SPEC §4.8.1, #530.
+
 ### plan-reviewer
 
-Approach + alternatives check on `planner` output. The reviewer enforces that the chosen approach beats the alternatives the planner surfaced — a plan with a thin `## Alternatives considered` section gets a `refine`.
+Judges the plan **contest** (SPEC §4.8, #530): given the base Plan A and the two `plan-challenger` rivals, it adjudicates `{A, B1, B2}` — picks the winner, or declares A forced when both challengers fail. Guards: a lazy concession (no named axis) is rejected; a fake-diff resolves to A-stands. A `shared-blindspot` check (reads the code) backstops same-model correlation. This replaces the old "grade the planner's self-authored alternatives" role — the interested party no longer controls the choice set.
 
-- **When**: after `planner` runs in `/work-on`, before the user (attended) or the harness (unattended) approves the plan.
-- **Input**: planner output + issue body + MISSION.
+- **When**: after `planner` + the two `plan-challenger`s run in `/work-on`, before the user (attended) or the harness (unattended) approves the plan.
+- **Input**: base Plan A + the two challenger outputs {B1, B2} + issue body + MISSION.
 - **Output**: `ship` / `refine` / `block` — `ship` in `unattended` mode substitutes for human plan approval.
 - **Spec**: SPEC §4.8.
 

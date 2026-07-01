@@ -2086,7 +2086,7 @@ claude-eng-shell/
     ├── ENGINEERING_FLOW.md           ← flow diagram + step details
     ├── ESCAPE_HATCH.md
     ├── HARNESS_OVERLAP.md            ← harness-overlap classification pointer (§1.9)
-    ├── SUBAGENTS.md                  ← nine-agent usage guide
+    ├── SUBAGENTS.md                  ← eleven-agent usage guide
     └── TROUBLESHOOTING.md            ← common blocks + fixes
 ```
 
@@ -2377,7 +2377,7 @@ All of the following must be yes before operating.
 - [ ] SessionStart warns when the shell repo is behind origin/main.
 - [ ] `/onboard` checks fork status, push permission, MISSION presence, `.github/`, branch protection.
 - [ ] `/file-issue`, `/work-on`, `/sync-pr`, `/status`, `/review`, `/ship`, `/adr`, `/audit` all behave as intended.
-- [ ] The nine subagents are defined; planner produces a Doc → Test → Code checklist.
+- [ ] The eleven subagents are defined; planner produces a Doc → Test → Code checklist.
 - [ ] `.claude/templates/*` is the single source of truth for every command.
 - [ ] The escape hatch works for every block category and is recorded in the audit log.
 - [ ] The shell repo can develop itself on this same flow (dogfooding).
