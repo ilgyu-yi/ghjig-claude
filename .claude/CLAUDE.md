@@ -26,7 +26,7 @@ Relaxed when: `fix` (reproduce-first), `refactor` (doc skippable if external beh
 Strict: `feat`, `docs`, external contract / API / schema changes.
 
 ## Recall routing
-Reach for `/recall` at **recall-shaped** moments — user-asked ("have we…?", "what did we decide about…?") or self-identified before planning/a decision. Pointers-only; targeted read only if relevant. Full contract: SPEC §5.25.
+Reach for `/recall` at **recall-shaped** moments — user-asked ("have we…?", "what did we decide about…?") or self-identified before planning/a decision. Pointers-only; targeted read only if relevant. The deep comment sweep runs on **explicit user intent only**, never the pre-planning reflex. Full contract: SPEC §5.25.
 
 ## Active SSOT maintenance
 Code changes commit with the SSOT items they invalidate or update. If a doc change is intentionally omitted, the commit body says `Docs: n/a — <short reason>`.
