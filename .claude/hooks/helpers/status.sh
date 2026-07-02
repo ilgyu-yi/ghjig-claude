@@ -207,7 +207,7 @@ EOF
   fi
 
   # Bound canonical root + ephemeral-state locality (#318, SPEC §5.5). Bound
-  # root = the back-filled env (§3.2.1), else the project's binding symlink
+  # root = the exported self-located env (§3.2.1), else the project's binding symlink
   # target. Locality = project-local when ghjig_state_dir resolves (hook context),
   # else legacy-shared — surfaces the §1.7 shared-code/per-project-state model.
   STATUS_SHELL_ROOT="${GHJIG_ROOT:-}"

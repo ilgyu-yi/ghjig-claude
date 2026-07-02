@@ -13302,10 +13302,12 @@ fi
 # become a drift hole. The #537 Doc phase left exactly these token-carrying
 # lines naming the retired shell-root var as historical narration / the pinned
 # banner literal: SPEC.md=5, .claude/CLAUDE.md=1, docs/TROUBLESHOOTING.md=2.
-# Any NEW doc mention (or a removal) trips this pin and forces a conscious
-# update. session_start.sh is deliberately NOT pinned here: its occurrences
-# are the live §6.5(c) banner-arm code, shape-guarded by §134b/§134c instead.
-s537_pin="SPEC.md:5 .claude/CLAUDE.md:1 docs/TROUBLESHOOTING.md:2"
+# session_start.sh=2 pins the live §6.5(c) banner-arm code (the ambient
+# trigger + the banner literal): §134b guards only the resolution/export
+# lines and §134c is banner-behavioral, so without this pin a future
+# functional ambient consult elsewhere in the file would evade all guards.
+# Any NEW mention (or a removal) trips this pin and forces a conscious update.
+s537_pin="SPEC.md:5 .claude/CLAUDE.md:1 docs/TROUBLESHOOTING.md:2 .claude/hooks/session_start.sh:2"
 s537_pin_why=""
 for s537_spec in $s537_pin; do
   s537_pf="${s537_spec%:*}"; s537_want="${s537_spec##*:}"
@@ -13318,7 +13320,7 @@ for s537_spec in $s537_pin; do
     || s537_pin_why="${s537_pin_why}${s537_pf}(want=$s537_want got=${s537_got:-0}) "
 done
 if [ -z "$s537_pin_why" ]; then
-  ok "133d: retired shell-root var survives in docs at exactly the pinned counts (5/1/2) (#537)"
+  ok "133d: retired shell-root var survives at exactly the pinned counts (5/1/2/2) (#537)"
 else
   ng "133d: doc-survivor count drifted from the #537 pin: $s537_pin_why(#537)"
 fi
