@@ -13211,6 +13211,13 @@ s533_forbidden=(
   "eng""_state_dir"
   "eng""_registry_file"
   "ghjig""-shell-root"
+  # #537: the ambient shell-root env var is retired as a hook input (SPEC
+  # §3.2.1). The name legitimately survives ONLY as historical narration in
+  # three docs + the pinned §6.5(c) banner arm in session_start.sh — those
+  # four files are carved out per-token in the loop below, and the doc
+  # survivors are count-pinned exactly by §133d so the carve-out cannot
+  # silently widen. Every other tracked file must be clean post-#537.
+  "GHJIG_SHELL_""ROOT"
 )
 # Bare command / display token, matched case-insensitively — a strict superset
 # that also catches the display name, the bin/ path form, the skip sentinel, and
@@ -13225,6 +13232,16 @@ while IFS= read -r s533_f; do
   [ -f "$SHELL_ROOT/$s533_f" ] || continue
   s533_files=$((s533_files+1))
   for s533_tok in "${s533_forbidden[@]}"; do
+    # #537 per-token carve-out (same continue mechanism as the changelog
+    # exclusions above): the retired shell-root var name survives only in
+    # SPEC/CLAUDE/TROUBLESHOOTING historical narration (count-pinned by
+    # §133d) and in session_start.sh, the §6.5(c) banner arm's home — the
+    # ambient check + the user-facing "retired" literal must name the var.
+    if [ "$s533_tok" = "GHJIG_SHELL_""ROOT" ]; then
+      case "$s533_f" in
+        SPEC.md|.claude/CLAUDE.md|docs/TROUBLESHOOTING.md|.claude/hooks/session_start.sh) continue ;;
+      esac
+    fi
     if LC_ALL=C grep -qF -- "$s533_tok" "$SHELL_ROOT/$s533_f"; then
       s533_hits="${s533_hits}${s533_f}[${s533_tok}] "
     fi
@@ -13280,6 +13297,219 @@ if [ -z "$s533_cas_why" ]; then
 else
   ng "133c: canonical display name 'GHJig-Claude' missing or mis-cased in: $s533_cas_why (#533)"
 fi
+
+# §133d (#537): the doc-file carve-out in §133a is COUNT-PINNED so it cannot
+# become a drift hole. The #537 Doc phase left exactly these token-carrying
+# lines naming the retired shell-root var as historical narration / the pinned
+# banner literal: SPEC.md=5, .claude/CLAUDE.md=1, docs/TROUBLESHOOTING.md=2.
+# Any NEW doc mention (or a removal) trips this pin and forces a conscious
+# update. session_start.sh is deliberately NOT pinned here: its occurrences
+# are the live §6.5(c) banner-arm code, shape-guarded by §134b/§134c instead.
+s537_pin="SPEC.md:5 .claude/CLAUDE.md:1 docs/TROUBLESHOOTING.md:2"
+s537_pin_why=""
+for s537_spec in $s537_pin; do
+  s537_pf="${s537_spec%:*}"; s537_want="${s537_spec##*:}"
+  if [ ! -f "$SHELL_ROOT/$s537_pf" ]; then
+    s537_pin_why="${s537_pin_why}${s537_pf}(MISSING) "
+    continue
+  fi
+  s537_got=$(LC_ALL=C grep -cF -- "GHJIG_SHELL_""ROOT" "$SHELL_ROOT/$s537_pf" 2>/dev/null)
+  [ "${s537_got:-0}" = "$s537_want" ] \
+    || s537_pin_why="${s537_pin_why}${s537_pf}(want=$s537_want got=${s537_got:-0}) "
+done
+if [ -z "$s537_pin_why" ]; then
+  ok "133d: retired shell-root var survives in docs at exactly the pinned counts (5/1/2) (#537)"
+else
+  ng "133d: doc-survivor count drifted from the #537 pin: $s537_pin_why(#537)"
+fi
+
+# ---------- §134: ambient shell-root demotion (#537) ----------
+# SPEC §3.2.1 (post-#537): every hook entry resolves
+#   SHELL_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
+# then `export GHJIG_ROOT="$SHELL_ROOT"`. GHJIG_ROOT_OVERRIDE is a TEST-ONLY
+# seam (precedent: GHJIG_STATE_DIR_OVERRIDE); on the production hook path the
+# AMBIENT environment is NEVER consulted — an inherited GHJIG_ROOT (or the
+# retired legacy var) cannot redirect which shell tree the hooks load. This
+# kills the cross-clone contamination vector where a stale global export made
+# clone B's hooks source clone A's helpers. SPEC §6.5(c) adds two banner arms
+# (retired-knob / active-seam) so the clean cut is observable, not silent.
+
+# §134a: wrong-ambient regression. A hostile ambient shell-root pointing at a
+# FAKE tree must not redirect the real hook: piping a protected-branch commit
+# into the real pre_tool_use.sh must (i) still block and (ii) never load the
+# fake tree's runtime/helpers (tripwire stays unwritten). Under the pre-#537
+# env-first resolution the fake hookrt.sh is sourced (tripwire fires) and the
+# undefined in_scope short-circuits the hook to rc=0 (no block) — RED both
+# ways now, GREEN after the resolution flip.
+S134A_DIR=$(mktemp -d); S134A_DIR=$(cd "$S134A_DIR" && pwd -P)
+S134A_FAKE="$S134A_DIR/fakeroot"
+S134A_TRIP="$S134A_DIR/tripwire"
+mkdir -p "$S134A_FAKE/.claude/hooks/helpers"
+# Fake runtime: sourcing it (or calling its no-op audit_log/safe_source) writes
+# the tripwire. If the entry consults the ambient env, it loads THIS file
+# instead of the real hookrt.sh.
+cat > "$S134A_FAKE/.claude/hooks/hookrt.sh" <<EOF
+printf 'hookrt-sourced\n' >> "$S134A_TRIP"
+audit_log()   { printf 'audit_log-called\n'   >> "$S134A_TRIP"; return 0; }
+safe_source() { printf 'safe_source-called\n' >> "$S134A_TRIP"; return 0; }
+EOF
+# Populate helpers/ enough for the entry's [ -d .../hooks/helpers ] guard;
+# each fake helper also trips if ever sourced.
+for s134a_h in escape cwd_guard detect_stack branch_guard conventional_commit; do
+  printf 'printf "helper-%s\\n" >> "%s"\n' "$s134a_h" "$S134A_TRIP" \
+    > "$S134A_FAKE/.claude/hooks/helpers/$s134a_h.sh"
+done
+# Registered target repo on a protected branch (main) — §60 fixture pattern —
+# so the real hook path has a live protected-branch block to fire.
+S134A_TGT="$S134A_DIR/target"
+mkdir -p "$S134A_TGT"
+(cd "$S134A_TGT" && { git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; }; }
+ git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+printf '%s\n' "$S134A_TGT" >> "$SMOKE_REG"
+
+s134a_run() {  # "$@" = extra VAR=VAL env pairs → echoes the hook rc
+  (
+    cd "$S134A_TGT" || exit 1
+    printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m smoke134"}}' \
+      | env -u GHJIG_ROOT_OVERRIDE -u GHJIG_ROOT -u "GHJIG_SHELL_""ROOT" "$@" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
+    printf '%s' "$?"
+  )
+}
+# 134a-0 (harness control, expected green pre- AND post-flip): with a CLEAN env
+# the protected-branch commit blocks — proves the fixture detects a real block,
+# so a RED on 134a-1 is the resolution's fault, not the harness's.
+s134a0_rc=$(s134a_run)
+[ "$s134a0_rc" = 2 ] \
+  && ok "134a-0: control — clean env, protected-branch commit blocked (rc=2) (#537)" \
+  || ng "134a-0: control broken — clean-env protected commit not blocked (rc=$s134a0_rc); 134a-1/2 unreliable (#537)"
+# 134a-1: hostile ambient (legacy + new name → fake tree) — block STILL fires.
+s134a1_rc=$(s134a_run "GHJIG_SHELL_""ROOT=$S134A_FAKE" "GHJIG_ROOT=$S134A_FAKE")
+[ "$s134a1_rc" = 2 ] \
+  && ok "134a-1: hostile ambient shell-root ignored — protected commit still blocked (rc=2) (#537)" \
+  || ng "134a-1: ambient env redirected hook resolution — protected commit NOT blocked (rc=$s134a1_rc) (#537)"
+# 134a-2: the fake tree was never loaded (no runtime source, no helper source,
+# no audit_log/safe_source call landed in the fake).
+if [ ! -e "$S134A_TRIP" ]; then
+  ok "134a-2: fake tree untouched — hostile ambient never sourced (#537)"
+else
+  ng "134a-2: hook loaded the AMBIENT fake tree — cross-clone contamination: $(tr '\n' ' ' < "$S134A_TRIP")(#537)"
+fi
+rm -rf "$S134A_DIR"
+
+# §134b: bootstrap-shape contract on all 5 hook entries. The SHELL_ROOT=
+# resolution line must consult GHJIG_ROOT_OVERRIDE + BASH_SOURCE self-location,
+# and must NOT consult the ambient env (neither the retired legacy var nor a
+# bare/braced GHJIG_ROOT) as primary or fallback; the entry must then export
+# GHJIG_ROOT (not the legacy name). Count-guarded: exactly 5 entries checked,
+# and a missing file / missing resolution line fails LOUD (anti-vacuity).
+s134b_checked=0
+s134b_bad=""
+for s134b_e in pre_tool_use post_tool_use session_start stop user_prompt_submit; do
+  s134b_f="$SHELL_ROOT/.claude/hooks/$s134b_e.sh"
+  if [ ! -f "$s134b_f" ]; then
+    s134b_bad="${s134b_bad}${s134b_e}[missing-file] "
+    continue
+  fi
+  s134b_checked=$((s134b_checked+1))
+  # Whitespace-tolerant extraction of the resolution line (first assignment).
+  s134b_line=$(grep -E '^[[:space:]]*SHELL_ROOT=' "$s134b_f" | head -1)
+  if [ -z "$s134b_line" ]; then
+    s134b_bad="${s134b_bad}${s134b_e}[no-resolution-line] "
+    continue
+  fi
+  printf '%s' "$s134b_line" | grep -q 'GHJIG_ROOT_OVERRIDE' \
+    || s134b_bad="${s134b_bad}${s134b_e}[no-override-seam] "
+  printf '%s' "$s134b_line" | grep -q 'BASH_SOURCE' \
+    || s134b_bad="${s134b_bad}${s134b_e}[no-self-location] "
+  printf '%s' "$s134b_line" | grep -qF -- "GHJIG_SHELL_""ROOT" \
+    && s134b_bad="${s134b_bad}${s134b_e}[consults-legacy-ambient] "
+  # Braced ambient expansion ${GHJIG_ROOT}/${GHJIG_ROOT:-…}/${GHJIG_ROOT-…}
+  # (the char after ROOT excludes the _OVERRIDE seam's underscore) …
+  printf '%s' "$s134b_line" | grep -qE '\$\{GHJIG_ROOT[}:-]' \
+    && s134b_bad="${s134b_bad}${s134b_e}[consults-ambient-braced] "
+  # … and the bare $GHJIG_ROOT form.
+  printf '%s' "$s134b_line" | grep -qE '\$GHJIG_ROOT([^_A-Za-z0-9]|$)' \
+    && s134b_bad="${s134b_bad}${s134b_e}[consults-ambient-bare] "
+  grep -qE '^[[:space:]]*export[[:space:]]+GHJIG_ROOT=' "$s134b_f" \
+    || s134b_bad="${s134b_bad}${s134b_e}[no-ghjig-root-export] "
+  grep -qE "export[[:space:]]+GHJIG_SHELL_""ROOT=" "$s134b_f" \
+    && s134b_bad="${s134b_bad}${s134b_e}[legacy-export-survives] "
+done
+if [ "$s134b_checked" = 5 ] && [ -z "$s134b_bad" ]; then
+  ok "134b: all 5 hook entries resolve via GHJIG_ROOT_OVERRIDE→BASH_SOURCE, never the ambient env, and export GHJIG_ROOT (#537)"
+else
+  ng "134b: hook-entry resolution contract violated (checked=$s134b_checked/5): ${s134b_bad:-none}(#537)"
+fi
+
+# §134c: SessionStart shell-root env banners (SPEC §6.5(c), #537) — two arms in
+# the same once-per-session mkdir-stamp-debounced family as the §40 hookrt /
+# §502 registry-zeroed banners; harness mirrors ss502_run. Arm (a): a lingering
+# legacy export (or a mismatched ambient GHJIG_ROOT) is functionally ignored on
+# the hook path — this banner keeps that ignore from being silent. Arm (b): an
+# active GHJIG_ROOT_OVERRIDE names the test-only seam + the loaded tree.
+S134C_TMPDIR=$(mktemp -d); S134C_STATE=$(mktemp -d); S134C_CWD=$(mktemp -d)
+# Keep all runs off the network/compute: pre-touch the §6.5(d) friction stamp
+# (resolved via the state-dir override) and pin a huge fetch TTL so the
+# §6.5(a) fetch is stamp-skipped.
+touch "$S134C_STATE/last-friction-surfaced"
+s134c_run() {  # $1 = session id; remaining args = VAR=VAL pairs → echoes stderr
+  local s134c_sid="$1"; shift
+  ( cd "$S134C_CWD" || exit 0
+    env -u GHJIG_ROOT_OVERRIDE -u GHJIG_ROOT -u "GHJIG_SHELL_""ROOT" \
+      CLAUDE_SESSION_ID="$s134c_sid" CLAUDE_PROJECT_DIR="$S134C_STATE" \
+      GHJIG_STATE_DIR_OVERRIDE="$S134C_STATE" TMPDIR="$S134C_TMPDIR" \
+      SESSION_START_FETCH_TTL=999999999 SESSION_START_FETCH_TIMEOUT=1 \
+      "$@" bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
+  )
+}
+s134c_retired() {  # $1 = captured stderr → echoes retired-banner line count
+  printf '%s\n' "$1" | grep -c "GHJIG_SHELL_""ROOT retired" || true
+}
+s134c_seam() {  # $1 = captured stderr → echoes seam-banner line count
+  printf '%s\n' "$1" | grep -c 'test-only seam active' || true
+}
+# 134c-a1/a2: legacy ambient set → retired-knob banner fires ONCE, then is
+# debounced within the same session (same CLAUDE_SESSION_ID + TMPDIR stamp).
+s134c_a_sid="smoke-134c-a-$$"
+s134c_a_r1=$(s134c_run "$s134c_a_sid" "GHJIG_SHELL_""ROOT=$S134C_CWD/stale-root")
+s134c_a_r2=$(s134c_run "$s134c_a_sid" "GHJIG_SHELL_""ROOT=$S134C_CWD/stale-root")
+s134c_a_n1=$(s134c_retired "$s134c_a_r1")
+s134c_a_n2=$(s134c_retired "$s134c_a_r2")
+[ "$s134c_a_n1" = 1 ] \
+  && ok "134c-a1: lingering legacy export → retired-knob banner fires (#537)" \
+  || ng "134c-a1: legacy export ignored SILENTLY — retired-knob banner count=$s134c_a_n1 (want 1); stderr=$(printf '%s' "$s134c_a_r1" | tr '\n' ' ') (#537)"
+[ "$s134c_a_n1" = 1 ] && [ "$s134c_a_n2" = 0 ] \
+  && ok "134c-a2: retired-knob banner debounced to once per session (#537)" \
+  || ng "134c-a2: debounce broken — first=$s134c_a_n1 (want 1) second=$s134c_a_n2 (want 0) (#537)"
+# 134c-a3: no ambient, no seam → both arms silent (no false fire).
+s134c_a3=$(s134c_run "smoke-134c-a3-$$")
+[ "$(s134c_retired "$s134c_a3")" = 0 ] && [ "$(s134c_seam "$s134c_a3")" = 0 ] \
+  && ok "134c-a3: clean env → both #537 banner arms silent (#537)" \
+  || ng "134c-a3: banner false-fired on a clean env: $(printf '%s' "$s134c_a3" | tr '\n' ' ') (#537)"
+# 134c-a4: ambient GHJIG_ROOT differing from the self-located root → the same
+# retired-knob banner (the arm's second trigger per SPEC §6.5(c)).
+s134c_a4=$(s134c_run "smoke-134c-a4-$$" "GHJIG_ROOT=$S134C_CWD/other-root")
+[ "$(s134c_retired "$s134c_a4")" = 1 ] \
+  && ok "134c-a4: mismatched ambient GHJIG_ROOT → retired-knob banner fires (#537)" \
+  || ng "134c-a4: mismatched ambient GHJIG_ROOT ignored silently (banner count=$(s134c_retired "$s134c_a4"), want 1) (#537)"
+# 134c-a5 (boundary, no-false-fire pin): ambient GHJIG_ROOT EQUAL to the
+# self-located root (the normal wrapper/parent-export channel) → silent.
+s134c_a5=$(s134c_run "smoke-134c-a5-$$" "GHJIG_ROOT=$SHELL_ROOT")
+[ "$(s134c_retired "$s134c_a5")" = 0 ] \
+  && ok "134c-a5: matching ambient GHJIG_ROOT (parent-export channel) → no banner (#537)" \
+  || ng "134c-a5: banner false-fires on a MATCHING ambient GHJIG_ROOT (#537)"
+# 134c-b1: active override seam → seam banner, exactly once, naming the loaded
+# tree. The override points at the REAL shell root so the hook still runs its
+# normal course (a functional tree) while the seam arm reports it.
+s134c_b1=$(s134c_run "smoke-134c-b1-$$" "GHJIG_ROOT_OVERRIDE=$SHELL_ROOT")
+if [ "$(s134c_seam "$s134c_b1")" = 1 ] \
+   && printf '%s\n' "$s134c_b1" | grep -qF -- "hooks loading from $SHELL_ROOT"; then
+  ok "134c-b1: GHJIG_ROOT_OVERRIDE set → seam banner names the seam + loaded path (#537)"
+else
+  ng "134c-b1: active test-only seam not surfaced (count=$(s134c_seam "$s134c_b1"), want 1 naming $SHELL_ROOT): $(printf '%s' "$s134c_b1" | tr '\n' ' ') (#537)"
+fi
+rm -rf "$S134C_TMPDIR" "$S134C_STATE" "$S134C_CWD"
 
 # ---------- results ----------
 echo
