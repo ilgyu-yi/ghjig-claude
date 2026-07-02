@@ -22,7 +22,7 @@
 #            regular attended/unattended mode rules.
 #
 # Caches per-session at
-#   $GHJIG_SHELL_ROOT/.claude/state/issue-filer-cache/<owner>__<repo>__<n>
+#   $GHJIG_ROOT/.claude/state/issue-filer-cache/<owner>__<repo>__<n>
 # so a hot loop of matcher invocations doesn't issue an N+1 cascade of
 # `gh issue view --json authorAssociation` calls. Cache file content is
 # the literal authorAssociation string (e.g., "OWNER", "NONE", "MEMBER")
@@ -45,8 +45,8 @@ is_trusted_filer() {
   if [ -n "$esd" ]; then
     cache_dir="$esd/issue-filer-cache"   # per-project (#314)
   else
-    : "${GHJIG_SHELL_ROOT:?GHJIG_SHELL_ROOT must be set}"
-    cache_dir="$GHJIG_SHELL_ROOT/.claude/state/issue-filer-cache"
+    : "${GHJIG_ROOT:?GHJIG_ROOT must be set}"
+    cache_dir="$GHJIG_ROOT/.claude/state/issue-filer-cache"
   fi
 
   # Repo resolution (#231): an explicit `owner/name` (e.g. extracted from a URL

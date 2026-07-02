@@ -116,7 +116,7 @@ ship_decide_post_ready() {
 # On a repeat park (label already present from a previous park):
 #   Stdout: empty.
 #   Side effect: appends one `park-suppressed: <reason>` line to the log.
-# Default log path: $GHJIG_SHELL_ROOT/.claude/state/unattended-park.log.
+# Default log path: $GHJIG_ROOT/.claude/state/unattended-park.log.
 #
 # Cwd requirement: the label check uses `gh pr view --json labels` with no
 # explicit PR identifier, so `gh`'s branch→PR detection picks the current
@@ -127,7 +127,7 @@ ship_park_pr() {
   local reason="${1:-unspecified}"
   local esd; esd=$(ghjig_state_dir 2>/dev/null || true)   # per-project (#314)
   local log_path="${SHIP_PARK_LOG_PATH:-${esd:+$esd/unattended-park.log}}"
-  [ -n "$log_path" ] || log_path="$GHJIG_SHELL_ROOT/.claude/state/unattended-park.log"
+  [ -n "$log_path" ] || log_path="$GHJIG_ROOT/.claude/state/unattended-park.log"
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

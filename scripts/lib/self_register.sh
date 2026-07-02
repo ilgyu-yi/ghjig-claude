@@ -11,12 +11,12 @@ ensure_self_registered() {
 
   # Write the shell's registration into its own per-project registry (#316), via
   # the single ghjig_registry_file resolver. Defensively source hookrt from the code
-  # root (GHJIG_SHELL_ROOT) — the $shell_root arg being registered may be a
+  # root (GHJIG_ROOT) — the $shell_root arg being registered may be a
   # bare dir without hooks (e.g. the §9 smoke fixture). Dogfood coherence (§3.6):
   # this write-target equals what cwd_guard reads under CLAUDE_PROJECT_DIR=$shell_root.
   command -v ghjig_registry_file >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_SHELL_ROOT:-}" ] && [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
-         && . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"; }
   local registry; registry=$(ghjig_registry_file "$shell_root")
   mkdir -p "$(dirname "$registry")"
   touch "$registry"

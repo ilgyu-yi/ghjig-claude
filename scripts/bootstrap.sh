@@ -4,7 +4,7 @@ set -euo pipefail
 # Checks the shell environment only — never modifies user-global files (~/.zshrc, ~/.claude, etc.).
 
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+export GHJIG_ROOT="$SHELL_ROOT"
 
 ok() { printf '✓ %s\n' "$1"; }
 warn() { printf '⚠ %s\n' "$1" >&2; }

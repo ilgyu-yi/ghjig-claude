@@ -19,7 +19,7 @@ _status_cache_path() {
   local branch="$1"
   local esd; esd=$(ghjig_state_dir 2>/dev/null || true)
   local dir="${STATUS_CACHE_DIR_OVERRIDE:-${esd:+$esd/status-cache}}"   # per-project (#314)
-  [ -n "$dir" ] || dir="${GHJIG_SHELL_ROOT:-.}/.claude/state/status-cache"
+  [ -n "$dir" ] || dir="${GHJIG_ROOT:-.}/.claude/state/status-cache"
   local safe
   safe=$(printf '%s' "$branch" | tr '/' '_')
   printf '%s/%s.json' "$dir" "$safe"
@@ -111,13 +111,13 @@ _status_collect() {
   # field; defensively source hookrt from the code root when sourced standalone
   # (e.g. smoke §13) so the resolver is present, mirroring the other helper libs.
   command -v ghjig_state_dir >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_SHELL_ROOT:-}" ] && [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
-         && . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"; }
   # resolve_work_lang (work_lang.sh, #325) drives the work-lang status field;
   # defensively source it the same way for standalone callers.
   command -v resolve_work_lang >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_SHELL_ROOT:-}" ] && [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/work_lang.sh" ] \
-         && . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/work_lang.sh"; }
+    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/helpers/work_lang.sh" ] \
+         && . "$GHJIG_ROOT/.claude/hooks/helpers/work_lang.sh"; }
 
   command -v git >/dev/null 2>&1 || return 0
   STATUS_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -200,9 +200,9 @@ EOF
     [ -n "$ci_state" ] && STATUS_CI="$ci_state"
   fi
 
-  if [ -f "${GHJIG_SHELL_ROOT:-}/.claude/hooks/helpers/ship_mode.sh" ]; then
+  if [ -f "${GHJIG_ROOT:-}/.claude/hooks/helpers/ship_mode.sh" ]; then
     # shellcheck disable=SC1090,SC1091
-    . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/ship_mode.sh"
+    . "$GHJIG_ROOT/.claude/hooks/helpers/ship_mode.sh"
     STATUS_MODE=$(resolve_mode 2>/dev/null)
   fi
 
@@ -210,7 +210,7 @@ EOF
   # root = the back-filled env (§3.2.1), else the project's binding symlink
   # target. Locality = project-local when ghjig_state_dir resolves (hook context),
   # else legacy-shared — surfaces the §1.7 shared-code/per-project-state model.
-  STATUS_SHELL_ROOT="${GHJIG_SHELL_ROOT:-}"
+  STATUS_SHELL_ROOT="${GHJIG_ROOT:-}"
   if [ -z "$STATUS_SHELL_ROOT" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     STATUS_SHELL_ROOT=$(readlink "$CLAUDE_PROJECT_DIR/.claude/ghjig-root" 2>/dev/null || true)
   fi

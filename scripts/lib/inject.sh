@@ -7,11 +7,11 @@
 # target's `settings.local.json` at `settings.injected.json` (whose hook
 # commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/...). Both are added
 # to the target's .git/info/exclude. Net effect: a plain `claude` in the target
-# resolves the shell with no global GHJIG_SHELL_ROOT env. See SPEC §3.2.1.
+# resolves the shell with no global GHJIG_ROOT env. See SPEC §3.2.1.
 
 inject_into() {
   local target="$1"
-  : "${GHJIG_SHELL_ROOT:?GHJIG_SHELL_ROOT must be set}"
+  : "${GHJIG_ROOT:?GHJIG_ROOT must be set}"
   [ -d "$target" ] || { echo "target directory not found: $target" >&2; return 1; }
   target=$(cd "$target" && pwd -P)
 
@@ -19,8 +19,8 @@ inject_into() {
 
   # Per-project binding symlink (#312, Directive #311): lets hooks resolve the
   # canonical shell root via $CLAUDE_PROJECT_DIR/.claude/ghjig-root, so a
-  # plain `claude` works with NO global GHJIG_SHELL_ROOT env. Idempotent.
-  ln -sfn "$GHJIG_SHELL_ROOT" "$target/.claude/ghjig-root"
+  # plain `claude` works with NO global GHJIG_ROOT env. Idempotent.
+  ln -sfn "$GHJIG_ROOT" "$target/.claude/ghjig-root"
 
   # settings.local.json — Claude Code's this-clone-only slot. Points at the
   # target-facing settings.injected.json, whose hook commands resolve via the
@@ -28,14 +28,14 @@ inject_into() {
   if [ -e "$target/.claude/settings.local.json" ] && [ ! -L "$target/.claude/settings.local.json" ]; then
     echo "WARN: $target/.claude/settings.local.json exists (real file). Shell settings not injected." >&2
   else
-    ln -sfn "$GHJIG_SHELL_ROOT/.claude/settings.injected.json" "$target/.claude/settings.local.json"
+    ln -sfn "$GHJIG_ROOT/.claude/settings.injected.json" "$target/.claude/settings.local.json"
   fi
 
   # agents / commands — skip with warning if a same-named asset already exists
   local kind src dest
   for kind in agents commands; do
-    if [ -d "$GHJIG_SHELL_ROOT/.claude/$kind" ]; then
-      for src in "$GHJIG_SHELL_ROOT/.claude/$kind"/*.md; do
+    if [ -d "$GHJIG_ROOT/.claude/$kind" ]; then
+      for src in "$GHJIG_ROOT/.claude/$kind"/*.md; do
         [ -e "$src" ] || continue
         dest="$target/.claude/$kind/$(basename "$src")"
         if [ -e "$dest" ] && [ ! -L "$dest" ]; then
@@ -61,10 +61,10 @@ inject_into() {
 
   # Record in the target's per-project registry (#316). Resolve via the single
   # ghjig_registry_file resolver, defensively sourcing hookrt from the code root
-  # (GHJIG_SHELL_ROOT, not $target — the target may not carry hooks).
+  # (GHJIG_ROOT, not $target — the target may not carry hooks).
   command -v ghjig_registry_file >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_SHELL_ROOT:-}" ] && [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ] \
-         && . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"; }
+    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
+         && . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"; }
   local registry; registry=$(ghjig_registry_file "$target")
   mkdir -p "$(dirname "$registry")"
   touch "$registry"

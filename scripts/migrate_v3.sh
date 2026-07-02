@@ -18,7 +18,7 @@
 #           no manual backfill.
 #
 # Refuses on:
-#   - cwd not in $GHJIG_SHELL_ROOT/.claude/state/registry.txt
+#   - cwd not in $GHJIG_ROOT/.claude/state/registry.txt
 #   - missing MISSION.md (must be populated before running)
 #   - --confirm flag absent (destructive operation — explicit opt-in)
 #
@@ -31,12 +31,12 @@
 set -euo pipefail
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-: "${GHJIG_SHELL_ROOT:=$SCRIPT_ROOT}"
-export GHJIG_SHELL_ROOT
+: "${GHJIG_ROOT:=$SCRIPT_ROOT}"
+export GHJIG_ROOT
 
-if [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ]; then
+if [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ]; then
   # shellcheck source=/dev/null
-  . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"
+  . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"
 else
   audit_log() { :; }
 fi
@@ -49,7 +49,7 @@ if [ "${1:-}" != "--confirm" ]; then
   echo "migrate_v3: DESTRUCTIVE one-shot — re-run with --confirm to proceed."
   echo ""
   echo "  Action: snapshot all Items in the dir-mode Project + delete each"
-  echo "  Target: \$GHJIG_SHELL_ROOT/.claude/state/v2-snapshot/<ISO>/"
+  echo "  Target: \$GHJIG_ROOT/.claude/state/v2-snapshot/<ISO>/"
   echo ""
   echo "After this script: setup_project.sh reconciles the field schema to v3"
   echo "  (drops Goal/Confidence/Success Signals; Status → 4-state set)."
@@ -62,7 +62,7 @@ DR_SCRIPT_NAME=migrate_v3
 # shellcheck disable=SC2034  # consumed by sourced dir_mode_project_resolve.sh
 DR_AUDIT_CATEGORY=project-setup
 # shellcheck source=/dev/null
-. "$GHJIG_SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
+. "$GHJIG_ROOT/scripts/lib/dir_mode_project_resolve.sh"
 
 dr_check_registry_guard || exit 1
 dr_check_gh_auth || exit 1
@@ -75,7 +75,7 @@ owner="$DR_OWNER"
 project_num="$DR_PROJECT_NUM"
 
 # MISSION.md presence check (brief §8 step 2).
-if [ ! -f "$GHJIG_SHELL_ROOT/MISSION.md" ]; then
+if [ ! -f "$GHJIG_ROOT/MISSION.md" ]; then
   echo "migrate_v3: MISSION.md missing — populate before running migration." >&2
   echo "  PVTI #84's body should be transcribed into MISSION.md (MISSION.md replaces the Goal artifact)." >&2
   audit_log block "$DR_AUDIT_CATEGORY" deny "migrate_v3: MISSION.md missing — refused"
@@ -84,7 +84,7 @@ fi
 
 # Step 1: snapshot
 ts=$(date -u +%Y%m%dT%H%M%SZ)
-snap_dir="$GHJIG_SHELL_ROOT/.claude/state/v2-snapshot/$ts"
+snap_dir="$GHJIG_ROOT/.claude/state/v2-snapshot/$ts"
 mkdir -p "$snap_dir"
 echo "migrate_v3: snapshot directory $snap_dir"
 
@@ -128,7 +128,7 @@ audit_log info "$DR_AUDIT_CATEGORY" migrated "v3-migration: project=#${project_n
 
 # Step 4: reconcile field schema to v3 by re-running setup_project.sh.
 echo "migrate_v3: re-running setup_project.sh to reconcile field schema..."
-bash "$GHJIG_SHELL_ROOT/scripts/setup_project.sh" || {
+bash "$GHJIG_ROOT/scripts/setup_project.sh" || {
   echo "migrate_v3: setup_project.sh failed — fields may need manual reconciliation" >&2
   audit_log warn "$DR_AUDIT_CATEGORY" notice "v3-migration: setup_project.sh failed post-snapshot+delete"
   exit 1

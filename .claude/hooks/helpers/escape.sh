@@ -35,7 +35,7 @@ _escape_token_honored() {
   # Aligned fallback (.claude/ghjig-state, not .claude/state) — consistent with
   # ghjig_state_dir's non-empty form so the no-CLAUDE_PROJECT_DIR case agrees with
   # the writer (#483).
-  [ -n "$esd" ] || esd="${GHJIG_SHELL_ROOT:-}/.claude/ghjig-state"
+  [ -n "$esd" ] || esd="${GHJIG_ROOT:-}/.claude/ghjig-state"
   [ -n "$esd" ] || return 1
   tok="$esd/escape/${cat}.token"
   [ -r "$tok" ] || return 1   # absent/unreadable → armed (fast path)

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GHJIG_SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-export GHJIG_SHELL_ROOT
+GHJIG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export GHJIG_ROOT
 
 # --version short-circuit (Issue #123 / Directive #122): runs before the
 # registry/scope guard so it works from any cwd, and before `exec claude`
 # so it returns the shell's VERSION rather than the underlying CLI's.
 # Fallback: git describe; on both-fail, diagnostic to stderr + exit 1.
 if [ "${1:-}" = "--version" ]; then
-  if [ -s "$GHJIG_SHELL_ROOT/VERSION" ]; then
-    cat "$GHJIG_SHELL_ROOT/VERSION"
+  if [ -s "$GHJIG_ROOT/VERSION" ]; then
+    cat "$GHJIG_ROOT/VERSION"
     exit 0
   fi
-  if v=$(git -C "$GHJIG_SHELL_ROOT" describe --tags --always 2>/dev/null) && [ -n "$v" ]; then
+  if v=$(git -C "$GHJIG_ROOT" describe --tags --always 2>/dev/null) && [ -n "$v" ]; then
     printf '%s\n' "$v"
     exit 0
   fi
@@ -31,13 +31,13 @@ fi
 # by design (SPEC §3.5).
 if [ "${1:-}" = "list" ]; then
   {
-    if [ -d "$GHJIG_SHELL_ROOT/workspace" ]; then
-      for ws in "$GHJIG_SHELL_ROOT/workspace"/*; do
+    if [ -d "$GHJIG_ROOT/workspace" ]; then
+      for ws in "$GHJIG_ROOT/workspace"/*; do
         [ -e "$ws" ] || continue                  # -e follows the link → skips dangling / empty glob
         ( cd "$ws" 2>/dev/null && pwd -P ) || true
       done
     fi
-    legacy="$GHJIG_SHELL_ROOT/.claude/state/registry.txt"
+    legacy="$GHJIG_ROOT/.claude/state/registry.txt"
     if [ -f "$legacy" ]; then
       while IFS= read -r entry; do
         [ -z "$entry" ] && continue
@@ -55,13 +55,13 @@ if [ $# -gt 0 ] && [ -d "$1" ]; then
   # Per-project registry (#316): this launcher runs BEFORE the Claude session, so
   # CLAUDE_PROJECT_DIR is unset — discover via the explicit-arg resolver against
   # target_path ("does <dir> carry its own ghjig-state/registry.txt?"). Source hookrt
-  # for the resolver (the self-located GHJIG_SHELL_ROOT always carries it).
-  . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"
+  # for the resolver (the self-located GHJIG_ROOT always carries it).
+  . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"
   registry=$(ghjig_registry_file "$target_path")
   # Back-compat (#316): accept the per-project registry OR the legacy shared one
   # (a target registered before #316 lives only in the shared registry). New
   # registrations still write per-project via register.sh.
-  legacy="$GHJIG_SHELL_ROOT/.claude/state/registry.txt"
+  legacy="$GHJIG_ROOT/.claude/state/registry.txt"
   registered=0
   for reg in "$registry" "$legacy"; do
     [ -f "$reg" ] || continue
@@ -80,7 +80,7 @@ if [ $# -gt 0 ] && [ -d "$1" ]; then
     read -r resp || resp="Y"
     case "${resp:-Y}" in
       [Yy]|"")
-        "$GHJIG_SHELL_ROOT/scripts/register.sh" "$target_path"
+        "$GHJIG_ROOT/scripts/register.sh" "$target_path"
         ;;
       *)
         echo "Cancelled."
@@ -98,7 +98,7 @@ if [ $# -gt 0 ] && [ -d "$1" ]; then
   # banner because it structurally could not detect this case.
   if [ -L "$target_path/.claude/settings.local.json" ] && [ ! -e "$target_path/.claude/ghjig-root" ]; then
     printf "[GHJig-Claude] WARN binding-health: '%s' is injected but its .claude/ghjig-root binding is missing or broken — hooks will silently no-op. Fix: '%s/scripts/register.sh' '%s' to repair the binding.\n" \
-      "$target_path" "$GHJIG_SHELL_ROOT" "$target_path" >&2
+      "$target_path" "$GHJIG_ROOT" "$target_path" >&2
   fi
   cd "$target_path"
   shift

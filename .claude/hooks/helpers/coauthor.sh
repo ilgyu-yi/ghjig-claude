@@ -18,9 +18,9 @@ _coauthor_resolve() {
   if [ -n "${GHJIG_COAUTHOR:-}" ]; then
     source="\$GHJIG_COAUTHOR"
     value="$GHJIG_COAUTHOR"
-  elif [ -f "${GHJIG_SHELL_ROOT:-}/.claude/state/coauthor" ]; then
+  elif [ -f "${GHJIG_ROOT:-}/.claude/state/coauthor" ]; then
     source=".claude/state/coauthor"
-    value=$(tr -d '[:space:]' < "$GHJIG_SHELL_ROOT/.claude/state/coauthor")
+    value=$(tr -d '[:space:]' < "$GHJIG_ROOT/.claude/state/coauthor")
   else
     printf '%s' "on"
     return

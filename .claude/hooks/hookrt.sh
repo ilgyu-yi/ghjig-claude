@@ -12,10 +12,11 @@
 # This breaks the chicken-and-egg of `safe_source` calling `audit_log` —
 # both live here, loaded by the same primitive.
 #
-# Bootstrap contract (the primitive every hook uses):
+# Bootstrap contract (the primitive every hook uses, SPEC §3.2.1):
 #
-#   SHELL_ROOT="${GHJIG_SHELL_ROOT:-}"
+#   SHELL_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
 #   [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
+#   export GHJIG_ROOT="$SHELL_ROOT"
 #   hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"
 #   if [ ! -f "$hookrt" ]; then
 #     printf '[GHJig-Claude] WARN hookrt-missing: %s not loaded — hook exiting\n' "$hookrt" >&2
@@ -98,7 +99,7 @@ ghjig_state_dir() {
 #     session): "<project_dir>/.claude/ghjig-state/registry.txt".
 #   - Argless (hook context — cwd_guard): rides ghjig_state_dir() →
 #     "<esd>/registry.txt", else the legacy shared
-#     "${GHJIG_SHELL_ROOT:-}/.claude/state/registry.txt".
+#     "${GHJIG_ROOT:-}/.claude/state/registry.txt".
 # set -u-safe (every read guarded). A missing file → the caller's
 # `[ -f ]` guard yields out-of-scope → hooks fail-open (transparent),
 # unchanged from the shared-registry era; the move changes only WHICH
@@ -107,7 +108,7 @@ ghjig_registry_file() {
   if [ -n "${1:-}" ]; then printf '%s' "$1/.claude/ghjig-state/registry.txt"; return 0; fi
   local esd; esd=$(ghjig_state_dir)
   if [ -n "$esd" ]; then printf '%s' "$esd/registry.txt"; return 0; fi
-  printf '%s' "${GHJIG_SHELL_ROOT:-}/.claude/state/registry.txt"
+  printf '%s' "${GHJIG_ROOT:-}/.claude/state/registry.txt"
 }
 
 # audit_log <event> <category> <decision> <reason> — append one JSON
@@ -133,7 +134,7 @@ audit_log() {
   case "${GHJIG_AUDIT_SOURCE:-}" in test) _src="test" ;; *) _src="live" ;; esac
   # Per-project audit (#314) when in hook context; else legacy shared path.
   esd=$(ghjig_state_dir)
-  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$GHJIG_SHELL_ROOT/.claude/audit/audit.jsonl"; fi
+  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$GHJIG_ROOT/.claude/audit/audit.jsonl"; fi
   mkdir -p "$(dirname "$log")"
   local r_reason r_cwd
   r_cwd=$(_audit_json_string "$cwd")

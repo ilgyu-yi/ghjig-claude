@@ -27,7 +27,7 @@
 set -uo pipefail
 
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+export GHJIG_ROOT="$SHELL_ROOT"
 
 # §357 AC1 backstop (capture half) — snapshot the LIVE shared sinks' size BEFORE
 # any fixture fires. Reads the literal $SHELL_ROOT paths (NOT $SMOKE_*): a smoke
@@ -533,7 +533,7 @@ cp "$SHELL_ROOT/scripts/register.sh" "$FAKE_SR/scripts/register.sh"
 cp "$SHELL_ROOT/scripts/lib/inject.sh" "$FAKE_SR/scripts/lib/inject.sh"
 [ -f "$SHELL_ROOT/scripts/lib/self_register.sh" ] && cp "$SHELL_ROOT/scripts/lib/self_register.sh" "$FAKE_SR/scripts/lib/self_register.sh"
 # self_register/inject resolve the registry via ghjig_registry_file (hookrt.sh, #316),
-# defensively sourced from GHJIG_SHELL_ROOT (= FAKE_SR here) — so the fake root
+# defensively sourced from GHJIG_ROOT (= FAKE_SR here) — so the fake root
 # needs a real hookrt.sh, exactly as a real shell root carries one.
 cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$FAKE_SR/.claude/hooks/hookrt.sh"
 chmod +x "$FAKE_SR/scripts/register.sh"
@@ -1040,7 +1040,7 @@ hook_run() {
     cd "$TMP/fake" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$cmd" | jq -Rs .)" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$HOOK" >/dev/null 2>&1
     printf '%s' "$?"
   )
@@ -1867,7 +1867,7 @@ post_run() {
     # shellcheck disable=SC2069
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$cmd" | jq -Rs .)" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$POST_HOOK" 2>&1 >/dev/null
   )
 }
@@ -1935,7 +1935,7 @@ rm -rf "$DETACHED_DIR"
 AUDIT_TMP=$(mktemp -d)
 mkdir -p "$AUDIT_TMP/.claude/audit"
 (
-  export GHJIG_SHELL_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_SHELL_ROOT legacy path
+  export GHJIG_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_ROOT legacy path
   # Source the helper fresh in the subshell so it picks up the override.
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   # 20a. multi-line reason → exactly one new line in audit.jsonl.
@@ -1958,7 +1958,7 @@ mkdir -p "$AUDIT_TMP/.claude/audit"
 AUDIT_QUOTED_DIR="$AUDIT_TMP/dir\"with-quote"
 mkdir -p "$AUDIT_QUOTED_DIR"
 (
-  export GHJIG_SHELL_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_SHELL_ROOT legacy path
+  export GHJIG_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_ROOT legacy path
   cd "$AUDIT_QUOTED_DIR" || exit 1
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   audit_log block test deny "simple reason"
@@ -2013,7 +2013,7 @@ chmod +x "$STATUS_GH_SHIM_ERR/gh" "$STATUS_GH_SHIM_OK/gh"
   cache_file="$STATUS_CACHE_DIR/$safe_branch.json"
   printf '{"branch":"%s","dirty":"","pr_num":"99","pr_state":"draft","pr_title":"stub","issue_num":"","issue_title":"","tasks_done":"3","tasks_total":"5","next":"do thing","phase":"Code","ci":"","mode":"unattended"}\n' "$branch" > "$cache_file"
   rm -f "$STATUS_GH_ERR_MARKER"
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$STATUS_CACHE_DIR"
   export STATUS_CACHE_TTL=60
   export PATH="$STATUS_GH_SHIM_ERR:$PATH"
@@ -2030,7 +2030,7 @@ chmod +x "$STATUS_GH_SHIM_ERR/gh" "$STATUS_GH_SHIM_OK/gh"
   safe_branch=$(printf '%s' "$branch" | tr '/' '_')
   cache_file="$STATUS_CACHE_DIR/$safe_branch.json"
   rm -f "$cache_file" "$STATUS_GH_MARKER"
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$STATUS_CACHE_DIR"
   export STATUS_CACHE_TTL=1
   export PATH="$STATUS_GH_SHIM_OK:$PATH"
@@ -2053,7 +2053,7 @@ chmod +x "$STATUS_GH_SHIM_ERR/gh" "$STATUS_GH_SHIM_OK/gh"
   ts=$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)
   touch -t "$ts" "$cache_file"
   rm -f "$STATUS_GH_MARKER"
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$STATUS_CACHE_DIR"
   export STATUS_CACHE_TTL=5
   export PATH="$STATUS_GH_SHIM_OK:$PATH"
@@ -2067,7 +2067,7 @@ chmod +x "$STATUS_GH_SHIM_ERR/gh" "$STATUS_GH_SHIM_OK/gh"
 # different branches, so `git checkout other-branch` transparently
 # loads a different cache.
 (
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$STATUS_CACHE_DIR"
   . "$SHELL_ROOT/.claude/hooks/helpers/status.sh"
   a=$(_status_cache_path "feature/foo")
@@ -2125,7 +2125,7 @@ chmod +x "$SESS_GIT_SHIM/git"
 
 run_session_start() {
   (
-    export GHJIG_SHELL_ROOT="$SESS_FAKE_ROOT"
+    export GHJIG_ROOT_OVERRIDE="$SESS_FAKE_ROOT"
     export PATH="$SESS_GIT_SHIM:$PATH"
     export SESSION_START_FETCH_TTL="${1:-21600}"
     bash "$SESS_FAKE_ROOT/.claude/hooks/session_start.sh" >/dev/null 2>&1
@@ -2226,7 +2226,7 @@ chmod +x "$BASE_GH_SHIM/gh"
   rm -f "$BASE_CACHE_DIR/$safe.json"
   export BASE_PROBE_BASE_FILE="$BASE_PROBE_DIR/base"
   echo 'experiment/foo' > "$BASE_PROBE_BASE_FILE"
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$BASE_CACHE_DIR"
   export STATUS_CACHE_TTL=1
   export PATH="$BASE_GH_SHIM:$PATH"
@@ -2244,7 +2244,7 @@ chmod +x "$BASE_GH_SHIM/gh"
   rm -f "$BASE_CACHE_DIR/$safe.json"
   export BASE_PROBE_BASE_FILE="$BASE_PROBE_DIR/base"
   echo 'main' > "$BASE_PROBE_BASE_FILE"
-  export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  export GHJIG_ROOT="$SHELL_ROOT"
   export STATUS_CACHE_DIR_OVERRIDE="$BASE_CACHE_DIR"
   export STATUS_CACHE_TTL=1
   export PATH="$BASE_GH_SHIM:$PATH"
@@ -2275,7 +2275,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 
 # 33a. Default (no env, no file) → emits trailer.
 (
-  export GHJIG_SHELL_ROOT="$COAUTHOR_TMP"
+  export GHJIG_ROOT="$COAUTHOR_TMP"
   unset GHJIG_COAUTHOR
   rm -f "$COAUTHOR_TMP/.claude/state/coauthor"
   [ -f "$COAUTHOR_HELPER" ] || exit 1
@@ -2287,7 +2287,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 
 # 33b. File=off → empty.
 (
-  export GHJIG_SHELL_ROOT="$COAUTHOR_TMP"
+  export GHJIG_ROOT="$COAUTHOR_TMP"
   unset GHJIG_COAUTHOR
   printf 'off\n' > "$COAUTHOR_TMP/.claude/state/coauthor"
   [ -f "$COAUTHOR_HELPER" ] || exit 1
@@ -2299,7 +2299,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 
 # 33c. Env=off overrides file=on.
 (
-  export GHJIG_SHELL_ROOT="$COAUTHOR_TMP"
+  export GHJIG_ROOT="$COAUTHOR_TMP"
   export GHJIG_COAUTHOR=off
   printf 'on\n' > "$COAUTHOR_TMP/.claude/state/coauthor"
   [ -f "$COAUTHOR_HELPER" ] || exit 1
@@ -2311,7 +2311,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 
 # 33d. Unknown value → fail-safe to `on` + stderr warning.
 (
-  export GHJIG_SHELL_ROOT="$COAUTHOR_TMP"
+  export GHJIG_ROOT="$COAUTHOR_TMP"
   export GHJIG_COAUTHOR=maybe
   rm -f "$COAUTHOR_TMP/.claude/state/coauthor"
   [ -f "$COAUTHOR_HELPER" ] || exit 1
@@ -2327,7 +2327,7 @@ mkdir -p "$COAUTHOR_TMP/.claude/state"
 # `Co-Authored-By: Claude <noreply@anthropic.com>` with NO model version
 # (`Opus`, `4.x`, `(1M context)`), so it never re-drifts at a model bump.
 (
-  export GHJIG_SHELL_ROOT="$COAUTHOR_TMP"
+  export GHJIG_ROOT="$COAUTHOR_TMP"
   unset GHJIG_COAUTHOR
   rm -f "$COAUTHOR_TMP/.claude/state/coauthor"
   [ -f "$COAUTHOR_HELPER" ] || exit 1
@@ -2464,7 +2464,7 @@ printf '%s\n' "$BACKMERGE_MAIN_DIR" >> "$SMOKE_REG"
   cd "$BACKMERGE_MAIN_DIR"
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
     "$(printf '%s' 'git merge main' | jq -Rs .)" \
-    | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
       bash "$HOOK" >/dev/null 2>&1
   [ "$?" = "0" ]
 ) && ok "backmerge: on-main merge allowed (#61)" \
@@ -2960,7 +2960,7 @@ SESS_37_TMP="$SESS_37_DIR/tmp"; mkdir -p "$SESS_37_TMP"
 run_37_session_start() {
   local cwd="$1"
   (
-    unset GHJIG_SHELL_ROOT
+    unset GHJIG_ROOT_OVERRIDE GHJIG_ROOT
     export TMPDIR="$SESS_37_TMP"
     export CLAUDE_SESSION_ID="smoke37"
     cd "$cwd" || exit 1
@@ -3054,7 +3054,7 @@ gh38_run() {
       "$(printf '%s' "$cmd" | jq -Rs .)" \
       | PATH="$GH38_SHIM:$PATH" \
         GH_SHIM_STATE="$GH38_STATE" \
-        GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
   )
 }
@@ -3277,7 +3277,7 @@ for entry in "${SS_TABLE[@]}"; do
         printf '%s' "$ss_input" \
           | PATH="$GH38_SHIM:$PATH" \
             GH_SHIM_STATE="$GH38_STATE" \
-            GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+            GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
             bash "$SHELL_ROOT/.claude/hooks/$ss_hook" 2>&1 >/dev/null
       )
       ss_rc=$?
@@ -3289,7 +3289,7 @@ for entry in "${SS_TABLE[@]}"; do
         cd "$TMP/fake" || exit 0
         # shellcheck disable=SC2069
         printf '%s' "$ss_input" \
-          | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+          | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
             bash "$SHELL_ROOT/.claude/hooks/$ss_hook" 2>&1 >/dev/null
       )
       ss_rc=$?
@@ -3433,7 +3433,7 @@ else
     printf '%s' "$ss38j_input" \
       | PATH="$GH38_SHIM:$PATH" \
         GH_SHIM_STATE="$GH38_STATE" \
-        GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
   )
   ss38j_rc=$?
@@ -3645,7 +3645,7 @@ pt39_run() {
       "$(printf '%s' "$cmd" | jq -Rs .)" \
       | PATH="$PT39_SHIM:$PATH" \
         GH_SHIM_STATE="$PT39_STATE" \
-        GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
   )
 }
@@ -3772,8 +3772,8 @@ done
 rm -rf "$PT39_DIR"
 
 # ---------- 40. SessionStart hookrt-missing banner (#37) ----------
-# SPEC §6.5(c): when $GHJIG_SHELL_ROOT is set AND
-# $GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh is absent, session_start.sh
+# SPEC §6.5(c): when the resolved shell root's
+# .claude/hooks/hookrt.sh is absent, session_start.sh
 # emits a once-per-session actionable banner to stderr (debounced via
 # TMPDIR stamp keyed on CLAUDE_SESSION_ID:-$PPID with `-hookrt` suffix),
 # layered on top of the existing per-invocation WARN diagnostic floor at
@@ -3810,7 +3810,7 @@ else
   ss40a_stderr=$(
     (
       cd "$TMP/fake" || exit 0
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
       CLAUDE_SESSION_ID="$ss40a_session_id" \
       TMPDIR="$SS40_TMPDIR" \
         bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
@@ -3827,7 +3827,7 @@ else
   ss40b_stderr=$(
     (
       cd "$TMP/fake" || exit 0
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
       CLAUDE_SESSION_ID="$ss40a_session_id" \
       TMPDIR="$SS40_TMPDIR" \
         bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
@@ -3849,7 +3849,7 @@ else
   ss40c_stderr=$(
     (
       cd "$TMP/fake" || exit 0
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
       CLAUDE_SESSION_ID="$ss40c_session_id" \
       TMPDIR="$SS40_TMPDIR" \
         bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
@@ -3874,7 +3874,7 @@ rm -rf "$SS40_DIR"
 SS502_TMPDIR=$(mktemp -d); SS502_STATE=$(mktemp -d)
 ss502_run() {  # $1 = session_id → echoes registry-zeroed banner count
   ( cd "$TMP/fake" || exit 0
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" CLAUDE_SESSION_ID="$1" \
+    GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" CLAUDE_SESSION_ID="$1" \
     CLAUDE_PROJECT_DIR="$SS502_STATE" GHJIG_STATE_DIR_OVERRIDE="$SS502_STATE" \
     TMPDIR="$SS502_TMPDIR" \
       bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
@@ -4092,7 +4092,7 @@ else
     (
       cd "$SP_TARGET" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
@@ -4118,7 +4118,7 @@ else
     (
       cd "$SP_TARGET" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
@@ -4143,7 +4143,7 @@ else
     (
       cd "$SP_OTHER" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
@@ -4163,7 +4163,7 @@ else
     (
       cd "$SP_TARGET" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR/fields" \
@@ -4209,7 +4209,7 @@ else
     (
       cd "$SP_TARGET2" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR2/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR2/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR2/fields" \
@@ -4265,7 +4265,7 @@ else
     (
       cd "$SP_TARGET3" || exit 0
       PATH="$SP_BIN:$PATH" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT="$SHELL_ROOT" \
       GH_MOCK_LOG="$SP_DIR3/gh.log" \
       GH_MOCK_PROJECT_CREATED="$SP_DIR3/project-created" \
       GH_MOCK_FIELDS_DIR="$SP_DIR3/fields" \
@@ -4756,7 +4756,7 @@ dp_run() {
   (
     cd "$DP_TARGET" || exit 0
     PATH="$DP_BIN:$PATH" \
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
     AUDIT_LOG_PATH="$DP_AUDIT" \
     GH_MOCK_LABELS_91="directive,enhancement" \
     GH_MOCK_LABELS_92="enhancement" \
@@ -4807,8 +4807,8 @@ dp_run "git checkout -b ilgyu-yi/feat/94-baz" >/dev/null 2>&1 || rc=$?
 rm -rf "$DP_CACHE"
 dp_pred() {
   ( cd "$DP_TARGET" || exit 0
-    PATH="$DP_BIN:$PATH" GHJIG_SHELL_ROOT="$SHELL_ROOT" GH_MOCK_LABELS_94="$1" \
-      bash -c '. "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; is_proposed_issue 94 && echo PROPOSED || echo NOT' 2>/dev/null )
+    PATH="$DP_BIN:$PATH" GHJIG_ROOT="$SHELL_ROOT" GH_MOCK_LABELS_94="$1" \
+      bash -c '. "$GHJIG_ROOT/.claude/hooks/helpers/issue_type.sh"; is_proposed_issue 94 && echo PROPOSED || echo NOT' 2>/dev/null )
 }
 pp_first=$(dp_pred "task,status:proposed")
 pp_second=$(dp_pred "task")
@@ -4845,10 +4845,10 @@ fi
 # NOT be classified as a Directive; a bare `directive` anywhere in the list must.
 s212_isdir() {  # $1=labels → echoes directive|execution
   (
-    export GHJIG_SHELL_ROOT="$TMP/s212root"
-    unset GHJIG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own GHJIG_SHELL_ROOT, not $SMOKE_STATE
-    rm -rf "$GHJIG_SHELL_ROOT/.claude/state/issue-type-cache" 2>/dev/null
-    mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+    export GHJIG_ROOT="$TMP/s212root"
+    unset GHJIG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own GHJIG_ROOT, not $SMOKE_STATE
+    rm -rf "$GHJIG_ROOT/.claude/state/issue-type-cache" 2>/dev/null
+    mkdir -p "$GHJIG_ROOT/.claude/state"
     s212_lbl="$1"
     gh() {
       case "$*" in
@@ -4879,10 +4879,10 @@ s212_isdir() {  # $1=labels → echoes directive|execution
 # is_directive_issue. Self-contained function-mock (mirrors 44i's s212_isdir).
 m1_pred() {  # $1=labels $2=predicate-fn → echoes YES|NO
   (
-    export GHJIG_SHELL_ROOT="$TMP/m1root"
-    unset GHJIG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own GHJIG_SHELL_ROOT, not $SMOKE_STATE
-    rm -rf "$GHJIG_SHELL_ROOT/.claude/state/issue-type-cache" 2>/dev/null
-    mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+    export GHJIG_ROOT="$TMP/m1root"
+    unset GHJIG_STATE_DIR_OVERRIDE   # #357: cache must ride this subshell's own GHJIG_ROOT, not $SMOKE_STATE
+    rm -rf "$GHJIG_ROOT/.claude/state/issue-type-cache" 2>/dev/null
+    mkdir -p "$GHJIG_ROOT/.claude/state"
     m1_lbl="$1"
     gh() {
       case "$*" in
@@ -4917,7 +4917,7 @@ m1_pred() {  # $1=labels $2=predicate-fn → echoes YES|NO
 
 # 44l (#249): is_initiative_issue fails open (gh unavailable → not-initiative).
 m1_failopen() {
-  ( export GHJIG_SHELL_ROOT="$TMP/m1root2"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+  ( export GHJIG_ROOT="$TMP/m1root2"; mkdir -p "$GHJIG_ROOT/.claude/state"
     gh() { return 1; }
     . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
     is_initiative_issue 700 && echo YES || echo NO )
@@ -4930,7 +4930,7 @@ m1_failopen() {
 # `Parent Initiative: #N` marker. Distinct from the Parent Directive resolver
 # (a Parent Directive line is NOT an initiative marker → rc 1).
 m1_marker() {  # $1=body → echoes rc
-  ( export GHJIG_SHELL_ROOT="$TMP/m1root3"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+  ( export GHJIG_ROOT="$TMP/m1root3"; mkdir -p "$GHJIG_ROOT/.claude/state"
     m1_body="$1"
     gh() {
       case "$*" in
@@ -4951,7 +4951,7 @@ m1_marker() {  # $1=body → echoes rc
   && ok "44m: absent initiative marker → rc 1 (#249)" \
   || ng "44m: absent-marker rc wrong (#249)"
 m1_marker_fail() {
-  ( export GHJIG_SHELL_ROOT="$TMP/m1root4"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+  ( export GHJIG_ROOT="$TMP/m1root4"; mkdir -p "$GHJIG_ROOT/.claude/state"
     gh() { return 1; }
     . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
     issue_has_initiative_parent_marker 700; echo $? )
@@ -4964,7 +4964,7 @@ m1_marker_fail() {
 # CRLF \r (Windows editor / paste), else a parented Issue mis-resolves as
 # marker-ABSENT — letting label-parent-consistency mislabel it standalone.
 m1d_marker() {  # $1=body → echoes issue_has_parent_marker rc
-  ( export GHJIG_SHELL_ROOT="$TMP/m1root5"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+  ( export GHJIG_ROOT="$TMP/m1root5"; mkdir -p "$GHJIG_ROOT/.claude/state"
     m1_body="$1"
     gh() { case "$*" in *'issue view'*'--json body'*) printf '%s\n' "$m1_body" ;; *) return 0 ;; esac; }
     . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
@@ -5707,7 +5707,7 @@ DR50_MOCK
   dr50_no_err=$(
     cd "$DR50_TARGET" || exit 0
     PATH="$DR50_BIN:$PATH" \
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    GHJIG_ROOT="$SHELL_ROOT" \
     GH_MOCK_LOG="$DR50_DIR/gh.log" \
     GH_MOCK_PROJECT_CREATED="$DR50_DIR/project-created" \
       bash "$DR_SCRIPT" resolve 2>&1 >/dev/null
@@ -5720,7 +5720,7 @@ DR50_MOCK
   dr50_yes_out=$(
     cd "$DR50_TARGET" || exit 0
     PATH="$DR50_BIN:$PATH" \
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    GHJIG_ROOT="$SHELL_ROOT" \
     GH_MOCK_LOG="$DR50_DIR/gh.log" \
     GH_MOCK_PROJECT_CREATED="$DR50_DIR/project-created" \
       bash "$DR_SCRIPT" resolve 2>/dev/null
@@ -5759,10 +5759,10 @@ fi
 if command -v zsh >/dev/null 2>&1; then
   S52_DIR=$(mktemp -d)
   s52_rc=0
-  PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+  PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" GHJIG_ROOT="$SHELL_ROOT" \
     zsh -c '
       set -e
-      . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+      . "$GHJIG_ROOT/.claude/hooks/helpers/pr_cache.sh"
       pr_cache_write 12345 deadbeef abc123 >/dev/null 2>&1
     ' || s52_rc=$?
   s52_file="$S52_DIR/test%2Frepo__pr-12345.json"
@@ -5781,9 +5781,9 @@ if command -v zsh >/dev/null 2>&1; then
   # by §52a must return the sha (catches a regression in the read path's
   # zsh-tied-array rename that §52b's static check would also flag).
   s52c_rc=0
-  s52c_out=$(PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+  s52c_out=$(PR_CACHE_REPO=test/repo PR_CACHE_DIR="$S52_DIR" GHJIG_ROOT="$SHELL_ROOT" \
     zsh -c '
-      . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/pr_cache.sh"
+      . "$GHJIG_ROOT/.claude/hooks/helpers/pr_cache.sh"
       pr_cache_read 12345
     ' 2>/dev/null) || s52c_rc=$?
   if [ "$s52c_rc" = 0 ] && [ "$s52c_out" = "deadbeef" ]; then
@@ -5822,7 +5822,7 @@ mkdir -p "$(dirname "$S53_LOG")"
 
 # §53a: well-formed directive-file/created → written verbatim, rc=0.
 (
-  GHJIG_SHELL_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: smoke test issue=#123 priority=P2 confidence=50"
@@ -5841,7 +5841,7 @@ fi
 # line written, original record NOT written, rc=1.
 s53b_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  GHJIG_SHELL_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: bad issue= priority=P2 confidence=50"
@@ -5864,7 +5864,7 @@ fi
 # issue=#2" if mis-applied to it.
 s53c_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  GHJIG_SHELL_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-link created "directive=#75 issue=#80"
@@ -6122,9 +6122,9 @@ printf 'OWNER\n'  > "$PT55_STATE/filer_flagco_repo_500"
 printf 'OWNER\n'  > "$PT55_STATE/filer_rco_repo_700"
 
 # Cache isolation (#238): is_trusted_filer writes its cache into the REAL
-# $GHJIG_SHELL_ROOT/.claude/state/issue-filer-cache — there is no override
+# $GHJIG_ROOT/.claude/state/issue-filer-cache — there is no override
 # env, and a temp root can't be substituted because the hook resolves all its
-# helpers from $GHJIG_SHELL_ROOT. Clear the whole leaf cache dir once at
+# helpers from $GHJIG_ROOT. Clear the whole leaf cache dir once at
 # section start so every §55 assertion re-exercises the gh-query path rather
 # than passing on a stale fixture from a prior run. This subsumes the former
 # per-key `rm -f` clears. `.gitignore` covers `.claude/state/`, so this leaf is
@@ -6143,7 +6143,7 @@ pt55_run() {
       "$(printf '%s' "$cmd" | jq -Rs .)" \
       | PATH="$PT55_SHIM:$PATH" \
         GH_SHIM_STATE="$PT55_STATE" \
-        GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1 >/dev/null
   )
   return $?
@@ -6243,7 +6243,7 @@ esac
     "$(printf '%s' 'SKIP_HOOKS=trusted-filer-mutate SKIP_REASON=test gh issue close 100' | jq -Rs .)" \
     | PATH="$PT55_SHIM:$PATH" \
       GH_SHIM_STATE="$PT55_STATE" \
-      GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
       bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
 )
 case $? in
@@ -6746,7 +6746,7 @@ s60_edit_run() {
   (
     cd "$S60_TARGET" || exit 1
     printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$target_path" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
   )
   return $?
@@ -6790,7 +6790,7 @@ case $? in
   *) ng "60d: expected rc=2 (block), got rc=$? on /tmp/... (#91)" ;;
 esac
 
-# §60e (#210): Edit on a sensitive file under $GHJIG_SHELL_ROOT/ → still
+# §60e (#210): Edit on a sensitive file under $GHJIG_ROOT/ → still
 #       blocked. The shell-self-mod carve-out skips branch + out-of-scope, but
 #       the sensitive-file check fires under BOTH carve-outs. Pre-#210 the
 #       SHELL_ROOT arm did an early `exit 0` before the sensitive case, so this
@@ -6798,11 +6798,11 @@ esac
 s60e_target="$SHELL_ROOT/.claude/state/smoke-probe.pem"
 s60_edit_run "$s60e_target"
 case $? in
-  2) ok "60e: Sensitive-file edit blocked under \$GHJIG_SHELL_ROOT/ (sensitive check survives carve-out) (#210)" ;;
+  2) ok "60e: Sensitive-file edit blocked under \$GHJIG_ROOT/ (sensitive check survives carve-out) (#210)" ;;
   *) ng "60e: expected rc=2 (sensitive block), got rc=$? under SHELL_ROOT (#210)" ;;
 esac
 
-# §60f (#210): regression — a NON-sensitive edit under $GHJIG_SHELL_ROOT/
+# §60f (#210): regression — a NON-sensitive edit under $GHJIG_ROOT/
 #       is still allowed (the self-mod carve-out still skips branch + scope for
 #       ordinary shell files; the fix must not over-block shell self-modification).
 s60f_target="$SHELL_ROOT/.claude/CLAUDE.md"
@@ -6950,7 +6950,7 @@ s62_close_run() {
     # jq-encode so a command carrying inner quotes (e.g. --reason "not planned")
     # stays valid JSON (#216).
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$cmd" | jq -Rs .)" \
-      | PATH="$S62_DIR/bin:$PATH" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | PATH="$S62_DIR/bin:$PATH" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
   )
   return $?
@@ -6959,7 +6959,7 @@ s62_close_run() {
 # Cache isolation (#238): clear the whole leaf is_trusted_filer cache dir once
 # at §62 start so the trusted path is exercised against the §62 mock, not a
 # stale fixture from §55 or a prior run. is_trusted_filer writes into the real
-# $GHJIG_SHELL_ROOT cache (no override env; the hook resolves helpers from
+# $GHJIG_ROOT cache (no override env; the hook resolves helpers from
 # ROOT). `.gitignore` covers `.claude/state/`, so this leaf is never committed.
 rm -rf "$SHELL_ROOT/.claude/state/issue-filer-cache"
 
@@ -7983,7 +7983,7 @@ s69_edit_run() {
   (
     cd "$S69_TARGET" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
-      | PATH="$S69_DIR/bin:$PATH" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | PATH="$S69_DIR/bin:$PATH" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
   )
   return $?
@@ -8664,7 +8664,7 @@ chmod +x "$S73_DIR/bin/gh"
 s73_run() {  # $1 = command (may carry a SKIP_HOOKS env-prefix)
   ( cd "$S73_TARGET" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
-      | PATH="$S73_DIR/bin:$PATH" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | PATH="$S73_DIR/bin:$PATH" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
   return $?
 }
@@ -8714,7 +8714,7 @@ fi
 
 # (d) issue_has_mission_fit_field tri-state unit (function-mock, §44m style)
 s73_field() {
-  ( export GHJIG_SHELL_ROOT="$TMP/s73fld"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"
+  ( export GHJIG_ROOT="$TMP/s73fld"; mkdir -p "$GHJIG_ROOT/.claude/state"
     s73_body="$1"
     gh() { case "$*" in *'issue view'*'--json body'*) printf '%s\n' "$s73_body" ;; *) return 0 ;; esac; }
     . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
@@ -8727,7 +8727,7 @@ x
 Consuming Initiatives')" = 0 ] && ok "73d: issue_has_mission_fit_field present (heading anywhere) → rc 0 (#251)" || ng "73d: mission-fit present not detected (#251)"
 [ "$(s73_field '## What
 no fit field here')" = 1 ] && ok "73d: issue_has_mission_fit_field absent → rc 1 (#251)" || ng "73d: mission-fit absent rc wrong (#251)"
-s73_field_fail() { ( export GHJIG_SHELL_ROOT="$TMP/s73fld2"; mkdir -p "$GHJIG_SHELL_ROOT/.claude/state"; gh() { return 1; }; . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; issue_has_mission_fit_field 700; echo $? ) }
+s73_field_fail() { ( export GHJIG_ROOT="$TMP/s73fld2"; mkdir -p "$GHJIG_ROOT/.claude/state"; gh() { return 1; }; . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"; issue_has_mission_fit_field 700; echo $? ) }
 [ "$(s73_field_fail)" = 2 ] && ok "73d: issue_has_mission_fit_field unresolvable → rc 2 (#251)" || ng "73d: mission-fit fail-open rc wrong (#251)"
 
 # §73e (#257, M3) — the /consume-initiative command exists with the five-step /
@@ -8885,7 +8885,7 @@ fi
 # parent captures and asserts so ok/ng counters live in the parent.
 s76_call() {
   # $1 = command, $2 = verb-regex → echoes "<issue>\t<repo>"
-  ( export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+  ( export GHJIG_ROOT="$SHELL_ROOT"
     # shellcheck disable=SC1091
     . "$SHELL_ROOT/.claude/hooks/helpers/issue_type.sh"
     resolve_gh_issue_target "$1" "$2" )
@@ -8988,7 +8988,7 @@ pt78_run() {  # $1 = command (may carry a SKIP_HOOKS env-prefix) → echoes hook
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$1" | jq -Rs .)" \
       | PATH="$PT78_SHIM:$PATH" GH_SHIM_STATE="$PT78_STATE" \
-        GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
     printf '%s' "$?"
   )
@@ -9191,7 +9191,7 @@ s80_hook() {
   ( cd "$1" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$2" | jq -Rs .)" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1
     printf '%s' "$?" )
 }
@@ -9330,14 +9330,14 @@ else
 fi
 
 # ---------- 82. per-project binding + hook self-location (#312, Directive #311) ----------
-# The shell must be resolvable per project WITHOUT the global GHJIG_SHELL_ROOT
+# The shell must be resolvable per project WITHOUT any global shell-root
 # env: a project-local untracked `.claude/ghjig-root` symlink → canonical root,
 # hooks invoked via that symlink self-locate their root from BASH_SOURCE (pwd -P),
 # and the injected `settings.local.json` symlinks to `settings.injected.json` whose
 # hook commands use ${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/... . The shell's
-# OWN settings.json stays $GHJIG_SHELL_ROOT-based (dogfood unchanged).
+# OWN settings.json resolves via ${CLAUDE_PROJECT_DIR} (dogfood, §133b).
 
-# 82a: with GHJIG_SHELL_ROOT UNSET, a hook invoked through the project-local
+# 82a: with no shell-root env at all, a hook invoked through the project-local
 # ghjig-root symlink self-locates the canonical root and still enforces —
 # a protected-branch commit is blocked (rc=2). (Red until the self-location code.)
 S82_PROJ=$(cd "$(mktemp -d)" && pwd -P)
@@ -9351,7 +9351,7 @@ s82_hook_noenv() {
   # $1 = project cwd, $2 = hook path (via the symlink), $3 = command ; echoes rc
   ( cd "$1" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$3" | jq -Rs .)" \
-      | env -u GHJIG_SHELL_ROOT bash "$2" >/dev/null 2>&1
+      | env -u GHJIG_ROOT_OVERRIDE -u GHJIG_ROOT bash "$2" >/dev/null 2>&1
     printf '%s' "$?" )
 }
 s82_rc=$(s82_hook_noenv "$S82_PROJ" "$S82_PROJ/.claude/ghjig-root/.claude/hooks/pre_tool_use.sh" \
@@ -9451,15 +9451,15 @@ fi
 rm -rf "$S83_A" "$S83_B"
 
 # 83c: legacy fallback — CLAUDE_PROJECT_DIR unset → audit lands at the legacy
-# $GHJIG_SHELL_ROOT/.claude/audit path (existing behavior preserved).
+# $GHJIG_ROOT/.claude/audit path (existing behavior preserved).
 S83_LEG=$(cd "$(mktemp -d)" && pwd -P)
-( export GHJIG_SHELL_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
+( export GHJIG_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-legacy" ) >/dev/null 2>&1
 if grep -q 'ei2a-legacy' "$S83_LEG/.claude/audit/audit.jsonl" 2>/dev/null \
    && [ ! -d "$S83_LEG/.claude/ghjig-state" ]; then
   ok "83c: env-unset audit falls back to legacy shared path (#314)"
 else
-  ng "83c: env-unset audit should use legacy \$GHJIG_SHELL_ROOT/.claude/audit (#314)"
+  ng "83c: env-unset audit should use legacy \$GHJIG_ROOT/.claude/audit (#314)"
 fi
 rm -rf "$S83_LEG"
 
@@ -9488,7 +9488,7 @@ s84_arg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; ghjig_registry_file /tmp/pro
 # fallback); s84_arg is explicit-arg (override-immune) and s84_ovr sets its own.
 s84_hook=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; unset GHJIG_STATE_DIR_OVERRIDE; CLAUDE_PROJECT_DIR=/tmp/projX ghjig_registry_file )
 s84_ovr=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; GHJIG_STATE_DIR_OVERRIDE=/tmp/ovr ghjig_registry_file )
-s84_leg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; export GHJIG_SHELL_ROOT=/tmp/legroot; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null; ghjig_registry_file )
+s84_leg=$( . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; export GHJIG_ROOT=/tmp/legroot; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null; ghjig_registry_file )
 if [ "$s84_arg" = "/tmp/projA/.claude/ghjig-state/registry.txt" ] \
    && [ "$s84_hook" = "/tmp/projX/.claude/ghjig-state/registry.txt" ] \
    && [ "$s84_ovr" = "/tmp/ovr/registry.txt" ] \
@@ -9516,11 +9516,11 @@ fi
 rm -rf "$S84_A" "$S84_B"
 
 # 84c: legacy fallback — argless in_scope with no CLAUDE_PROJECT_DIR reads the
-# legacy shared $GHJIG_SHELL_ROOT/.claude/state/registry.txt (back-compat).
+# legacy shared $GHJIG_ROOT/.claude/state/registry.txt (back-compat).
 S84_LEG=$(cd "$(mktemp -d)" && pwd -P)
 mkdir -p "$S84_LEG/.claude/state"
 printf '%s\n' "$S84_LEG" > "$S84_LEG/.claude/state/registry.txt"
-if ( cd "$S84_LEG"; export GHJIG_SHELL_ROOT="$S84_LEG"; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
+if ( cd "$S84_LEG"; export GHJIG_ROOT="$S84_LEG"; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"; in_scope ); then
   ok "84c: argless in_scope falls back to legacy shared registry, no project context (#316)"
 else
@@ -9528,22 +9528,22 @@ else
 fi
 rm -rf "$S84_LEG"
 
-# 84d: set -u safety — cwd_guard must not abort with GHJIG_SHELL_ROOT unset
+# 84d: set -u safety — cwd_guard must not abort with GHJIG_ROOT unset
 # (the #312 self-located case); fail-open (return), never crash the guard.
-s84d=$( set -u; unset GHJIG_SHELL_ROOT GHJIG_STATE_DIR_OVERRIDE 2>/dev/null; unset CLAUDE_PROJECT_DIR 2>/dev/null
+s84d=$( set -u; unset GHJIG_ROOT GHJIG_STATE_DIR_OVERRIDE 2>/dev/null; unset CLAUDE_PROJECT_DIR 2>/dev/null
         . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
         . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
         in_scope; printf 'ic=%s ' "$?"; path_in_scope /tmp/x; printf 'pis=%s' "$?" )
 if printf '%s' "$s84d" | grep -q 'pis='; then
-  ok "84d: cwd_guard set -u-safe with GHJIG_SHELL_ROOT unset (#316)"
+  ok "84d: cwd_guard set -u-safe with GHJIG_ROOT unset (#316)"
 else
-  ng "84d: cwd_guard aborts under set -u when GHJIG_SHELL_ROOT unset (got '$s84d') (#316)"
+  ng "84d: cwd_guard aborts under set -u when GHJIG_ROOT unset (got '$s84d') (#316)"
 fi
 
 # 84e: dogfood coherence — self-register write-target == cwd_guard read-target;
 # carve-out stays registry-location-independent.
 S84_DOG=$(cd "$(mktemp -d)" && pwd -P)
-( export GHJIG_SHELL_ROOT="$SHELL_ROOT"; . "$SHELL_ROOT/scripts/lib/self_register.sh"; ensure_self_registered "$S84_DOG" >/dev/null 2>&1 )
+( export GHJIG_ROOT="$SHELL_ROOT"; . "$SHELL_ROOT/scripts/lib/self_register.sh"; ensure_self_registered "$S84_DOG" >/dev/null 2>&1 )
 s84e_written="$S84_DOG/.claude/ghjig-state/registry.txt"
 # #357: s84e_read is ARGLESS (rides ghjig_state_dir → CLAUDE_PROJECT_DIR); unset the
 # whole-run override so it resolves the per-project path it compares against.
@@ -9569,7 +9569,7 @@ printf '%s\n' "$S84_CLI" > "$S84_CLI/.claude/ghjig-state/registry.txt"
 # #357: keep the whole-run override ACTIVE here — dr_check_registry_guard reads
 # the registry via explicit-arg (override-immune), so the read is correct either
 # way, and the override keeps its project-resolve audit write off the live log.
-if ( cd "$S84_CLI"; export GHJIG_SHELL_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+if ( cd "$S84_CLI"; export GHJIG_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
      dr_check_registry_guard >/dev/null 2>&1 ); then
   ok "84f: CLI-context discovery reads per-project registry, CLAUDE_PROJECT_DIR unset (#316)"
@@ -9577,7 +9577,7 @@ else
   ng "84f: dr_check_registry_guard should find self-describing per-project registry (#316)"
 fi
 S84_CLI2=$(cd "$(mktemp -d)" && pwd -P)
-if ( cd "$S84_CLI2"; export GHJIG_SHELL_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
+if ( cd "$S84_CLI2"; export GHJIG_ROOT="$SHELL_ROOT"; unset CLAUDE_PROJECT_DIR 2>/dev/null
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
      dr_check_registry_guard >/dev/null 2>&1 ); then
   ng "84f: unregistered project should fail dr_check_registry_guard (#316)"
@@ -9596,7 +9596,7 @@ mkdir -p "$S84_BC_ROOT/.claude/state"
 printf '%s\n' "$S84_BC" > "$S84_BC_ROOT/.claude/state/registry.txt"   # legacy shared only
 # #357: keep CLAUDE_PROJECT_DIR set (hook context) but unset the whole-run
 # override so in_scope hits the per-project-absent → legacy back-compat floor.
-if ( cd "$S84_BC"; export GHJIG_SHELL_ROOT="$S84_BC_ROOT"; export CLAUDE_PROJECT_DIR="$S84_BC"; unset GHJIG_STATE_DIR_OVERRIDE
+if ( cd "$S84_BC"; export GHJIG_ROOT="$S84_BC_ROOT"; export CLAUDE_PROJECT_DIR="$S84_BC"; unset GHJIG_STATE_DIR_OVERRIDE
      . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; . "$SHELL_ROOT/.claude/hooks/helpers/cwd_guard.sh"
      [ ! -f "$S84_BC/.claude/ghjig-state/registry.txt" ] && in_scope ); then
   ok "84g: hook-context back-compat — pre-#316 target enforces via legacy floor (#316)"
@@ -9948,7 +9948,7 @@ fi
 # ---------- 93. audit source discriminator + reviewer-reject instrumentation (#361, Directive #356 signals 1+3) ----------
 # All fires here resolve to $SMOKE_AUDIT (the whole-run GHJIG_STATE_DIR_OVERRIDE),
 # so they do NOT touch the live sinks the §357 backstop (just below) measures.
-# hook_run inherits the process env (only GHJIG_SHELL_ROOT is prefix-set),
+# hook_run inherits the process env (only GHJIG_ROOT_OVERRIDE is prefix-set),
 # so the global GHJIG_AUDIT_SOURCE=test flows through; a subshell that
 # unsets / re-sets it exercises the default + forged-value branches.
 
@@ -10425,7 +10425,7 @@ read_nudge_run() {
     cd "$SHELL_ROOT" || exit 1
     # shellcheck disable=SC2069
     printf '{"tool_name":"Read","tool_input":%s}' "$json_input" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/post_tool_use.sh" 2>&1 >/dev/null
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/post_tool_use.sh" 2>&1 >/dev/null
   )
 }
 # SPEC.md is a large (>200-line) in-scope file — the whole-file-load case.
@@ -10665,7 +10665,7 @@ chmod +x "$S105_GIT_SHIM/git"
 # text via stdout; exit status is the hook's.
 run_friction_session() {
   (
-    export GHJIG_SHELL_ROOT="$S105_FAKE_ROOT"
+    export GHJIG_ROOT_OVERRIDE="$S105_FAKE_ROOT"
     export PATH="$S105_GIT_SHIM:$PATH"
     # Point the ceremony reader (#401) at the fixture repo (only an empty init commit,
     # no ceremony groups) so it stays silent and does not scan the real repo's history.
@@ -10764,7 +10764,7 @@ else
   mkdir -p "$S105E_STATE/audit"
   (
     cd "$S105E_DIR" || exit 1
-    export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+    export GHJIG_ROOT="$SHELL_ROOT"
     export GHJIG_STATE_DIR_OVERRIDE="$S105E_STATE"   # audit_log writes here
     export SHIP_PARK_LOG_PATH="$S105E_PARKLOG"     # park-log isolation seam
     # shellcheck source=/dev/null
@@ -10928,7 +10928,7 @@ else
     local cmd="$1"
     ( cd "$S108_TARGET" || exit 1
       jq -nc --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' \
-        | GHJIG_SHELL_ROOT="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+        | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
     return $?
   }
 
@@ -11009,10 +11009,10 @@ SHIM
   #       is rejected — i.e. resolution goes through the portable api form. RED pre-fix.
   rm -rf "$S109_ES"
   s109a_rc=$(
-    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" GHJIG_ROOT="$SHELL_ROOT" \
     GHJIG_STATE_DIR_OVERRIDE="$S109_ES" \
-    bash -c '. "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
-             . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
+    bash -c '. "$GHJIG_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+             . "$GHJIG_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
              is_trusted_filer 100; echo $?' | tail -1
   )
   if [ "$s109a_rc" = 0 ]; then
@@ -11035,10 +11035,10 @@ SHIM
   chmod +x "$S109_SHIM/gh"
   rm -rf "$S109_ES"
   s109b_rc=$(
-    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    PATH="$S109_SHIM:$PATH" GH109_STATE="$S109_STATE" GHJIG_ROOT="$SHELL_ROOT" \
     GHJIG_STATE_DIR_OVERRIDE="$S109_ES" \
-    bash -c '. "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
-             . "$GHJIG_SHELL_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
+    bash -c '. "$GHJIG_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null
+             . "$GHJIG_ROOT/.claude/hooks/helpers/issue_filer.sh" 2>/dev/null
              is_trusted_filer 100; echo $?' | tail -1
   )
   if [ "$s109b_rc" != 0 ]; then
@@ -11119,7 +11119,7 @@ else
   grep -q 'scan_staged_secrets' "$s112_mut"       || { s112=0; s112_why="${s112_why}no-secret-mutant;"; }
   grep -q 'PROTECTED_BRANCH_PATTERN' "$s112_mut"  || { s112=0; s112_why="${s112_why}no-protected-branch-mutant;"; }
   grep -q 'git worktree add' "$s112_mut"          || { s112=0; s112_why="${s112_why}no-worktree-isolation;"; }
-  grep -q 'GHJIG_SHELL_ROOT=' "$s112_mut"    || { s112=0; s112_why="${s112_why}no-shell-root-override;"; }
+  grep -q '"\$wt/scripts/test/smoke.sh"' "$s112_mut" || { s112=0; s112_why="${s112_why}no-worktree-smoke-run;"; }
 fi
 if [ "$s112" = 1 ]; then
   ok "112: mutation harness exists, seeds commit-format/secret/protected-branch mutants, worktree-isolated (#423)"
@@ -11593,7 +11593,7 @@ fi
 # TARGET dir (its own git repo); `in_scope` is made true by writing that target's
 # path into the per-project registry that ghjig_registry_file resolves to under
 # GHJIG_STATE_DIR_OVERRIDE. CLAUDE_PROJECT_DIR points at the target (hook context),
-# GHJIG_SHELL_ROOT at the fake root (where session_start.sh + its libs live).
+# GHJIG_ROOT at the fake root (where session_start.sh + its libs live).
 #
 # RED until Phase C: session_start.sh has NO SSOT code yet, so the present/nudge
 # assertions (120a/120b) and the registered-only positive sense fail LOUD with a
@@ -11670,7 +11670,7 @@ s120_make_target() {
 s120_run() {
   (
     cd "$1" || exit 1
-    export GHJIG_SHELL_ROOT="$S120_FAKE_ROOT"
+    export GHJIG_ROOT_OVERRIDE="$S120_FAKE_ROOT"
     export CLAUDE_PROJECT_DIR="$1"
     export GHJIG_STATE_DIR_OVERRIDE="$1/.claude/ghjig-state"
     export PATH="$S120_GIT_SHIM:$PATH"
@@ -11929,7 +11929,7 @@ else
   mkdir -p "$S123_STATE/audit"
   rm -f "$S123_STATE/last-friction-surfaced"   # absent stamp → force the once-per-session compute
   s123_out=$(
-    export GHJIG_SHELL_ROOT="$S123_FAKE_ROOT"
+    export GHJIG_ROOT_OVERRIDE="$S123_FAKE_ROOT"
     export PATH="$S123_GIT_SHIM:$PATH"
     export CLAUDE_PROJECT_DIR="$S123_FAKE_ROOT"
     export GHJIG_STATE_DIR_OVERRIDE="$S123_STATE"
@@ -12147,7 +12147,7 @@ esc_hook_run() {
     cd "$ESC_REPO" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$_cmd" | jq -Rs .)" \
-      | GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$ESC_HOOK" >/dev/null 2>&1
     printf '%s' "$?"
   )
@@ -12274,7 +12274,7 @@ esc_pyfree_hook_run() {
     cd "$ESC_REPO" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$_cmd" | jq -Rs .)" \
-      | PATH="$ESC_NOPY:$PATH" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+      | PATH="$ESC_NOPY:$PATH" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$ESC_HOOK" >/dev/null 2>&1
     printf '%s' "$?"
   )
@@ -12440,7 +12440,7 @@ esc_noov_rc_pre=$(
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
     "$(printf '%s' "$ESC_NOOV_CMD" | jq -Rs .)" \
     | env -u GHJIG_STATE_DIR_OVERRIDE \
-        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$ESC_HOOK" >/dev/null 2>&1
   printf '%s' "$?"
 )
@@ -12453,7 +12453,7 @@ fi
 # Writer: NO override, CLAUDE_PROJECT_DIR explicitly UNSET, cwd inside the fixture.
 # Post-Code ghjig_skip.sh must derive the project dir from git-toplevel → fixture.
 ( cd "$ESC_NOOV_REPO" && env -u GHJIG_STATE_DIR_OVERRIDE -u CLAUDE_PROJECT_DIR \
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
     "$SHELL_ROOT/scripts/ghjig_skip.sh" branch "$ESC_NOOV_FP" 'no-override probe' >/dev/null 2>&1 )
 
 # Reader: drive the protected-branch commit through the real PreToolUse hook with
@@ -12464,7 +12464,7 @@ esc_noov_rc=$(
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
     "$(printf '%s' "$ESC_NOOV_CMD" | jq -Rs .)" \
     | env -u GHJIG_STATE_DIR_OVERRIDE \
-        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+        CLAUDE_PROJECT_DIR="$ESC_NOOV_REPO" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$ESC_HOOK" >/dev/null 2>&1
   printf '%s' "$?"
 )
@@ -12793,7 +12793,7 @@ dc_run() {
   (
     cd "$DC_TARGET" || exit 0
     PATH="$DC_BIN:$PATH" \
-    GHJIG_SHELL_ROOT="$SHELL_ROOT" \
+    GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
     AUDIT_LOG_PATH="$DC_AUDIT" \
     GH_MOCK_LABELS_92="enhancement" \
     GH_MOCK_LABELS_93="directive" \

@@ -18,7 +18,9 @@
 set -u
 
 _es_self=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-SHELL_ROOT="${GHJIG_SHELL_ROOT:-$(CDPATH='' cd -- "$_es_self/.." && pwd)}"
+# Self-locate like the hook entries (#537): the ambient env is never consulted;
+# GHJIG_ROOT_OVERRIDE is the test-only seam (SPEC §3.2.1).
+SHELL_ROOT="${GHJIG_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$_es_self/.." && pwd)}"
 # shellcheck source=/dev/null
 . "$SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null || true
 

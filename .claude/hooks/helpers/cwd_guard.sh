@@ -9,7 +9,7 @@ in_scope() {
   # registered before #316, with only a legacy shared entry), fall back to the
   # legacy shared registry so existing setups keep enforcing. Only ever ADDS
   # scope (more enforcement); writes stay per-project, so isolation holds.
-  [ -f "$registry" ] || registry="${GHJIG_SHELL_ROOT:-}/.claude/state/registry.txt"
+  [ -f "$registry" ] || registry="${GHJIG_ROOT:-}/.claude/state/registry.txt"
   # Missing both → return 1 (out-of-scope) → hooks fail-open, as in the shared era.
   [ -f "$registry" ] || return 1
   local pwd_real
@@ -54,12 +54,12 @@ path_in_scope() {
   fi
   # Allow shell self-modification (registry-location-independent; set -u-safe).
   case "$p/" in
-    "${GHJIG_SHELL_ROOT:-}"/*) [ -n "${GHJIG_SHELL_ROOT:-}" ] && return 0 ;;
+    "${GHJIG_ROOT:-}"/*) [ -n "${GHJIG_ROOT:-}" ] && return 0 ;;
   esac
   # Per-project registry (#316), argless = hook context. set -u-safe.
   local registry; registry=$(ghjig_registry_file)
   # Back-compat read-floor (mirrors in_scope): per-project absent → legacy shared.
-  [ -f "$registry" ] || registry="${GHJIG_SHELL_ROOT:-}/.claude/state/registry.txt"
+  [ -f "$registry" ] || registry="${GHJIG_ROOT:-}/.claude/state/registry.txt"
   [ -f "$registry" ] || return 1
   local entry
   while IFS= read -r entry; do

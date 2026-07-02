@@ -3,18 +3,46 @@ set -uo pipefail
 
 # The inject-consistency banner was removed in #318 (Directive #311). Post-#312 a
 # plain `claude` in an injected target (env unset + settings.local.json symlink)
-# is the NORMAL working state — hooks self-locate via the binding symlink and the
-# env is back-filled below — so the old banner only false-fired. The residual
+# is the NORMAL working state — hooks self-locate via the binding symlink and
+# export GHJIG_ROOT below — so the old banner only false-fired. The residual
 # genuine no-op (binding symlink missing/broken) is structurally undetectable
 # here: this hook is itself invoked through that binding
 # (${CLAUDE_PROJECT_DIR}/.claude/ghjig-root/...), so a broken binding means
 # this script never runs. See SPEC §6.5(c). The hookrt-missing banner below stays.
 
-SHELL_ROOT="${GHJIG_SHELL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
+# Capture the AMBIENT root before the export below overwrites it — the #537
+# banner arms compare it against the self-located root.
+_ambient_ghjig_root="${GHJIG_ROOT:-}"
+SHELL_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
-# Back-fill the env var from self-location (#312) so helpers that reference
-# $GHJIG_SHELL_ROOT resolve even when launched with no global env.
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+# Export the resolved root (#312, #537) so helpers that reference $GHJIG_ROOT
+# resolve with no global env. Internal/exported-only: the ambient env is never
+# consulted here; GHJIG_ROOT_OVERRIDE is a test-only seam (SPEC §3.2.1).
+export GHJIG_ROOT="$SHELL_ROOT"
+
+# #537 shell-root env banners (SPEC §6.5(c)) — the resolution above never
+# consults the ambient env, so both states below are functionally ignored;
+# these once-per-session arms (same mkdir-stamp debounce family as the
+# hookrt / registry-zeroed banners) keep that ignore observable, not silent.
+# Arm (a): a lingering legacy export, or an ambient GHJIG_ROOT that DISAGREES
+# with the self-located root, is dead configuration — name the retirement and
+# the fix. (A matching ambient GHJIG_ROOT is the normal parent-export channel
+# — scripts/bin/ghjig — and stays silent.)
+if [ -n "${GHJIG_SHELL_ROOT:-}" ] \
+   || { [ -n "$_ambient_ghjig_root" ] && [ "$_ambient_ghjig_root" != "$SHELL_ROOT" ]; }; then
+  _envret_stamp="${TMPDIR:-/tmp}/ghjig-banner-envretired.${CLAUDE_SESSION_ID:-$PPID}"
+  if [ ! -d "$_envret_stamp" ] && mkdir "$_envret_stamp" 2>/dev/null; then
+    printf '[GHJig-Claude] WARN GHJIG_SHELL_ROOT retired (#537): the ambient shell-root env is IGNORED — hooks self-locate via BASH_SOURCE and export GHJIG_ROOT internally. Fix: unset the stale export (legacy var or mismatched GHJIG_ROOT) from your shell profile.\n' >&2
+  fi
+fi
+# Arm (b): an active GHJIG_ROOT_OVERRIDE redirects which tree the hooks load —
+# a test-only seam that must never run silently in a live session.
+if [ -n "${GHJIG_ROOT_OVERRIDE:-}" ]; then
+  _envseam_stamp="${TMPDIR:-/tmp}/ghjig-banner-envseam.${CLAUDE_SESSION_ID:-$PPID}"
+  if [ ! -d "$_envseam_stamp" ] && mkdir "$_envseam_stamp" 2>/dev/null; then
+    printf '[GHJig-Claude] NOTE GHJIG_ROOT_OVERRIDE: test-only seam active; hooks loading from %s (SPEC §3.2.1)\n' "$SHELL_ROOT" >&2
+  fi
+fi
 
 # Primitive bootstrap of hookrt.sh (audit_log + safe_source). SPEC §6.1.
 hookrt="$SHELL_ROOT/.claude/hooks/hookrt.sh"

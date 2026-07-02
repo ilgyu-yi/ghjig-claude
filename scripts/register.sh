@@ -9,7 +9,7 @@ TARGET="$1"
 TARGET=$(cd "$TARGET" && pwd -P)
 
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+export GHJIG_ROOT="$SHELL_ROOT"
 
 . "$SHELL_ROOT/scripts/lib/inject.sh"
 

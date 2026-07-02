@@ -13,12 +13,12 @@
 set -euo pipefail
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-: "${GHJIG_SHELL_ROOT:=$SCRIPT_ROOT}"
-export GHJIG_SHELL_ROOT
+: "${GHJIG_ROOT:=$SCRIPT_ROOT}"
+export GHJIG_ROOT
 
-if [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ]; then
+if [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ]; then
   # shellcheck source=/dev/null
-  . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"
+  . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"
 else
   audit_log() { :; }
 fi
@@ -114,7 +114,7 @@ if [ -n "$DRY_RUN" ]; then
   ensure_label "initiative:challenged"          "0052CC" "Execution challenged the parent Initiative; orchestrator re-evaluation requested (projected from /initiative-feedback by CI, #359)"
   ensure_label "initiative:completion-requested" "0052CC" "Execution signals the parent Initiative's termination may be met; orchestrator assessment requested (projected from /initiative-feedback by CI, #359)"
 else
-  bash "$GHJIG_SHELL_ROOT/scripts/ensure_v3_labels.sh" 2>&1 | sed 's/^/  /'
+  bash "$GHJIG_ROOT/scripts/ensure_v3_labels.sh" 2>&1 | sed 's/^/  /'
 fi
 
 # Additional labels not in ensure_v3_labels.sh (P0-P3 moved into the canonical
@@ -134,7 +134,7 @@ fi
 # Tier 3 — labels + ISSUE_TEMPLATE + workflows (via PR) + Project
 # ---------------------------------------------------------------
 echo "onboard_target: tier 3 — installing ISSUE_TEMPLATE + workflows via PR..."
-SUBSTRATE_ROOT="$GHJIG_SHELL_ROOT/.claude/templates/target-substrate"
+SUBSTRATE_ROOT="$GHJIG_ROOT/.claude/templates/target-substrate"
 if [ ! -d "$SUBSTRATE_ROOT" ]; then
   echo "onboard_target: canonical-source $SUBSTRATE_ROOT missing — re-run scripts/sync_target_substrate.sh" >&2
   exit 1
@@ -212,7 +212,7 @@ if [ -n "$DRY_RUN" ]; then
   echo "  [dry-run] would: bash scripts/setup_project.sh"
 else
   echo "onboard_target: invoking setup_project.sh..."
-  bash "$GHJIG_SHELL_ROOT/scripts/setup_project.sh" || echo "  warn: setup_project.sh failed — Project may need manual creation"
+  bash "$GHJIG_ROOT/scripts/setup_project.sh" || echo "  warn: setup_project.sh failed — Project may need manual creation"
 fi
 
 audit_log info onboard-dir-mode created "target=$TARGET_OWNER_REPO tier=3"

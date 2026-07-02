@@ -26,12 +26,12 @@ set -uo pipefail
 
 # ---------- environment ----------
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-: "${GHJIG_SHELL_ROOT:=$SCRIPT_ROOT}"
-export GHJIG_SHELL_ROOT
+: "${GHJIG_ROOT:=$SCRIPT_ROOT}"
+export GHJIG_ROOT
 
-if [ -f "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh" ]; then
+if [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ]; then
   # shellcheck source=/dev/null
-  . "$GHJIG_SHELL_ROOT/.claude/hooks/hookrt.sh"
+  . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"
 else
   audit_log() { :; }
 fi
@@ -42,7 +42,7 @@ DR_SCRIPT_NAME=dir_mode_project
 # shellcheck disable=SC2034  # used by sourced dir_mode_project_resolve.sh
 DR_AUDIT_CATEGORY=project-resolve
 # shellcheck source=/dev/null
-. "$GHJIG_SHELL_ROOT/scripts/lib/dir_mode_project_resolve.sh"
+. "$GHJIG_ROOT/scripts/lib/dir_mode_project_resolve.sh"
 
 verb="${1:-}"
 case "$verb" in

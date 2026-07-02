@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-SHELL_ROOT="${GHJIG_SHELL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
+SHELL_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"
 [ -n "$SHELL_ROOT" ] && [ -d "$SHELL_ROOT/.claude/hooks/helpers" ] || exit 0
-# Back-fill the env var from self-location (#312) so helpers that reference
-# $GHJIG_SHELL_ROOT resolve even when launched with no global env.
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+# Export the resolved root (#312, #537) so helpers that reference $GHJIG_ROOT
+# resolve with no global env. Internal/exported-only: the ambient env is never
+# consulted here; GHJIG_ROOT_OVERRIDE is a test-only seam (SPEC §3.2.1).
+export GHJIG_ROOT="$SHELL_ROOT"
 
 # Primitive bootstrap of the hook runtime (SPEC §6.1). hookrt.sh hosts
 # audit_log + safe_source; if absent, stderr-only warn and exit (cannot
@@ -1051,7 +1052,7 @@ case "$tool" in
     [ -z "$target" ] && exit 0
 
     # Shell self-modification carve-out (#210): paths under
-    # $GHJIG_SHELL_ROOT/ skip the branch + out-of-scope checks (the
+    # $GHJIG_ROOT/ skip the branch + out-of-scope checks (the
     # shell legitimately edits its own substrate, which is outside the
     # target repo's branch/registry model). It must NOT early-exit before
     # the sensitive-file check below: writing a .env / *.pem / credentials*

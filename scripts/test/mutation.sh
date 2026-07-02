@@ -5,8 +5,9 @@
 # asserts the matchers behave correctly; this proves those assertions actually
 # kill a regression. For each matcher it appends a weakened redefinition to a
 # throwaway git-worktree copy (append-override: bash takes the last definition),
-# runs the full smoke suite there with GHJIG_SHELL_ROOT pointed at the
-# worktree, and asserts smoke FAILS (exit != 0 — the mutant is killed). A
+# runs the full smoke suite there (smoke self-locates its root from its own
+# path, so the worktree copy is the tree exercised, #537), and asserts smoke
+# FAILS (exit != 0 — the mutant is killed). A
 # SURVIVING mutant (smoke still green under a weakened guard) is a harness
 # failure: the matcher is no longer pinned by any assertion. The worktree
 # isolates the mutation from the live tree. SPEC §11.1.
@@ -51,10 +52,11 @@ for m in "${MUTATIONS[@]}"; do
   # Apply the mutation to the worktree copy only (never the live tree).
   printf '\n# --- mutation harness override (#423): weaken %s ---\n%s\n' "$label" "$override" >> "$wt/$relpath"
 
-  # Run the full smoke suite against the mutated worktree. GHJIG_SHELL_ROOT
-  # forces all hook/helper resolution to the worktree so the mutated helper is
-  # the one exercised. Smoke is offline-deterministic by default.
-  if GHJIG_SHELL_ROOT="$wt" bash "$wt/scripts/test/smoke.sh" >/dev/null 2>&1; then
+  # Run the full smoke suite against the mutated worktree. smoke.sh self-locates
+  # its SHELL_ROOT from its own file path (#537), so invoking the WORKTREE copy
+  # resolves all hook/helper paths to the worktree — the mutated helper is the
+  # one exercised. Smoke is offline-deterministic by default.
+  if bash "$wt/scripts/test/smoke.sh" >/dev/null 2>&1; then
     echo "SURVIVED  $label — smoke stayed green under a weakened matcher (guard unpinned)"
     survived_list="$survived_list $label"
   else

@@ -9,7 +9,7 @@
 #     non-empty arg wins (the test seam — smoke feeds a synthetic fixture);
 #     else GHJIG_STATE_DIR_OVERRIDE / $CLAUDE_PROJECT_DIR/.claude/ghjig-state →
 #     "<esd>/audit/audit.jsonl"; else the legacy shared
-#     "$GHJIG_SHELL_ROOT/.claude/audit/audit.jsonl".
+#     "$GHJIG_ROOT/.claude/audit/audit.jsonl".
 
 resolve_audit_log() {
   if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
@@ -20,5 +20,5 @@ resolve_audit_log() {
     esd="$CLAUDE_PROJECT_DIR/.claude/ghjig-state"
   fi
   if [ -n "$esd" ]; then printf '%s' "$esd/audit/audit.jsonl"; return 0; fi
-  printf '%s' "${GHJIG_SHELL_ROOT:-}/.claude/audit/audit.jsonl"
+  printf '%s' "${GHJIG_ROOT:-}/.claude/audit/audit.jsonl"
 }

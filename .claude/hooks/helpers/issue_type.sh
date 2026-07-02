@@ -17,7 +17,7 @@
 #
 # Cache asymmetry (deliberate, #171): `is_directive_issue` caches its result
 # per-session at
-#   $GHJIG_SHELL_ROOT/.claude/state/issue-type-cache/<owner>__<repo>__<n>
+#   $GHJIG_ROOT/.claude/state/issue-type-cache/<owner>__<repo>__<n>
 # because the `directive` label is effectively immutable for a Directive's life
 # (the trusted-filer-mutate declassify guard enforces this). `is_initiative_issue`
 # (#249) caches the same way — the `initiative` label is likewise stable (the
@@ -41,8 +41,8 @@ is_directive_issue() {
   if [ -n "$esd" ]; then
     cache_dir="$esd/issue-type-cache"   # per-project (#314)
   else
-    : "${GHJIG_SHELL_ROOT:?GHJIG_SHELL_ROOT must be set}"
-    cache_dir="$GHJIG_SHELL_ROOT/.claude/state/issue-type-cache"
+    : "${GHJIG_ROOT:?GHJIG_ROOT must be set}"
+    cache_dir="$GHJIG_ROOT/.claude/state/issue-type-cache"
   fi
   # Cache key: the GH owner/name. An explicit `repo` arg (#276, e.g. a `-R`/URL
   # cross-repo selector) overrides the cwd repo for BOTH the key and the query,
@@ -109,8 +109,8 @@ is_initiative_issue() {
   if [ -n "$esd" ]; then
     cache_dir="$esd/issue-type-cache"   # per-project (#314)
   else
-    : "${GHJIG_SHELL_ROOT:?GHJIG_SHELL_ROOT must be set}"
-    cache_dir="$GHJIG_SHELL_ROOT/.claude/state/issue-type-cache"
+    : "${GHJIG_ROOT:?GHJIG_ROOT must be set}"
+    cache_dir="$GHJIG_ROOT/.claude/state/issue-type-cache"
   fi
   # Repo override (#276): same contract as is_directive_issue — an explicit
   # owner/name keys (and queries) the foreign repo; empty → current repo. The

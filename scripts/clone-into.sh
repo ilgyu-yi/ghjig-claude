@@ -6,7 +6,7 @@ usage() { echo "usage: clone-into.sh <upstream-repo-url>" >&2; exit 2; }
 
 URL="$1"
 SHELL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-export GHJIG_SHELL_ROOT="$SHELL_ROOT"
+export GHJIG_ROOT="$SHELL_ROOT"
 
 . "$SHELL_ROOT/scripts/lib/inject.sh"
 
