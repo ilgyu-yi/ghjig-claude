@@ -1,6 +1,6 @@
 # GHJig-Claude — Operating Norms
 
-This directory holds shell assets injected by GHJig-Claude. This file is a summary of the work norms the shell enforces. Full spec is in the shell repo's `SPEC.md` — consult its **Table of contents** at the top first, then `Read --offset --limit` the targeted section rather than loading the whole 73KB file. Regenerate the TOC via `scripts/build_toc.sh` after editing any SPEC heading.
+This directory holds shell assets injected by GHJig-Claude. This file is a summary of the work norms the shell enforces. Full spec is in the shell repo's `SPEC.md` — consult its **Table of contents** at the top first, then `Read --offset --limit` the targeted section rather than loading the whole ~358KB file. Regenerate the TOC via `scripts/build_toc.sh` after editing any SPEC heading.
 
 ## Backbone: GitHub standard flow
 issue → branch → draft PR → checklist commits → ready PR → merge. Every change rides this flow. No fork (upstream-only).
