@@ -13713,6 +13713,80 @@ else
 fi
 rm -rf "$S135E"
 
+# ---------- §136: reviewer artifact head-pin (#544) ----------
+# SPEC §4.5/§4.6/§1.5/§5.7/§5.6/§4.11 (Doc phase, this branch): a worktree-isolated
+# reviewer is checked out at the harness-chosen BASE, not the pushed PR head, so a
+# post-push reviewer that reads the ambient tree reviews a STALE artifact and can
+# still APPROVE (PR #543). The fix pins the review artifact to the PR head by
+# construction on the reviewer side (resolve via `gh pr view --json headRefOid` /
+# `gh pr diff` / `git show <HEAD_SHA>:<path>`, no checkout; emit a first-line
+# `reviewed-head:` verdict), and closes the loop on the CALLER side (`/ship`,
+# `/review`): compute the expected head privately, blind-compare each reviewer's
+# independently-reported `reviewed-head`, and treat a mismatch / absent / unconfirmed
+# head as a fail-closed INVALID vote (never an approve). Each grep pairs a token with
+# a content anchor that survives mild paraphrase (mirrors §25). RED now (items a-d are
+# the Code-phase product files; e is a Doc-phase-confirming guard, expected green).
+S136_CODE_REV="$SHELL_ROOT/.claude/agents/code-reviewer.md"
+S136_SEC_REV="$SHELL_ROOT/.claude/agents/security-reviewer.md"
+S136_SHIP="$SHELL_ROOT/.claude/commands/ship.md"
+S136_REVIEW="$SHELL_ROOT/.claude/commands/review.md"
+
+# §136a (item 1): code-reviewer.md resolves its artifact from the pushed PR head
+# (`headRefOid` + `gh pr diff`), reads changed-file context via `git show <head>:`
+# (no checkout), and emits a `reviewed-head:` verdict line. RED now: the prompt has a
+# generic `gh pr diff` bullet but NO head-pin (`headRefOid`) and NO `reviewed-head`.
+if grep -qF 'headRefOid' "$S136_CODE_REV" 2>/dev/null \
+   && grep -qF 'reviewed-head' "$S136_CODE_REV" 2>/dev/null \
+   && grep -qF 'gh pr diff' "$S136_CODE_REV" 2>/dev/null; then
+  ok "136a: code-reviewer.md pins artifact to PR head (headRefOid + gh pr diff) and emits reviewed-head (#544)"
+else
+  ng "136a: code-reviewer.md missing head-pin (headRefOid) or reviewed-head verdict line (#544)"
+fi
+
+# §136b (item 2): security-reviewer.md carries the SAME artifact-resolution contract
+# as §4.5 — an Input/artifact section referencing the head-pin (`headRefOid`) plus the
+# `reviewed-head` emission. RED now: security-reviewer.md has NO Input section at all.
+if grep -qF 'headRefOid' "$S136_SEC_REV" 2>/dev/null \
+   && grep -qF 'reviewed-head' "$S136_SEC_REV" 2>/dev/null; then
+  ok "136b: security-reviewer.md carries the §4.5 artifact head-pin + reviewed-head contract (#544)"
+else
+  ng "136b: security-reviewer.md missing artifact head-pin (headRefOid) or reviewed-head emission (#544)"
+fi
+
+# §136c (item 3): ship.md caller-side blind compare — computes the expected head
+# (`headRefOid`), treats a `reviewed-head` mismatch/absent as a fail-closed invalid
+# vote, AND holds the expected head PRIVATELY (blindness: never passed/revealed to the
+# reviewer, else the reviewer could echo it back for a tautological pass). RED now.
+if grep -qF 'headRefOid' "$S136_SHIP" 2>/dev/null \
+   && grep -qF 'reviewed-head' "$S136_SHIP" 2>/dev/null \
+   && grep -qiE 'privat|never (passed|revealed)|not (passed|revealed)|held privately' "$S136_SHIP" 2>/dev/null; then
+  ok "136c: ship.md computes expected head, blind-compares reviewed-head, holds head privately (#544)"
+else
+  ng "136c: ship.md missing caller-side head-pin (headRefOid/reviewed-head) or blindness anchor (#544)"
+fi
+
+# §136d (item 4): review.md carries the same caller-side head-pin (compute expected
+# head privately + blind-compare reviewed-head). RED now: no head-pin text present.
+if grep -qF 'headRefOid' "$S136_REVIEW" 2>/dev/null \
+   && grep -qF 'reviewed-head' "$S136_REVIEW" 2>/dev/null; then
+  ok "136d: review.md applies the caller-side head-pin (headRefOid + reviewed-head compare) (#544)"
+else
+  ng "136d: review.md missing caller-side head-pin (headRefOid/reviewed-head compare) (#544)"
+fi
+
+# §136e (item 5, Doc-phase-confirming — expected GREEN): SPEC §4.11 tally is now the
+# fixed-denominator form. The old fail-open "excluded from the majority" wording must
+# be GONE (count 0) and the "2 valid approve"/"invalid vote" fixed-3-denominator
+# wording PRESENT. Anti-vacuity: require the positive anchors, not just the absence.
+s136e_stale=$(grep -cF 'excluded from the majority' "$SHELL_ROOT/SPEC.md" 2>/dev/null)
+if [ "${s136e_stale:-0}" -eq 0 ] \
+   && grep -qF '2 valid approve' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qF 'invalid vote' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "136e: SPEC §4.11 tally is fixed-denominator (2 valid approve / invalid vote; no fail-open exclusion) (#544)"
+else
+  ng "136e: SPEC §4.11 still carries fail-open 'excluded from the majority' or lacks fixed-denominator wording (#544)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
