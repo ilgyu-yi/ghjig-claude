@@ -31,6 +31,10 @@
 : "${DR_SCRIPT_NAME:=dir_mode_project}"
 : "${DR_AUDIT_CATEGORY:=project-resolve}"
 
+# Self-location: resolve GHJIG_ROOT from our own path (test seam:
+# GHJIG_ROOT_OVERRIDE). The inherited ambient env is never an input (#539).
+GHJIG_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"; export GHJIG_ROOT
+
 # Defensive: if the parent forgot to source hookrt.sh (or stub audit_log), the
 # lib's `audit_log ... 2>/dev/null || true` calls would emit `command not found`
 # to stderr before `|| true` swallows the rc. Stub here keeps stderr clean.
@@ -44,14 +48,14 @@ dr_check_registry_guard() {
   # discovery key is "does cwd carry its own ghjig-state/registry.txt?". Parents source
   # hookrt; defensively source from the code root if the resolver is somehow absent.
   command -v ghjig_registry_file >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
+    || { [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
          && . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"; }
   registry=$(ghjig_registry_file "$target")
   # Back-compat (#316, Directive #311 "existing setups keep working"): a target
   # registered before #316 lives only in the legacy shared registry. Accept either
   # the per-project registry OR the legacy shared one (read-only floor; new
   # registrations still write per-project, so write-isolation is preserved).
-  local legacy="${GHJIG_ROOT:-}/.claude/state/registry.txt"
+  local legacy="$GHJIG_ROOT/.claude/state/registry.txt"
   if { [ -f "$registry" ] && grep -qxF "$target" "$registry"; } \
      || { [ -f "$legacy" ] && grep -qxF "$target" "$legacy"; }; then
     return 0

@@ -3,7 +3,7 @@ description: Query the audit log. Recent blocks, escapes, warns.
 argument-hint: [<filter>]
 ---
 
-Query `$GHJIG_ROOT/.claude/audit/audit.jsonl`.
+Query `.claude/ghjig-root/.claude/audit/audit.jsonl`.
 
 If `$ARGUMENTS` is empty, show the last 50 lines.
 With an argument, grep by substring (e.g. `force-push`, `escape`, `2026-05-19`).

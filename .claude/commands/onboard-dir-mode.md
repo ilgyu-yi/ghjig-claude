@@ -22,20 +22,20 @@ Each tier is a strict superset. Re-running is idempotent at every step.
 4. **Tier 1**: print confirmation that no install is needed; exit.
 
 5. **Tier 2** (label install):
-   - Invoke `bash $GHJIG_ROOT/scripts/onboard_target.sh --tier 2` (idempotent — uses `gh label create --force`).
+   - Invoke `bash .claude/ghjig-root/scripts/onboard_target.sh --tier 2` (idempotent — uses `gh label create --force`).
    - Verify via `gh label list` that all 13 labels exist: `directive`, `initiative`, `status:proposed`, `status:blocked`, `awaiting-author`, `task`, `execution`, `discussion`, `P0`, `P1`, `P2`, `P3`, `skip-changelog` (`initiative` — #249 — marks the planning-tier Initiative consumed from upstream, SPEC §1.7; `execution` — #186 — labels an Execution Issue parented under a Directive; `awaiting-author` — #172 — marks the reviewer→author handoff after a `revise`/trusted-reject; `skip-changelog` is the documented PR-time opt-out for the release-backbone fragment-gate per SPEC §18.6). This set is the canonical 11 installed by `scripts/ensure_v3_labels.sh` plus the inline `directive` and `initiative` from `scripts/onboard_target.sh`.
 
 6. **Tier 3** (full substrate):
    - Run step 5 (tier 2 prerequisite).
-   - Invoke `bash $GHJIG_ROOT/scripts/onboard_target.sh --tier 3`:
-     - Copies canonical files from `$GHJIG_ROOT/.claude/templates/target-substrate/` into target's `.github/`:
+   - Invoke `bash .claude/ghjig-root/scripts/onboard_target.sh --tier 3`:
+     - Copies canonical files from `.claude/ghjig-root/.claude/templates/target-substrate/` into target's `.github/`:
        - `ISSUE_TEMPLATE/{config,directive-proposal,execution-under-directive,task,bug-report,discussion}.yml`
        - `workflows/{auto-status-proposed,auto-clear-awaiting-author,issues-to-project-mirror,dir-mode-post-merge,check-changelog,check-toc}.yml` — `check-changelog.yml` is the release-backbone fragment-gate (SPEC §18.6); blocks PRs to `main` / `*-maintenance` that lack a `changelog_unreleased/<category>/<N>.md` fragment unless the `skip-changelog` label is applied. `check-toc.yml` is the SPEC ToC-freshness gate (SPEC §1.3); on PRs that touch `SPEC.md` it runs `build_toc.sh --check --spec SPEC.md` and fails if the Table of contents is stale — it **skips clean when the target has no `SPEC.md`** (a project with no external contract legitimately has none).
        - `workflows/build_toc.sh` — the SPEC ToC generator/checker `check-toc.yml` runs (byte-identical to the canonical `scripts/build_toc.sh`); shipped alongside the workflow like the dir-mode-post-merge sourced helpers.
      - Also copies the **release-backbone authoring substrate** into the target **repo root** (not `.github/`): `changelog_unreleased/TEMPLATE.md` + the six Keep-a-Changelog category subdirectories (`added/ changed/ deprecated/ removed/ fixed/ security/`) each with a `.gitkeep` placeholder. This is the authoring affordance the `check-changelog.yml` gate enforces against — full contract in SPEC §18.6 / §18.1.
      - Creates branch `onboard-dir-mode-substrate`, commits the files, pushes, opens a PR via `gh pr create --title "chore: onboard GHJig-Claude dir-mode substrate"` — **target maintainer reviews + merges**.
      - Direct push to target's `main` is forbidden (protected-branch hook fires; PR-based install is the canonical path — SPEC §1.7 Bootstrap path).
-   - Project v2 setup: invoke `bash $GHJIG_ROOT/scripts/setup_project.sh` (idempotent — creates the Project if absent, reconciles fields if present).
+   - Project v2 setup: invoke `bash .claude/ghjig-root/scripts/setup_project.sh` (idempotent — creates the Project if absent, reconciles fields if present).
 
 7. **Audit log** — `audit_log info onboard-dir-mode created "target=<owner>/<repo> tier=<N>"`.
 

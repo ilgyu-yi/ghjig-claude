@@ -22,7 +22,7 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default: t
 6. **Reviewer gate** — invoke the `plan-reviewer` subagent (see SPEC §4.8) to **judge the contest {A, B1, B2}**. Pass the base Plan A, the two challenger outputs with their assigned axes, the issue body, and the target MISSION.md. Parse the verdict line (`^VERDICT: (ship|refine|block)`).
    - **`ship`**: proceed to step 7.
    - **`refine: <feedback>`**: re-run the contest with the one-line feedback (re-invoke `planner` and/or re-dispatch the challengers as the feedback indicates), then re-invoke `plan-reviewer`. After two consecutive `refine` verdicts on the latest contest, escalate to the user (or, in unattended mode, treat as `block`).
-   - **`block: <reason>`**: stop and post a `gh issue comment` on the linked issue naming the structural problem. In unattended mode, also append one line to `$GHJIG_ROOT/.claude/state/plan-block.log`.
+   - **`block: <reason>`**: stop and post a `gh issue comment` on the linked issue naming the structural problem. In unattended mode, also append one line to `.claude/ghjig-root/.claude/state/plan-block.log`.
    - **Reject-audit emission** (SPEC §6.1, Directive #356 signal 3) — on **any** non-pass verdict (`refine` or `block`), emit one categorized audit record: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then `reviewer_reject_audit plan-review <reason-class> <issue#>`, mapping the reviewer's reason to the nearest **reason-class** token (`schema-incomplete` / `unverifiable-ac` / `scope-bleed` / `mission-misfit` / `conflict` / `evidence-insufficient`). Observability only — it never changes the verdict's effect.
 7. **Wait for user approval of the plan.** Approval requires an **approach check**: confirm with the user that the winning candidate from the **contest record** (Plan A / B1 / B2 / verdict) is the right one, not just that a plan exists. The approach check is not skipped in Auto / unattended mode. **In `unattended` mode, a clean `plan-reviewer` verdict from step 6 counts as approval** — no human is present, and the reviewer is the substitute.
 8. Once approved, **write Phase A (Doc) and make it the first commit on the branch.** Never open the PR with an empty seed commit.
@@ -38,7 +38,9 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default: t
    # and conditionally include the line — the `${COAUTHOR:+…}` expansion
    # injects the leading blank line ONLY when the trailer is enabled, so
    # `off` users don't get a trailing blank in the commit message.
-   . "$GHJIG_ROOT/.claude/hooks/helpers/coauthor.sh"
+   GR="$(git rev-parse --show-toplevel 2>/dev/null)/.claude/ghjig-root"
+   [ -e "$GR/.claude" ] || { echo "GHJig: not inside a registered project (cd to the project root, or run scripts/register.sh)"; exit 1; }
+   . "$GR/.claude/hooks/helpers/coauthor.sh"
    COAUTHOR=$(coauthor_trailer)
    git commit -m "<type>(#<#>): <subject>
 

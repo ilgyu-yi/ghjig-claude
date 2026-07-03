@@ -2,7 +2,7 @@
 description: One-shot summary of current work state.
 ---
 
-Source `$GHJIG_ROOT/.claude/hooks/helpers/status.sh` and call `status_compact`. That helper is the canonical implementation — the `UserPromptSubmit` hook delegates to the same function, so the per-turn summary and the on-demand `/status` block never drift. See SPEC §5.5.
+Source `.claude/ghjig-root/.claude/hooks/helpers/status.sh` and call `status_compact`. That helper is the canonical implementation — the `UserPromptSubmit` hook delegates to the same function, so the per-turn summary and the on-demand `/status` block never drift. See SPEC §5.5.
 
 Compact-mode output (one line each, `-` for missing):
 

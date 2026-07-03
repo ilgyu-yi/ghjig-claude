@@ -76,13 +76,15 @@ Consume the fragment-contract substrate (SPEC §18) and produce a release PR. Th
 After the release PR merges to the target base, the maintainer (or the `unattended` continuation of `/ship`) runs:
 
 ```bash
+GR="$(git rev-parse --show-toplevel 2>/dev/null)/.claude/ghjig-root"
+[ -e "$GR/.claude" ] || { echo "GHJig: not inside a registered project (cd to the project root, or run scripts/register.sh)"; exit 1; }
 git fetch origin
 git checkout <base>
 git pull --ff-only
 MERGE_SHA=$(git rev-parse HEAD)
 awk '/^## \[<X.Y.Z>\]/{f=1; next} /^## \[/{f=0} f' CHANGELOG.md > /tmp/release-notes-v<X.Y.Z>.md
 gh release create v<X.Y.Z> --title v<X.Y.Z> --target "$MERGE_SHA" --notes-file /tmp/release-notes-v<X.Y.Z>.md
-"$GHJIG_ROOT/scripts/release_verify.sh" <X.Y.Z>   # confirms the tag + Release-with-notes landed
+"$GR/scripts/release_verify.sh" <X.Y.Z>   # confirms the tag + Release-with-notes landed
 ```
 
 **No `--verify-tag`** (#448): that flag *aborts* `gh release create` unless the tag already exists, but the tag and Release are created **together** here (the tag is made from `--target`), so `--verify-tag` would always abort on a fresh release. Omitting it lets `gh release create` make both.

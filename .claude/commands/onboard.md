@@ -9,7 +9,9 @@ Perform an initial check of the target repo. **No automatic changes.** All recom
 The mechanical present/absent facts are produced by one shared script — the single source, also consumed by `scripts/setup.sh`, so the two never carry divergent copies of the check logic (SPEC §9). Run it from the target repo's cwd:
 
 ```bash
-"$GHJIG_ROOT/scripts/lib/onboard_checks.sh"
+GR="$(git rev-parse --show-toplevel 2>/dev/null)/.claude/ghjig-root"
+[ -e "$GR/.claude" ] || { echo "GHJig: not inside a registered project (cd to the project root, or run scripts/register.sh)"; exit 1; }
+"$GR/scripts/lib/onboard_checks.sh"
 ```
 
 It emits one `<check> ok|fail <detail>` line per check on stdout and always exits 0 (it reports facts, it never gates):
@@ -26,10 +28,10 @@ Render each line as ✓ (`ok`) or ✗ (`fail`) with its one-line detail. A fork 
 
 These need authoring judgment and the MISSION scaffold-not-author boundary, so they stay here rather than in the fact-reporting script:
 
-1. **SSOT authoring.** `SPEC.md` is **required for any project that carries code** — it is the behavioural SSOT (SPEC §1.3), not gated on an external contract. If `ssot:SPEC.md` came back `fail`, treat authoring it as the **first thing to fix, before other work**: prompt the user to write `SPEC.md`, offering the lightweight scaffold `$GHJIG_ROOT/.claude/templates/spec.md` (the shell scaffolds the slot; it never authors the contract content). Likewise for `ssot:MISSION.md fail`, offer `$GHJIG_ROOT/.claude/templates/mission.md`. Note `README.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md` if absent (reference SSOT — recommend only).
+1. **SSOT authoring.** `SPEC.md` is **required for any project that carries code** — it is the behavioural SSOT (SPEC §1.3), not gated on an external contract. If `ssot:SPEC.md` came back `fail`, treat authoring it as the **first thing to fix, before other work**: prompt the user to write `SPEC.md`, offering the lightweight scaffold `.claude/ghjig-root/.claude/templates/spec.md` (the shell scaffolds the slot; it never authors the contract content). Likewise for `ssot:MISSION.md fail`, offer `.claude/ghjig-root/.claude/templates/mission.md`. Note `README.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md` if absent (reference SSOT — recommend only).
 2. **`.github/` proposals.** If absent, propose installing the templates (the tier-3 dir-mode substrate install via `/onboard-dir-mode` owns the full path):
-   - `.github/ISSUE_TEMPLATE/` → `$GHJIG_ROOT/.claude/templates/issue_template_for_target.md`
-   - `.github/PULL_REQUEST_TEMPLATE.md` → `$GHJIG_ROOT/.claude/templates/pr_template_for_target.md`
+   - `.github/ISSUE_TEMPLATE/` → `.claude/ghjig-root/.claude/templates/issue_template_for_target.md`
+   - `.github/PULL_REQUEST_TEMPLATE.md` → `.claude/ghjig-root/.claude/templates/pr_template_for_target.md`
    - `.github/CODEOWNERS` → recommend.
 3. **Branch protection setup.** If `branch-protect` is `fail`, print the setup commands only (setup requires admin) — do not apply them.
 

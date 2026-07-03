@@ -5,7 +5,7 @@ argument-hint: <topic>
 
 `$ARGUMENTS` is the search topic.
 
-Source `$GHJIG_ROOT/.claude/hooks/helpers/recall.sh` and call `recall_pointers "$ARGUMENTS"`. That helper is the canonical implementation — see SPEC §5.25. Pass the `--deep` flag through (`recall_pointers "$ARGUMENTS" --deep`) **only on explicit user intent** — a natural-language "search the comments" / "we surely decided this", or a literal `--deep`. Deep is off by default; never route it as the pre-planning reflex.
+Source `.claude/ghjig-root/.claude/hooks/helpers/recall.sh` and call `recall_pointers "$ARGUMENTS"`. That helper is the canonical implementation — see SPEC §5.25. Pass the `--deep` flag through (`recall_pointers "$ARGUMENTS" --deep`) **only on explicit user intent** — a natural-language "search the comments" / "we surely decided this", or a literal `--deep`. Deep is off by default; never route it as the pre-planning reflex.
 
 **One bounded escalation** (SPEC §5.25, #528): if a light recall you ran **for a user-asked question** returns **no matches**, pass `--deep` once as a follow-up sweep *without* waiting for the user to ask — an empty cheap-tier result on a substantive user ask is the high-conviction trigger the deep tier exists for (deep fires only *after* the light miss, so the cost guard holds). This applies **only** to the user-asked branch; the self-identified pre-planning beat stays explicit-only and never auto-escalates.
 
