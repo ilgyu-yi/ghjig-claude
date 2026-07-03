@@ -407,6 +407,100 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace merge-strategy "$cmd"
     fi
 
+    # push-parity (#244) — block `gh pr merge` when the local branch is STRICTLY
+    # AHEAD of its pushed remote-tracking head (unpushed local commits the merge
+    # would silently leave behind). git-only + zero-network (local_ahead_of_pr
+    # reads refs/remotes/origin — NO gh call), positive detection: behind /
+    # diverged / no-upstream / detached / absent-local all ALLOW. Independent
+    # matcher (own `should_skip` category); composes with ac-closeout +
+    # merge-strategy on the same `gh pr merge`, decides on its own. SPEC §6.1
+    # 'push-parity' row, §5.7. Same leading-global-flag-run anchor as above.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
+      decided=
+      if should_skip push-parity; then
+        decided=1
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" push-parity; then
+        # #340 data-refine: `gh pr merge` appearing only as data (heredoc body /
+        # quoted value / commit message) is not a merge command → allow.
+        if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
+          mark_allow push-parity
+          decided=1
+        else
+          pp_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)  # empty ⇒ detached ⇒ allow
+          if command -v local_ahead_of_pr >/dev/null 2>&1 && local_ahead_of_pr "$pp_branch"; then
+            block push-parity "unpushed local commits on '${pp_branch}' would be left behind by this merge — push your local commits first: git push, then re-run the merge. Or SKIP_HOOKS=push-parity SKIP_REASON='<why>' for a sanctioned exception."
+          else
+            mark_allow push-parity
+            decided=1
+          fi
+        fi
+      else
+        # safe_source emitted the push-parity helper-missing warn already.
+        decided=1
+      fi
+      [ -z "$decided" ] && pass_through_trace push-parity "$cmd"
+    fi
+
+    # merge-attestation (#246, #543) — block a `gh pr merge` whose review was
+    # SKIPPED or done at a STALE head. Two sub-checks, ORDERED:
+    #   (a) PRESENCE (zero-network, fail-CLOSED): PR# resolves but no
+    #       $(ghjig_state_dir)/attest/pr-<N> file exists → the review never ran
+    #       (/ship writes the file post-pass). This is a filesystem fact, so it
+    #       BLOCKS even when gh is DOWN — presence is NEVER gated on a gh call.
+    #   (b) STALENESS: the file exists but the attested head != the current PR
+    #       head (`gh pr view --json headRefOid`) → the review ran at a stale
+    #       artifact (#543). gh-unresolvable in THIS sub-check only (file present,
+    #       gh down) → fail-open allow + a loud `fail-open-skip` warn.
+    # helper-miss → fail-open allow (helper-missing warn, matcher-scoped). Empty
+    # state-dir → attestation-absent, terminal. Independent matcher. SPEC §6.1
+    # 'merge-attestation' row, §5.7.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
+      decided=
+      if should_skip merge-attestation; then
+        decided=1
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-attestation; then
+        if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
+          mark_allow merge-attestation
+          decided=1
+        else
+          ma_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+          if [ -z "$ma_pr" ] && command -v gh >/dev/null 2>&1; then
+            ma_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+          fi
+          ma_esd=$(ghjig_state_dir 2>/dev/null || true)
+          if [ -z "$ma_pr" ]; then
+            # PR unresolvable → cannot key an attestation; fail-open allow (loud).
+            audit_log warn merge-attestation fail-open-skip "PR number unresolvable from cmd or current branch; merge allowed (fail-open, §6.1)"
+            decided=1
+          elif [ -z "$ma_esd" ] || [ ! -f "$ma_esd/attest/pr-$ma_pr" ]; then
+            # (a) PRESENCE — zero-network, fail-CLOSED even with gh down. No
+            # per-project state dir counts as attestation-absent (terminal).
+            block merge-attestation "review not attested for PR #${ma_pr} — run /ship (it writes the attestation after the blind-compare passes). Or SKIP_HOOKS=merge-attestation SKIP_REASON='<why>' for a sanctioned exception."
+          else
+            # (b) STALENESS — attested head must equal the current PR head.
+            ma_head=
+            if command -v _ac_run_gh >/dev/null 2>&1; then
+              ma_head=$(_ac_run_gh pr view "$ma_pr" --json headRefOid -q .headRefOid 2>/dev/null || true)
+            fi
+            if [ -z "$ma_head" ]; then
+              # gh unresolvable in the STALENESS sub-check only → fail-open allow (loud).
+              audit_log warn merge-attestation fail-open-skip "PR #${ma_pr} head unresolvable (gh down/timeout); attestation present but staleness unverifiable; merge allowed (fail-open, §6.1)"
+              decided=1
+            elif command -v attestation_matches >/dev/null 2>&1 && attestation_matches "$ma_pr" "$ma_head"; then
+              mark_allow merge-attestation
+              decided=1
+            else
+              block merge-attestation "review for PR #${ma_pr} was attested at a STALE head (the PR head has since advanced) — re-run /ship to re-review at the current head. Or SKIP_HOOKS=merge-attestation SKIP_REASON='<why>' for a sanctioned exception."
+            fi
+          fi
+        fi
+      else
+        # safe_source emitted the merge-attestation helper-missing warn already.
+        decided=1
+      fi
+      [ -z "$decided" ] && pass_through_trace merge-attestation "$cmd"
+    fi
+
     # proposed-protect — block branch-creation referencing an Issue that is not
     # yet a branchable Execution Issue (SPEC §1.7, §6.1, §10.5). Generalized from
     # directive-protect (#171): block when the target Issue is EITHER

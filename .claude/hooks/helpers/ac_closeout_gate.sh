@@ -226,3 +226,62 @@ pr_needs_closeout() {
 
   return 1
 }
+
+# local_ahead_of_pr <branch> — push-parity check (#244, SPEC §6.1). Returns 0
+# (block) ONLY when the local branch is STRICTLY AHEAD of its pushed remote-
+# tracking head — i.e. the merge would leave unpushed local commits behind:
+#   origin/<branch> exists locally, is an ANCESTOR of HEAD, and the two SHAs
+#   differ. git-only + zero-network (reads refs/remotes/origin/<branch>; never
+#   fetches). Every other state — behind / diverged / no-upstream / detached /
+#   absent-local / not-a-worktree / git-absent — returns 1 (allow), so ONLY the
+#   strictly-ahead state blocks (positive detection). set -u-safe.
+local_ahead_of_pr() {
+  local branch="${1:-}"
+  [ -n "$branch" ] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  local remote_ref="refs/remotes/origin/$branch"
+  # Upstream must resolve locally (no network). Absent → not ahead.
+  local remote_sha local_sha
+  remote_sha=$(git rev-parse --verify --quiet "$remote_ref" 2>/dev/null) || return 1
+  local_sha=$(git rev-parse --verify --quiet HEAD 2>/dev/null) || return 1
+  [ -n "$remote_sha" ] && [ -n "$local_sha" ] || return 1
+  [ "$remote_sha" = "$local_sha" ] && return 1          # in-sync → allow
+  # Strictly ahead iff the remote head is an ancestor of the local HEAD.
+  # behind / diverged → the remote is NOT an ancestor → allow.
+  git merge-base --is-ancestor "$remote_ref" HEAD 2>/dev/null || return 1
+  return 0
+}
+
+# attestation_matches <pr> <head> — merge-attestation staleness check (#246,
+# #543, SPEC §6.1). Returns 0 iff $(ghjig_state_dir)/attest/pr-<pr> exists AND
+# its recorded `head=<sha>` equals <head>. Presence (file exists at all) is a
+# separate zero-network fact the caller checks WITHOUT <head>; this predicate
+# additionally requires the head to match. set -u-safe (empty state-dir / pr /
+# head → 1, never a crash).
+attestation_matches() {
+  local pr="${1:-}" head="${2:-}"
+  [ -n "$pr" ] && [ -n "$head" ] || return 1
+  local esd; esd=$(ghjig_state_dir 2>/dev/null) || esd=""
+  [ -n "$esd" ] || return 1
+  local f="$esd/attest/pr-$pr"
+  [ -f "$f" ] || return 1
+  local recorded
+  recorded=$(sed -n 's/^head=//p' "$f" 2>/dev/null | head -1)
+  [ -n "$recorded" ] || return 1
+  [ "$recorded" = "$head" ]
+}
+
+# write_review_attestation <pr> <head> — record that PR <pr>'s review passed at
+# <head>. Writes `head=<sha>` to $(ghjig_state_dir)/attest/pr-<pr> (mkdir -p the
+# dir). Called by /ship strictly AFTER the blind-compare pass (an aborted review
+# writes nothing). set -u-safe: empty state-dir / pr / head → no-op + return 1,
+# never a crash.
+write_review_attestation() {
+  local pr="${1:-}" head="${2:-}"
+  [ -n "$pr" ] && [ -n "$head" ] || return 1
+  local esd; esd=$(ghjig_state_dir 2>/dev/null) || esd=""
+  [ -n "$esd" ] || return 1
+  mkdir -p "$esd/attest" 2>/dev/null || return 1
+  printf 'head=%s\n' "$head" > "$esd/attest/pr-$pr"
+}

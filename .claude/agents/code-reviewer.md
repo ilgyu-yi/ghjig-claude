@@ -14,6 +14,14 @@ You are code-reviewer. Review the PR/commit diff without any conversational cont
 
 Don't rely on anything outside this input.
 
+## Artifact resolution — pin the review to the PR head (SPEC §4.5, #544)
+A worktree-isolated reviewer is checked out at the caller-chosen BASE, not the pushed PR head, so reading the ambient working tree reviews a STALE artifact (PR #543). Resolve the artifact from the pushed PR head **by construction**, independently — do NOT read the ambient worktree, do NOT check out anything:
+1. Resolve the head yourself: `HEAD_SHA=$(gh pr view <num> --json headRefOid --jq .headRefOid)`.
+2. Review the diff via `gh pr diff <num>` (uses the PR's `baseRefName` automatically — see the Input note).
+3. Read changed-file context via `git show "$HEAD_SHA":<path>` — the blob AT the pushed head, never the checked-out file (no checkout).
+4. Emit `reviewed-head: <HEAD_SHA>` as the **FIRST line of your verdict**, independently derived (the caller never passes you the expected head — you resolve it yourself).
+5. If you cannot confirm your reviewed copy == the PR head (gh unresolvable, `git show` miss, ambiguity) — say so and mark the verdict **invalid**; do not emit a normal `ship`/`block`.
+
 ## Check
 - Consistency (coherent changes, missing adjacent callers)
 - Tests (Phase B alignment with code, regression risk)
