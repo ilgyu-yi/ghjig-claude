@@ -9,11 +9,11 @@ The **flush** half of the `flush → clear → reconstruct` context lifecycle (S
 
 ## Procedure
 
-1. **Resolve the task-scoped state.** Source `$GHJIG_ROOT/.claude/hooks/helpers/status.sh` and call `status_compact` (the canonical projection — same fields the `UserPromptSubmit` hook and `/status` use, so the archive and the reconstruct read identically): branch, issue, PR, phase, `next:` step, mode, shell-root, state, work-lang.
+1. **Resolve the task-scoped state.** Source `.claude/ghjig-root/.claude/hooks/helpers/status.sh` and call `status_compact` (the canonical projection — same fields the `UserPromptSubmit` hook and `/status` use, so the archive and the reconstruct read identically): branch, issue, PR, phase, `next:` step, mode, shell-root, state, work-lang.
 
 2. **Write at least one durable-memory artifact** (the archive). In priority order:
    - **PR body** — when the current branch has a PR, curate it per the PR-as-living-doc rule (SPEC §1.4): fold the current phase, the `next:` step, and any decision taken since the last commit into the PR body (refetch the remote body first; abort the auto-update if it changed externally, per `/sync-pr`). This is the richest task-scoped artifact.
-   - **`.claude/state/` flush record** — always write this (a branch may have no PR yet, so the PR body alone has a hole). Source `$GHJIG_ROOT/.claude/hooks/hookrt.sh` and write `status_json` to `"$(ghjig_state_dir)/flush-record.json"` (the per-project ephemeral state dir, SPEC §3.2.2). This is the always-available durable target.
+   - **`.claude/state/` flush record** — always write this (a branch may have no PR yet, so the PR body alone has a hole). Source `.claude/ghjig-root/.claude/hooks/hookrt.sh` and write `status_json` to `"$(ghjig_state_dir)/flush-record.json"` (the per-project ephemeral state dir, SPEC §3.2.2). This is the always-available durable target.
    - **GitHub artifacts** — for anything narrative that belongs on the durable record (a design note, an open question), append a `gh issue comment` / `gh pr comment` rather than letting it die with the context.
 
    The flush must produce or update **at least one** durable artifact, so the state is recoverable after the clear.

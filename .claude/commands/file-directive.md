@@ -25,7 +25,7 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
    Verdict dispatch (SPEC §2.1, §5.7.1 operating-mode coupling):
    - **`pass`** → proceed to step 3.
    - **`revise: <feedback>`** → revise the body per the one-line feedback. Re-invoke `activation-reviewer` on the revised body. The reviewer **self-escalates to `reject` after N=3 `revise` markers** (the contract SSOT `.claude/agents/activation-reviewer.md`); on that `reject`, surface to the user (attended) or park (unattended).
-   - **`reject: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `$GHJIG_ROOT/.claude/state/directive-block.log` and stop.
+   - **`reject: <reason>`** → do NOT create the Issue. In attended mode: report the reason and stop. In unattended mode: append one line to `.claude/ghjig-root/.claude/state/directive-block.log` and stop.
 
 3. **Create the Issue**. The `P<P>` priority label is applied **only if it exists** on the target (graceful degradation, SPEC §0.4) — the `directive` label is the hard dependency (enforced by step 0), the `P<N>` label is degradable:
    ```bash

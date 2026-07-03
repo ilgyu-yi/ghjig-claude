@@ -13444,6 +13444,45 @@ else
   ng "134b: hook-entry resolution contract violated (checked=$s134b_checked/5): ${s134b_bad:-none}(#537)"
 fi
 
+# §134b (ext, #539): the SAME self-location idiom, extended (non-optionally) past
+# the 5 hook entries to the 4 deliberately-invoked CLI scripts + the 4 lib consult
+# sites. As of #539 the ambient env is retired as an input EVERYWHERE, not just on
+# the hook path (§3.2.1 "Self-location — one idiom"). Each of the 8 files must
+# carry the single self-locate idiom `${GHJIG_ROOT_OVERRIDE:-…BASH_SOURCE…pwd -P}`
+# and consult the ambient env NOWHERE — no `${GHJIG_ROOT:-…}` / `${GHJIG_ROOT:=…}` /
+# `${GHJIG_ROOT}` / `${GHJIG_ROOT:?}`. The degraded `${GHJIG_ROOT:-$SCRIPT_ROOT}`
+# (which re-admits the inherited ambient value) is explicitly caught by the same
+# ban pattern §134b uses (the `[}:-]` char class matches :-, :=, :?, }, -, and
+# excludes the `_OVERRIDE` seam's underscore). Count-guarded to 8; a missing file
+# or missing idiom fails LOUD (anti-vacuity). RED until the Code phase flips the
+# CLI `:=` fallbacks + the lib `:-`/`:?` reads to the idiom.
+s134bx_checked=0
+s134bx_bad=""
+for s134bx_f in \
+  scripts/dir_mode_project.sh scripts/migrate_v3.sh scripts/onboard_target.sh scripts/setup_project.sh \
+  scripts/lib/audit_log_path.sh scripts/lib/dir_mode_project_resolve.sh scripts/lib/inject.sh scripts/lib/self_register.sh \
+; do
+  s134bx_p="$SHELL_ROOT/$s134bx_f"
+  if [ ! -f "$s134bx_p" ]; then
+    s134bx_bad="${s134bx_bad}${s134bx_f}[missing-file] "
+    continue
+  fi
+  s134bx_checked=$((s134bx_checked+1))
+  # (a) idiom present: one line carrying the OVERRIDE seam → BASH_SOURCE → pwd -P.
+  grep -Eq 'GHJIG_ROOT_OVERRIDE:-.*BASH_SOURCE.*pwd -P' "$s134bx_p" \
+    || s134bx_bad="${s134bx_bad}${s134bx_f}[no-self-locate-idiom] "
+  # (b) no ambient braced consult ANYWHERE in the file (the degraded
+  # ${GHJIG_ROOT:-$SCRIPT_ROOT} is a member of this set). Bare post-self-locate
+  # `$GHJIG_ROOT` uses stay legal — only the ambient-CONSULT braced forms are banned.
+  grep -Eq '\$\{GHJIG_ROOT[}:-]' "$s134bx_p" \
+    && s134bx_bad="${s134bx_bad}${s134bx_f}[consults-ambient-braced] "
+done
+if [ "$s134bx_checked" = 8 ] && [ -z "$s134bx_bad" ]; then
+  ok "134b (ext): 4 CLI + 4 lib sites self-locate via the OVERRIDE-seam→BASH_SOURCE idiom, never consult the ambient env (#539)"
+else
+  ng "134b (ext): CLI/lib self-location contract violated (checked=$s134bx_checked/8): ${s134bx_bad:-none}(#539)"
+fi
+
 # §134c: SessionStart shell-root env banners (SPEC §6.5(c), #537) — two arms in
 # the same once-per-session mkdir-stamp-debounced family as the §40 hookrt /
 # §502 registry-zeroed banners; harness mirrors ss502_run. Arm (a): a lingering
@@ -13512,6 +13551,167 @@ else
   ng "134c-b1: active test-only seam not surfaced (count=$(s134c_seam "$s134c_b1"), want 1 naming $SHELL_ROOT): $(printf '%s' "$s134c_b1" | tr '\n' ' ') (#537)"
 fi
 rm -rf "$S134C_TMPDIR" "$S134C_STATE" "$S134C_CWD"
+
+# ---------- §135: ambient retired as an input EVERYWHERE (#539) ----------
+# SPEC §3.2.1/§3.6 (post-#539): the 4 CLI scripts drop `: "${GHJIG_ROOT:=…}"` and
+# self-locate unconditionally; the 4 lib consult sites self-locate inline before
+# any bare $GHJIG_ROOT use; every registered project (incl. the dogfood repo) carries
+# a `.claude/ghjig-root` binding symlink; and `.claude/commands/*.md` recast every
+# `$GHJIG_ROOT/` to a structural (binding-symlink-relative) form. These assertions
+# pin that END state, so they are RED now and GREEN after the Code phase.
+
+# §135a (AC-1): zero ambient-INPUT consult across product scripts. No `${GHJIG_ROOT
+# :-…}` / `${GHJIG_ROOT-…}` / `${GHJIG_ROOT:=…}` may survive under scripts/ or bin/.
+# Excludes scripts/test/ (harness fixtures + the §134b guard-pattern comment) and
+# the GHJIG_ROOT_OVERRIDE seam (the regex already excludes `_OVERRIDE`; filtered
+# again defensively). RED now: the 4 CLI `:=` + the 5 lib `:-` sites still match.
+s135a_hits=$(git -C "$SHELL_ROOT" grep -nE '\$\{GHJIG_ROOT(:?-|:=)' -- scripts/ bin/ 2>/dev/null \
+  | grep -v '^scripts/test/' | grep -v 'GHJIG_ROOT_OVERRIDE' || true)
+s135a_n=$(printf '%s' "$s135a_hits" | grep -c . || true)
+if [ "$s135a_n" = 0 ]; then
+  ok "135a: zero ambient \${GHJIG_ROOT:-}/\${GHJIG_ROOT:=} consult under scripts/ + bin/ (#539)"
+else
+  ng "135a: $s135a_n ambient GHJIG_ROOT consult site(s) survive under scripts/+bin/ (want 0): $(printf '%s' "$s135a_hits" | tr '\n' ' ')(#539)"
+fi
+
+# §135b (AC-2): uniform binding symlink across BOTH project kinds. Every real
+# registered project — an injected target AND the dogfood $SHELL_ROOT (the #539-new
+# committed self-symlink `.claude/ghjig-root -> ..`) — carries `.claude/ghjig-root`
+# resolving to a directory containing `.claude/hooks` (mirrors §82's symlink
+# resolution). The invariant is scoped to projects created via inject_into /
+# ensure_self_registered, not the harness's bare `printf >> registry` fixtures
+# (those are never injected and carry no binding by design). Count-guarded to 2;
+# a missing/dangling link fails LOUD. RED now: the dogfood self-symlink is absent.
+s135b_checked=0
+s135b_bad=""
+s135b_check_one() {  # $1 = project root, $2 = label
+  local root="$1" label="$2" link real
+  link="$root/.claude/ghjig-root"
+  s135b_checked=$((s135b_checked+1))
+  if [ ! -e "$link" ]; then s135b_bad="${s135b_bad}${label}[no-ghjig-root] "; return; fi
+  real=$(cd "$link" 2>/dev/null && pwd -P) || real=""
+  if [ -z "$real" ]; then s135b_bad="${s135b_bad}${label}[dangling] "; return; fi
+  [ -d "$real/.claude/hooks" ] || s135b_bad="${s135b_bad}${label}[no-hooks-at-target] "
+}
+s135b_check_one "$SHELL_ROOT" dogfood   # the load-bearing #539-new case (RED now)
+S135B_TGT=$(cd "$(mktemp -d)" && pwd -P)   # a freshly-injected target (green control)
+( cd "$S135B_TGT" && git init -q ) >/dev/null 2>&1
+inject_into "$S135B_TGT" >/dev/null 2>&1
+s135b_check_one "$S135B_TGT" injected-target
+rm -rf "$S135B_TGT"
+if [ "$s135b_checked" = 2 ] && [ -z "$s135b_bad" ]; then
+  ok "135b: dogfood + injected-target both carry .claude/ghjig-root → dir with .claude/hooks (uniform binding) (#539)"
+else
+  ng "135b: binding symlink missing/dangling (checked=$s135b_checked/2): ${s135b_bad:-none}(#539)"
+fi
+
+# §135c (AC-4): wrong-ambient regression for the 4 CLI scripts — mirrors §134a.
+# A hostile ambient GHJIG_ROOT pointing at a FAKE tree (with tripwire-armed
+# hookrt.sh + dir_mode_project_resolve.sh) must not redirect a deliberately-invoked
+# CLI script: each self-locates its OWN clone, so the fake tree is never sourced
+# (tripwire stays unwritten). Every run is bounded to a guard/--help/dry path on a
+# fresh UNREGISTERED cwd with a `gh` stub, so no gh/network is reached either pre-
+# or post-flip. RED now: the `:=` fallback honors the inherited GHJIG_ROOT and
+# sources the fake tree.
+S135C_DIR=$(mktemp -d); S135C_DIR=$(cd "$S135C_DIR" && pwd -P)
+S135C_FAKE="$S135C_DIR/fakeroot"
+S135C_TRIP="$S135C_DIR/tripwire"
+S135C_CWD="$S135C_DIR/cwd"; mkdir -p "$S135C_CWD"
+S135C_STUB="$S135C_DIR/stubbin"; mkdir -p "$S135C_STUB"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$S135C_STUB/gh"; chmod +x "$S135C_STUB/gh"
+mkdir -p "$S135C_FAKE/.claude/hooks" "$S135C_FAKE/scripts/lib"
+# Fake runtime + resolver: sourcing either (or calling the no-op audit_log) trips.
+cat > "$S135C_FAKE/.claude/hooks/hookrt.sh" <<EOF
+printf 'hookrt-sourced\n' >> "$S135C_TRIP"
+audit_log()   { printf 'audit_log-called\n'   >> "$S135C_TRIP"; return 0; }
+safe_source() { printf 'safe_source-called\n' >> "$S135C_TRIP"; return 0; }
+EOF
+cat > "$S135C_FAKE/scripts/lib/dir_mode_project_resolve.sh" <<EOF
+printf 'resolve-sourced\n' >> "$S135C_TRIP"
+EOF
+s135c_fire() {  # $1 = script relpath under scripts/, rest = args ; echoes 1 if fake tree touched
+  local script="$1"; shift
+  rm -f "$S135C_TRIP"
+  ( cd "$S135C_CWD" || exit 1
+    env -u GHJIG_ROOT_OVERRIDE -u "GHJIG_SHELL_""ROOT" \
+      GHJIG_ROOT="$S135C_FAKE" PATH="$S135C_STUB:$PATH" \
+      bash "$SHELL_ROOT/scripts/$script" "$@" </dev/null >/dev/null 2>&1 ) || true
+  [ -e "$S135C_TRIP" ] && printf 1 || printf 0
+}
+s135c_checked=0
+s135c_bad=""
+for s135c_spec in \
+  "dir_mode_project.sh --help" \
+  "migrate_v3.sh" \
+  "onboard_target.sh --tier 1 --dry-run" \
+  "setup_project.sh" \
+; do
+  # shellcheck disable=SC2086  # deliberate word-split of the fixed spec into argv
+  set -- $s135c_spec
+  s135c_script="$1"
+  s135c_checked=$((s135c_checked+1))
+  [ "$(s135c_fire "$@")" = 1 ] && s135c_bad="${s135c_bad}${s135c_script} "
+done
+if [ "$s135c_checked" = 4 ] && [ -z "$s135c_bad" ]; then
+  ok "135c: all 4 CLI scripts ignore a hostile ambient GHJIG_ROOT and self-locate (fake tree untouched) (#539)"
+else
+  ng "135c: CLI script(s) loaded the AMBIENT fake tree (checked=$s135c_checked/4): ${s135c_bad:-none}(#539)"
+fi
+rm -rf "$S135C_DIR"
+
+# §135d: unset-reachable audit-path bug (#539). narrowing_candidates.sh /
+# promotion_candidates.sh source audit_log_path.sh WITHOUT exporting GHJIG_ROOT.
+# With the ephemeral-state env also scrubbed, resolve_audit_log must anchor under
+# the SELF-LOCATED shell root — never the filesystem-root-anchored `/.claude/audit
+# /audit.jsonl` that the `${GHJIG_ROOT:-}` fallback yields today. Sourced exactly
+# the way the consumer scripts do (`. "$HERE/lib/audit_log_path.sh"`). RED now.
+s135d=$(
+  env -u GHJIG_ROOT -u CLAUDE_PROJECT_DIR -u GHJIG_STATE_DIR_OVERRIDE \
+    bash -c '. "$1/lib/audit_log_path.sh"; resolve_audit_log' _ "$SHELL_ROOT/scripts" 2>/dev/null
+)
+if [ "$s135d" = "$SHELL_ROOT/.claude/audit/audit.jsonl" ]; then
+  ok "135d: env-scrubbed resolve_audit_log self-locates the shell root (not /.claude/audit) (#539)"
+else
+  ng "135d: unset GHJIG_ROOT → resolve_audit_log returned '$s135d' (want '$SHELL_ROOT/.claude/audit/audit.jsonl'; the filesystem-root /.claude/audit bug) (#539)"
+fi
+
+# §135e (AC-3): commands carry zero `$GHJIG_ROOT/`, and the runtime-executed
+# command-prelude form resolves through the binding symlink in BOTH the dogfood
+# repo and a freshly-injected target.
+# e-1: grep guard — zero `$GHJIG_ROOT/` under .claude/commands/. RED now (recast pending).
+s135e_n=$(grep -rn '\$GHJIG_ROOT/' "$SHELL_ROOT/.claude/commands/" 2>/dev/null | grep -c . || true)
+if [ "$s135e_n" = 0 ]; then
+  ok "135e-1: .claude/commands/ carry zero \$GHJIG_ROOT/ references (#539)"
+else
+  ng "135e-1: .claude/commands/ still contain $s135e_n \$GHJIG_ROOT/ reference(s) (want 0) (#539)"
+fi
+# The command-prelude form under test (SPEC §3.2.1 "Runtime-executed"):
+#   GR="$(git rev-parse --show-toplevel)/.claude/ghjig-root"; [ -e "$GR/.claude" ]
+s135e_prelude='
+  GR="$(git rev-parse --show-toplevel 2>/dev/null)/.claude/ghjig-root"
+  [ -e "$GR/.claude" ] || { echo NORESOLVE; exit 0; }
+  ( cd "$GR" 2>/dev/null && pwd -P )'
+# e-2: dogfood repo — RED now (the committed .claude/ghjig-root self-symlink is absent).
+s135e2=$( cd "$SHELL_ROOT" && env -u GHJIG_ROOT -u GHJIG_ROOT_OVERRIDE -u CLAUDE_PROJECT_DIR \
+  bash -c "$s135e_prelude" 2>/dev/null )
+if [ -n "$s135e2" ] && [ "$s135e2" != NORESOLVE ] && [ -d "$s135e2/.claude/hooks" ]; then
+  ok "135e-2: dogfood command-prelude GR resolves to a shell root with .claude/hooks (#539)"
+else
+  ng "135e-2: dogfood command-prelude GR did not resolve (got '$s135e2'; committed self-symlink absent) (#539)"
+fi
+# e-3: freshly-injected target — CONTROL (green pre- AND post-flip): inject already
+# creates the binding symlink, so a RED here would implicate the inject path, not #539.
+S135E=$(cd "$(mktemp -d)" && pwd -P)
+( cd "$S135E" && git init -q ) >/dev/null 2>&1
+inject_into "$S135E" >/dev/null 2>&1
+s135e3=$( cd "$S135E" && env -u GHJIG_ROOT -u GHJIG_ROOT_OVERRIDE -u CLAUDE_PROJECT_DIR \
+  bash -c "$s135e_prelude" 2>/dev/null )
+if [ "$s135e3" = "$SHELL_ROOT" ] && [ -d "$s135e3/.claude/hooks" ]; then
+  ok "135e-3: injected-target command-prelude GR resolves to the canonical shell root (control) (#539)"
+else
+  ng "135e-3: injected-target GR resolution wrong (got '$s135e3', want '$SHELL_ROOT') (#539)"
+fi
+rm -rf "$S135E"
 
 # ---------- results ----------
 echo

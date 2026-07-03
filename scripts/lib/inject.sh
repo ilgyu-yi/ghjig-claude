@@ -9,9 +9,12 @@
 # to the target's .git/info/exclude. Net effect: a plain `claude` in the target
 # resolves the shell with no global GHJIG_ROOT env. See SPEC §3.2.1.
 
+# Self-location: resolve GHJIG_ROOT from our own path (test seam:
+# GHJIG_ROOT_OVERRIDE). The inherited ambient env is never an input (#539).
+GHJIG_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"; export GHJIG_ROOT
+
 inject_into() {
   local target="$1"
-  : "${GHJIG_ROOT:?GHJIG_ROOT must be set}"
   [ -d "$target" ] || { echo "target directory not found: $target" >&2; return 1; }
   target=$(cd "$target" && pwd -P)
 
@@ -63,7 +66,7 @@ inject_into() {
   # ghjig_registry_file resolver, defensively sourcing hookrt from the code root
   # (GHJIG_ROOT, not $target — the target may not carry hooks).
   command -v ghjig_registry_file >/dev/null 2>&1 \
-    || { [ -n "${GHJIG_ROOT:-}" ] && [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
+    || { [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ] \
          && . "$GHJIG_ROOT/.claude/hooks/hookrt.sh"; }
   local registry; registry=$(ghjig_registry_file "$target")
   mkdir -p "$(dirname "$registry")"

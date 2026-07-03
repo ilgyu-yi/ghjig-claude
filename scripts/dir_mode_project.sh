@@ -25,9 +25,9 @@
 set -uo pipefail
 
 # ---------- environment ----------
-SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-: "${GHJIG_ROOT:=$SCRIPT_ROOT}"
-export GHJIG_ROOT
+# Self-location: resolve GHJIG_ROOT from our own path (test seam: GHJIG_ROOT_OVERRIDE).
+# The inherited ambient env is never an input (#539).
+GHJIG_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"; export GHJIG_ROOT
 
 if [ -f "$GHJIG_ROOT/.claude/hooks/hookrt.sh" ]; then
   # shellcheck source=/dev/null

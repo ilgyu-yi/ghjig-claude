@@ -13,5 +13,5 @@ Confirm with the user that this decision warrants an ADR. If yes:
 
 1. Check `docs/ADRs/` exists (else confirm creation permission).
 2. Determine the next number: `ls docs/ADRs/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1`, then +1, zero-padded to 4 digits.
-3. Create `docs/ADRs/NNNN-<kebab-title>.md` from `$GHJIG_ROOT/.claude/templates/adr.md`.
+3. Create `docs/ADRs/NNNN-<kebab-title>.md` from `.claude/ghjig-root/.claude/templates/adr.md`.
 4. Add a link `→ ADR-NNNN: <title>` to the current PR body's Decisions section.

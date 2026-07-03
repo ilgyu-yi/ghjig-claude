@@ -35,7 +35,7 @@ Create an issue.
    - Otherwise in **attended** mode, ask the user (`P0` drop-everything / `P1` next / `P2` soon / `P3` eventually).
    - In **unattended** mode with no `--priority`, default to **`P2`** (the same default `/file-directive` uses). Do not block on the absence of a human.
    - The chosen `P<N>` is applied as a label at create time (step 5, graceful-degradation guarded) **and** recorded in the step-5 audit line, so the priority survives even if the label can't be applied. For a `--parent`ed Execution Issue, this is still captured (an Execution Issue carries its own priority; it does not silently inherit the Directive's).
-2. The body follows the structure of `$GHJIG_ROOT/.claude/templates/issue.md`. MISSION reference and acceptance criteria must be filled.
+2. The body follows the structure of `.claude/ghjig-root/.claude/templates/issue.md`. MISSION reference and acceptance criteria must be filled.
 3. **Rationale check** (mandatory; not skipped in Auto / unattended mode). Before `gh issue create`, surface to the user:
    - **(a) MISSION fit**: which MISSION item does this serve?
    - **(b) Why now**: what changes if this waits a week / a quarter?
@@ -44,7 +44,7 @@ Create an issue.
 4. **Reviewer gate** — invoke the `issue-reviewer` subagent (see SPEC §4.7) on the proposed body. Pass the body, the target MISSION.md, and the `gh issue list --state open --limit 100 --json number,title,body` snapshot. Parse the verdict line (`^VERDICT: (ship|refine|block)`).
    - **`ship`**: proceed to step 5.
    - **`refine: <feedback>`**: revise the body per the one-line feedback. Re-invoke `issue-reviewer` on the revised body. After two consecutive `refine` verdicts on the latest body, escalate to the user (or, in unattended mode, treat as `block`).
-   - **`block: <reason>`**: do NOT call `gh issue create`. In attended mode: report the reason to the user and stop. In unattended mode: append one line to `$GHJIG_ROOT/.claude/state/issue-block.log` naming the rejected title and reason, then stop.
+   - **`block: <reason>`**: do NOT call `gh issue create`. In attended mode: report the reason to the user and stop. In unattended mode: append one line to `.claude/ghjig-root/.claude/state/issue-block.log` naming the rejected title and reason, then stop.
    - **Reject-audit emission** (SPEC §6.1, Directive #356 signal 3) — on **any** non-pass verdict (`refine` or `block`), emit one categorized audit record: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then `reviewer_reject_audit issue-review <reason-class> <issue-or-draft-id>`, mapping the reviewer's reason to the nearest **reason-class** token (`schema-incomplete` / `unverifiable-ac` / `scope-bleed` / `mission-misfit` / `conflict` / `evidence-insufficient`). This is observability only — it never changes the verdict's effect.
 5. **Derive the type label deterministically** (SPEC §1.7 line 309 — the label *is* the type; never agent discretion):
    - `--quick` → **`bug`** (from step 1).

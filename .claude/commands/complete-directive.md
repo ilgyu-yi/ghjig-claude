@@ -28,7 +28,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 3. **Read the Directive's success signals** from its body (the `## Success signals` section authored at `/file-directive` time).
 
-4. **Reviewer gate** — Directive completion is a **high-asymmetry** decision (SPEC §4.11): a wrong "complete" is irreversible (it closes the Directive). Source `$GHJIG_ROOT/.claude/hooks/helpers/blast_radius.sh`; `is_high_asymmetry directive-completion` holds, so run the evidence evaluation as an **N=3 independent majority vote** of `activation-reviewer` — three independent, worktree-isolated, artifact-only invocations with no shared context, **2 of 3** pass required. (On a `safe_source` miss, degrade to a single `activation-reviewer` with an `audit_log warn reviewer-tier` — never a lockout.) Each invocation gets:
+4. **Reviewer gate** — Directive completion is a **high-asymmetry** decision (SPEC §4.11): a wrong "complete" is irreversible (it closes the Directive). Source `.claude/ghjig-root/.claude/hooks/helpers/blast_radius.sh`; `is_high_asymmetry directive-completion` holds, so run the evidence evaluation as an **N=3 independent majority vote** of `activation-reviewer` — three independent, worktree-isolated, artifact-only invocations with no shared context, **2 of 3** pass required. (On a `safe_source` miss, degrade to a single `activation-reviewer` with an `audit_log warn reviewer-tier` — never a lockout.) Each invocation gets:
    - The Directive body (with success signals as written).
    - The list of linked Execution Issues + their states + AC ticks.
 

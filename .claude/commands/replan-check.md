@@ -2,7 +2,7 @@
 description: Compare the working diff against the Plan; re-invoke planner only on STRUCTURAL divergence (out-of-plan load-bearing files or an unreachable AC). Advisory, not a gate.
 ---
 
-Source `$GHJIG_ROOT/.claude/hooks/helpers/replan_check.sh` and call `replan_check_facts`. That helper surfaces the mechanical facts (base, touched files, PR-body Plan/Checklist/Key-context/Out-of-scope, linked-issue ACs) — fail-open. A touched file the Plan declared **out-of-scope** is a strong structural signal. The **judgment** below is yours (LLM). See SPEC §5.26.
+Source `.claude/ghjig-root/.claude/hooks/helpers/replan_check.sh` and call `replan_check_facts`. That helper surfaces the mechanical facts (base, touched files, PR-body Plan/Checklist/Key-context/Out-of-scope, linked-issue ACs) — fail-open. A touched file the Plan declared **out-of-scope** is a strong structural signal. The **judgment** below is yours (LLM). See SPEC §5.26.
 
 Read the facts, then classify the divergence:
 

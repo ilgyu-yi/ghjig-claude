@@ -9,11 +9,13 @@ An optional `<path>` argument scopes reconciliation to a single drift candidate;
 
 ## Procedure
 
-0. **Resolve mode** via `resolve_mode` (`$GHJIG_ROOT/.claude/hooks/helpers/ship_mode.sh`) — `attended` (default) or `unattended`. This governs whether a SPEC edit may be applied (see Operating mode).
+0. **Resolve mode** via `resolve_mode` (`.claude/ghjig-root/.claude/hooks/helpers/ship_mode.sh`) — `attended` (default) or `unattended`. This governs whether a SPEC edit may be applied (see Operating mode).
 
 1. **Run the detector** from the target repo's cwd:
    ```bash
-   "$GHJIG_ROOT/scripts/spec_drift_candidates.sh"
+   GR="$(git rev-parse --show-toplevel 2>/dev/null)/.claude/ghjig-root"
+   [ -e "$GR/.claude" ] || { echo "GHJig: not inside a registered project (cd to the project root, or run scripts/register.sh)"; exit 1; }
+   "$GR/scripts/spec_drift_candidates.sh"
    ```
    Parse its `  <path> | drift-commits=N` cluster lines. The `  (no spec-drift candidates)` sentinel → nothing to do; report and stop. If `<path>` was given, keep only that candidate.
 

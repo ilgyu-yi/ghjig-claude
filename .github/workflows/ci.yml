@@ -45,17 +45,23 @@ jobs:
             echo "no shell files found — repo layout changed?"
             exit 1
           fi
-          # Parse-check first (bash -n catches things shellcheck doesn't —
-          # heredoc/parser corner cases — and runs in microseconds per file).
+          # Parse-check (bash -n catches heredoc/parser corner cases shellcheck
+          # doesn't) then shellcheck — both PER FILE, not in one combined
+          # shellcheck invocation. shellcheck holds every file's AST in memory
+          # for the whole run, so a combined pass over the full set peaks at
+          # ~18 GB RSS (dominated by the 13k-line scripts/test/smoke.sh) and
+          # OOM-kills the GitHub ubuntu runner — surfacing as "the runner has
+          # received a shutdown signal", not a lint finding (#539). Per-file
+          # caps peak RSS at the single largest file. external-sources=false
+          # (.shellcheckrc) means no cross-file analysis is lost by splitting;
+          # .shellcheckrc silences (SC1090) + inline disables are read per
+          # invocation. See SPEC §11.
           for f in "${files[@]}"; do
             echo "→ bash -n $f"
             bash -n "$f"
+            echo "→ shellcheck $f"
+            shellcheck --severity=warning --shell=bash "$f"
           done
-          # Then shellcheck the same set in one invocation. .shellcheckrc
-          # records repo-wide silences (SC1090); inline `# shellcheck disable=`
-          # carries per-line justifications. See SPEC §11.
-          echo "→ shellcheck --severity=warning --shell=bash (${#files[@]} files)"
-          shellcheck --severity=warning --shell=bash "${files[@]}"
         shell: bash
 
   smoke:

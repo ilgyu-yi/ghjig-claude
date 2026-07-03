@@ -11,6 +11,10 @@
 #     "<esd>/audit/audit.jsonl"; else the legacy shared
 #     "$GHJIG_ROOT/.claude/audit/audit.jsonl".
 
+# Self-location: resolve GHJIG_ROOT from our own path (test seam:
+# GHJIG_ROOT_OVERRIDE). The inherited ambient env is never an input (#539).
+GHJIG_ROOT="${GHJIG_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)}"; export GHJIG_ROOT
+
 resolve_audit_log() {
   if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
   local esd=""
@@ -20,5 +24,5 @@ resolve_audit_log() {
     esd="$CLAUDE_PROJECT_DIR/.claude/ghjig-state"
   fi
   if [ -n "$esd" ]; then printf '%s' "$esd/audit/audit.jsonl"; return 0; fi
-  printf '%s' "${GHJIG_ROOT:-}/.claude/audit/audit.jsonl"
+  printf '%s' "$GHJIG_ROOT/.claude/audit/audit.jsonl"
 }
