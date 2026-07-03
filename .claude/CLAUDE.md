@@ -59,7 +59,7 @@ In `unattended` mode, the reviewers above substitute for human review at their r
 
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
-**Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `explorer`) share the parent's working tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage the parent's uncommitted work. Invoke them with **worktree isolation** (canonical); their prompts also constrain them to read-only git. Isolation checks out the harness-chosen base, not the PR head, so a post-push reviewer **pins its artifact to the PR head** and reports `reviewed-head:`; the caller blind-compares it and a reviewed-artifact ≠ PR-head is a **fail-closed invalid vote** (SPEC §4.5, §5.7, #544). Run `git status` before commit/merge. The **write-capable `implementer`** is deliberately **not** isolated (Code commit lands on the PR branch) — it uses a **path-scoped-add discipline** (never `git add -A`/`-u`), and the caller surfaces a dirty tree before dispatch (SPEC §4.12, §5.28).
+**Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `explorer`) share the parent's working tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage the parent's uncommitted work. Invoke them with **worktree isolation** (canonical); their prompts also constrain them to read-only git. Post-push reviewers pin to the PR head (isolation checks out base) and report `reviewed-head:`; a mismatch is a fail-closed invalid vote (SPEC §4.5, #544). Run `git status` before commit/merge. The **write-capable `implementer`** is deliberately **not** isolated (Code commit lands on the PR branch) — it uses a **path-scoped-add discipline** (never `git add -A`/`-u`), and the caller surfaces a dirty tree before dispatch (SPEC §4.12, §5.28).
 
 ## Branch & commit convention
 - Branch: `<gh-username>/<type>/[<issue#>-]<slug>`
@@ -67,7 +67,7 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 - Required group (`feat`/`fix`/`docs`/`refactor`/`perf`) — issue # required
 - Optional group (`test`/`style`/`build`/`ci`/`chore`/`revert`) — issue # optional
 - `Closes #N` (single/final PR), `Refs #N` (intermediate PR)
-- Recommended: assemble the commit via `ghjig_commit <type> <issue> "<subject>" [body…]` (`helpers/ghjig_commit.sh`, SPEC §10.2) — validates the subject before committing + array-argv build avoids multibyte/multiline `-m` pitfalls. Offered, not forced; the commit-format hook stays the net.
+- Recommended: `ghjig_commit <type> <issue> "<subject>" [body…]` (`helpers/ghjig_commit.sh`, SPEC §10.2) — validates the subject + array-argv avoids `-m` multibyte/multiline pitfalls. Offered, not forced.
 
 ## What hooks enforce
 Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe_source` fail-policy table); binding/state/banner items in §3.2.1, §3.2.2, §6.5(c). Enforcement face (block vs guide) is chosen by cost-asymmetry — SPEC §6.0.
@@ -77,21 +77,21 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **secret** — secret patterns in the staged diff blocked, with a `.shellsecretignore` path allow-list (SPEC §6.1).
 - **ac-closeout** — `gh pr merge` blocked when a linked issue has unchecked AC items and no `## AC closeout` marker comment yet (SPEC §6.1).
 - **merge-strategy** — `gh pr merge` to the default branch blocked unless the strategy is `--merge` (SPEC §6.1, §5.7.1).
-- **push-parity + merge-attestation** — un-skippable pre-merge gate. `push-parity` blocks `gh pr merge` when the local branch is strictly ahead of its pushed remote head (git-only, #244); `merge-attestation` blocks a merge whose review was skipped (no `$(ghjig_state_dir)/attest/pr-<N>` file — a zero-network presence fact, fail-closed even when `gh` is down) or done at a stale head (gh staleness compare, #543). `/ship` writes the attestation only after a review passes (SPEC §5.7). Forgeable attestation is out of the §6.1 threat model (mistake-prevention, not a security boundary). Both `SKIP_HOOKS`-escapable and audited (SPEC §6.1, §5.7).
+- **push-parity / merge-attestation** — un-skippable `gh pr merge` gate: blocks merging with unpushed commits (#244), a skipped review (no `attest/pr-<N>`, zero-network fail-closed) or a stale-head review (#246/#543). `/ship` writes the attestation post-pass; `SKIP_HOOKS`-escapable (SPEC §6.1, §5.7).
 - **sensitive-file** — Edit/Write on `.env`, `*.pem`, `credentials*`, `id_rsa*`, `id_ed25519*` blocked, including under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except the two carve-outs `$GHJIG_ROOT/` and `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
-- **shell-root resolution** — hooks self-locate via `BASH_SOURCE` through the per-project `.claude/ghjig-root` symlink and export `GHJIG_ROOT` (internal; ambient never consulted; `GHJIG_ROOT_OVERRIDE` = test seam) — a plain `claude` needs no global env (SPEC §3.2.1).
-- **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `ghjig-state/` (`ghjig_state_dir`/`ghjig_registry_file`); missing/empty registry fails open (SPEC §3.2.2).
-- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty scope registry, #502; ambient legacy `GHJIG_SHELL_ROOT`/mismatched `GHJIG_ROOT` export — retired, ignored; active `GHJIG_ROOT_OVERRIDE` seam, #537) once per session, naming the fix (SPEC §6.5(c)).
+- **shell-root resolution** — hooks self-locate via `BASH_SOURCE` through the `.claude/ghjig-root` symlink; ambient never consulted, `GHJIG_ROOT_OVERRIDE` = test seam (SPEC §3.2.1).
+- **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `ghjig-state/`; missing/empty registry fails open (SPEC §3.2.2).
+- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty scope registry; active `GHJIG_ROOT_OVERRIDE` seam) once per session, naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source (hook-to-helper and helper-to-helper) goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).
 - **pass-through invariant** — every matcher reaches a decided state per fire; happy paths `mark_allow` silently, anomalous silent fall-through is caught by `pass_through_trace` (SPEC §6.1).
-- **audit observability** — records carry an additive `source` field (`test` only via the harness-owned, uninjectable marker) and reviewers emit a categorized reject record; both observability surfaces, not gates (SPEC §6.1).
+- **audit observability** — records carry an additive `source` field and reviewers emit categorized reject records; observability surfaces, not gates (SPEC §6.1).
 - **type-aware hooks** — `issue_type.sh` predicates drive the AC-closeout Directive skip and the `proposed-protect` matcher (block branching a `status:proposed` or Directive Issue) (SPEC §1.7, §6.1).
 - **trusted-filer-mutate** — blocks a trusted-filer `gh issue close` without `--reason completed`, and `--remove-label directive` on any filer (SPEC §6.1).
-- **label-parent-consistency** — blocks a `gh issue edit --add-label {execution|task|bug}` that contradicts the body's line-1 parent marker (plus the initiative/directive + parent-XOR arms) (SPEC §6.1).
+- **label-parent-consistency** — blocks a `gh issue edit --add-label` that contradicts the body's line-1 parent marker (+ initiative/directive + parent-XOR arms) (SPEC §6.1).
 - **initiative-readonly** — blocks mutating `gh issue edit`/`close`/`reopen` on an `initiative` Issue (comments always allowed) (SPEC §6.1).
-- **directive-close** — blocks a GitHub close keyword + Directive `#N` in a PR body (inline `--body`) or commit message; the auto-close would bypass `/complete-directive` (§5.13). Execution Issues unaffected; per-`#N` fail-open (SPEC §6.1).
+- **directive-close** — blocks a close keyword + Directive `#N` in a PR body/commit (would bypass `/complete-directive`, §5.13); Execution Issues unaffected (SPEC §6.1).
 
 Escape — three audit-logged forms. The **primary in-agent** form is a **file-based skip token** (`scripts/ghjig_skip.sh <cat> <cmd_fingerprint> [reason]`, one-shot + 60s TTL, read by the hook at fire time so the harness can't strip it). The two in-command forms — a trailing `# ghjig:skip=<cat> reason=<why>` sentinel and a leading `SKIP_HOOKS=<cat> SKIP_REASON='<why>'` env-prefix — are **verbatim-delivery only** (a real shell, the smoke harness); the live Claude Code Bash tool strips both before the hook, so neither lands in-harness. Real terminal / non-protected-branch + rename is the fallback. Full contract: SPEC §7.
 
