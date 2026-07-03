@@ -13787,6 +13787,374 @@ else
   ng "136e: SPEC §4.11 still carries fail-open 'excluded from the majority' or lacks fixed-denominator wording (#544)"
 fi
 
+# ---------- §137: un-skippable pre-merge gate — push-parity + merge-attestation (#544) ----------
+# SPEC §6.1 (two new `gh pr merge` matcher rows) + §5.7. Two independent arms on
+# the `gh pr merge` matcher, folded into helpers/ac_closeout_gate.sh:
+#
+#   push-parity (git-only, #244) — block when the local branch is STRICTLY AHEAD
+#     of its pushed remote-tracking head (unpushed commits the merge would leave
+#     behind): `git merge-base --is-ancestor <remote> <local>` true AND the two
+#     SHAs differ. POSITIVE detection — behind / diverged / no-upstream / detached
+#     → allow. Block message names "push your local commits first".
+#   merge-attestation (#246, #543) — block a merge whose review was skipped
+#     ((a) presence: PR# resolves from argv but no $(ghjig_state_dir)/attest/pr-<N>
+#     file — a ZERO-NETWORK filesystem fact, fail-CLOSED even when gh is DOWN) or
+#     done at a stale head ((b) staleness: attest head != `gh pr view --json
+#     headRefOid`). Fail-open lines: helper-miss → allow (helper-missing warn);
+#     PR-head-unresolvable in the STALENESS sub-check only (gh down) → allow +
+#     loud `merge-attestation fail-open-skip` warn. Block message names `/ship`.
+#
+# These arms DO NOT EXIST YET (Phase B / Doc→Test→Code). Every block-expecting
+# assertion below therefore observes rc=0 (the merge falls through to allow) and
+# reports RED — each asserts rc==2 (or, for the fail-open/escape/warn cases, the
+# presence of a category-typed audit record the absent arm never writes), so the
+# failure mode is "arm absent ⇒ allow / no record ⇒ RED", never a vacuous pass.
+
+S137_DIR=$(mktemp -d)
+S137_SHIM="$S137_DIR/bin"
+S137_STATE="$S137_DIR/ghstate"       # GH_SHIM_STATE for the gh shim
+S137_ATTEST_OK="$S137_DIR/attest-ok" # GHJIG_STATE_DIR_OVERRIDE carrying a VALID attestation
+mkdir -p "$S137_SHIM" "$S137_STATE" "$S137_ATTEST_OK/audit" "$S137_ATTEST_OK/attest"
+
+# gh shim (mirrors §38): canned headRefOid + closingIssuesReferences (empty →
+# ac-closeout allows), plus a forced-DOWN toggle (touch $GH_SHIM_STATE/gh_down)
+# that makes every gh call error. The down toggle proves the merge-attestation
+# PRESENCE sub-check is zero-network fail-closed and the STALENESS sub-check
+# fails open.
+cat > "$S137_SHIM/gh" <<'SHIM'
+#!/bin/sh
+if [ -f "$GH_SHIM_STATE/gh_down" ]; then
+  echo "gh: shim forced down (no network)" >&2
+  exit 1
+fi
+case "$*" in
+  *"pr view"*headRefOid*)              cat "$GH_SHIM_STATE/head_ref_oid" 2>/dev/null ;;
+  *"pr view"*closingIssuesReferences*) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
+  *"pr view"*"--json number"*)         cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
+esac
+exit 0
+SHIM
+chmod +x "$S137_SHIM/gh"
+
+# Baseline shim state for the push-parity cases: a VALID attestation (attest head
+# == gh headRefOid) so the merge-attestation arm ALLOWS, isolating push-parity as
+# the sole decider on those repos.
+printf 'parity-head\n' > "$S137_STATE/head_ref_oid"
+: > "$S137_STATE/pr_issues"
+printf 'head=parity-head\n' > "$S137_ATTEST_OK/attest/pr-55"
+
+# Build a throwaway git repo in the requested push-parity state; echo its
+# working-tree path. Mirrors the §32c throwaway git-init idiom. The remote-
+# tracking ref is seeded via a LOCAL bare remote + `git push -u` (no network),
+# so both `@{u}` and `origin/<branch>` resolve for whichever the arm reads.
+s137_build_repo() {
+  local state="$1" d work
+  d=$(mktemp -d); work="$d/work"
+  git init -q "$work" 2>/dev/null
+  (
+    cd "$work" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    git checkout -q -b smoke/feat/1-parity 2>/dev/null || true
+    git commit --allow-empty -q -m c1
+    case "$state" in
+      no-upstream) : ;;                                # no remote → no @{u}
+      detached)
+        git commit --allow-empty -q -m c2
+        git checkout -q --detach HEAD ;;
+      *)
+        git init -q --bare "$d/remote.git"
+        git remote add origin "$d/remote.git"
+        git push -q -u origin smoke/feat/1-parity
+        case "$state" in
+          in-sync) : ;;                                # local == pushed
+          ahead)   git commit --allow-empty -q -m c2 ;;         # unpushed local commit
+          behind)  git commit --allow-empty -q -m c2
+                   git push -q origin smoke/feat/1-parity
+                   git reset --hard -q HEAD~1 ;;                # local behind remote
+          diverged) git commit --allow-empty -q -m c2
+                    git push -q origin smoke/feat/1-parity
+                    git reset --hard -q HEAD~1
+                    git commit --allow-empty -q -m c2prime ;;   # neither is an ancestor
+        esac ;;
+    esac
+  )
+  printf '%s' "$work"
+}
+
+# Run `gh pr merge 55 --merge` inside a push-parity repo state; register the repo
+# so in_scope passes, then de-register + clean. block cases are RED now (arm
+# absent ⇒ rc 0 ⇒ the rc==2 assertion fails).
+s137_parity_case() {
+  local state="$1" expect="$2" repo canon out rc
+  repo=$(s137_build_repo "$state")
+  canon=$(cd "$repo" && pwd -P)
+  # GHJIG_STATE_DIR_OVERRIDE relocates BOTH the audit log AND the scope registry
+  # (ghjig_registry_file → $esd/registry.txt), so the repo must be registered in
+  # the override's OWN registry or in_scope fails and the hook exits early — which
+  # would green/red these cases for the wrong reason. Seed it fresh each run.
+  printf '%s\n' "$canon" > "$S137_ATTEST_OK/registry.txt"
+  out=$(
+    cd "$repo" || exit 1
+    # shellcheck disable=SC2069  # intentional: capture stderr, discard stdout
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' 'gh pr merge 55 --merge' | jq -Rs .)" \
+      | PATH="$S137_SHIM:$PATH" \
+        GH_SHIM_STATE="$S137_STATE" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+        GHJIG_STATE_DIR_OVERRIDE="$S137_ATTEST_OK" \
+        bash "$HOOK" 2>&1 >/dev/null
+  )
+  rc=$?
+  rm -rf "$(dirname "$repo")"
+  case "$expect" in
+    block)
+      if [ "$rc" = 2 ] \
+         && printf '%s' "$out" | grep -q 'push-parity' \
+         && printf '%s' "$out" | grep -qi 'push your local commits'; then
+        ok "137p: push-parity blocks strictly-ahead ($state) merge — names 'push your local commits first' (#544)"
+      else
+        ng "137p: push-parity should BLOCK strictly-ahead ($state) (rc=$rc; arm absent ⇒ allow ⇒ RED) out=$out (#544)"
+      fi ;;
+    allow)
+      if [ "$rc" = 0 ]; then
+        ok "137p: push-parity allows non-strictly-ahead state ($state) (#544)"
+      else
+        ng "137p: push-parity should ALLOW ($state) (rc=$rc) out=$out (#544)"
+      fi ;;
+  esac
+}
+
+# 137p-a..f: only STRICTLY-AHEAD blocks; every other state allows (positive detection).
+s137_parity_case ahead       block
+s137_parity_case in-sync     allow
+s137_parity_case behind      allow
+s137_parity_case diverged    allow
+s137_parity_case no-upstream allow
+s137_parity_case detached    allow
+
+# 137p-g: SKIP_HOOKS=push-parity escape — on a strictly-ahead repo the skip
+# allows + audit-logs the escape. A VALID attestation keeps merge-attestation
+# from blocking so the escape is observed in isolation. RED now: the arm is
+# absent ⇒ `should_skip push-parity` is never called ⇒ no escape record.
+S137_SKIP_PSTATE="$S137_DIR/skip-parity"
+mkdir -p "$S137_SKIP_PSTATE/audit" "$S137_SKIP_PSTATE/attest"
+printf 'head=parity-head\n' > "$S137_SKIP_PSTATE/attest/pr-55"
+s137_skp_repo=$(s137_build_repo ahead)
+s137_skp_canon=$(cd "$s137_skp_repo" && pwd -P)
+printf '%s\n' "$s137_skp_canon" > "$S137_SKIP_PSTATE/registry.txt"  # in_scope under the override
+skp_before=$(wc -l < "$S137_SKIP_PSTATE/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+skp_rc=$(
+  cd "$s137_skp_repo" || exit 1
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' "SKIP_HOOKS=push-parity SKIP_REASON='urgent' gh pr merge 55 --merge" | jq -Rs .)" \
+    | PATH="$S137_SHIM:$PATH" GH_SHIM_STATE="$S137_STATE" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" GHJIG_STATE_DIR_OVERRIDE="$S137_SKIP_PSTATE" \
+      bash "$HOOK" >/dev/null 2>&1
+  printf '%s' "$?"
+)
+skp_after=$(wc -l < "$S137_SKIP_PSTATE/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+skp_tail=""
+[ "$(( skp_after - skp_before ))" -gt 0 ] && skp_tail=$(tail -"$(( skp_after - skp_before ))" "$S137_SKIP_PSTATE/audit/audit.jsonl" 2>/dev/null)
+rm -rf "$(dirname "$s137_skp_repo")"
+if [ "$skp_rc" = 0 ] \
+   && printf '%s' "$skp_tail" | grep -q '"category":"push-parity"' \
+   && printf '%s' "$skp_tail" | grep -q '"decision":"skip"'; then
+  ok "137p: SKIP_HOOKS=push-parity allows + audits the escape (#544)"
+else
+  ng "137p: push-parity escape should allow + audit skip (rc=$skp_rc; arm absent ⇒ no escape record ⇒ RED) tail=$skp_tail (#544)"
+fi
+
+# ── merge-attestation arm ─────────────────────────────────────────────────────
+# Run in $TMP/fake (no upstream ⇒ push-parity always allows there, so it never
+# masks the merge-attestation decision), with a per-case GHJIG_STATE_DIR_OVERRIDE
+# controlling the attestation dir + its own audit log.
+s137_ma_run() {
+  local cmd="$1" statedir="$2"
+  # The override relocates the scope registry too — register $TMP/fake in it or
+  # in_scope fails and the hook exits early (RED/GREEN for the wrong reason).
+  printf '%s\n' "$FAKE_CANON" > "$statedir/registry.txt"
+  (
+    cd "$TMP/fake" || exit 1
+    # shellcheck disable=SC2069  # intentional: capture stderr, discard stdout
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' "$cmd" | jq -Rs .)" \
+      | PATH="$S137_SHIM:$PATH" \
+        GH_SHIM_STATE="$S137_STATE" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+        GHJIG_STATE_DIR_OVERRIDE="$statedir" \
+        bash "$HOOK" 2>&1 >/dev/null
+  )
+}
+
+# 137m-a: PRESENCE — PR# resolves from argv, no attest file, gh forced DOWN →
+# BLOCK with no gh call (the load-bearing zero-network fail-closed property that
+# stops the never-ran-/ship fast-track even when gh is unavailable). Names /ship.
+S137_MA_PRES="$S137_DIR/ma-presence"
+mkdir -p "$S137_MA_PRES/audit" "$S137_MA_PRES/attest"   # deliberately NO attest/pr-55
+touch "$S137_STATE/gh_down"
+ma_a_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_PRES")
+ma_a_rc=$?
+rm -f "$S137_STATE/gh_down"
+if [ "$ma_a_rc" = 2 ] \
+   && printf '%s' "$ma_a_out" | grep -q 'merge-attestation' \
+   && printf '%s' "$ma_a_out" | grep -q '/ship'; then
+  ok "137m: merge-attestation presence blocks fail-closed (gh DOWN, no attest file) — names /ship (#544)"
+else
+  ng "137m: presence sub-check should BLOCK zero-network with gh down (rc=$ma_a_rc; arm absent ⇒ allow ⇒ RED) out=$ma_a_out (#544)"
+fi
+
+# 137m-b: STALENESS — attest head != current gh headRefOid → BLOCK (review ran
+# at a stale head, #543).
+S137_MA_STALE="$S137_DIR/ma-stale"
+mkdir -p "$S137_MA_STALE/audit" "$S137_MA_STALE/attest"
+printf 'head=stale-sha-000\n' > "$S137_MA_STALE/attest/pr-55"
+printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
+ma_b_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_STALE")
+ma_b_rc=$?
+if [ "$ma_b_rc" = 2 ] && printf '%s' "$ma_b_out" | grep -q 'merge-attestation'; then
+  ok "137m: merge-attestation blocks a stale-head attestation (attest head != gh headRefOid) (#544)"
+else
+  ng "137m: stale-head merge should BLOCK (rc=$ma_b_rc; arm absent ⇒ allow ⇒ RED) out=$ma_b_out (#544)"
+fi
+
+# 137m-c (control — steady GREEN): attest head == current gh headRefOid → ALLOW.
+S137_MA_OK="$S137_DIR/ma-ok"
+mkdir -p "$S137_MA_OK/audit" "$S137_MA_OK/attest"
+printf 'head=current-sha-999\n' > "$S137_MA_OK/attest/pr-55"
+printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
+ma_c_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_OK")
+ma_c_rc=$?
+if [ "$ma_c_rc" = 0 ]; then
+  ok "137m: merge-attestation allows when attest head == gh headRefOid (control) (#544)"
+else
+  ng "137m: fresh matching attestation should ALLOW (rc=$ma_c_rc) out=$ma_c_out (#544)"
+fi
+
+# 137m-d: STALENESS gh-unresolvable (file present, gh DOWN — staleness sub-check
+# ONLY) → fail-open ALLOW + a loud `merge-attestation fail-open-skip` warn. RED
+# now: the arm is absent ⇒ that warn is never emitted.
+S137_MA_UNR="$S137_DIR/ma-unresolvable"
+mkdir -p "$S137_MA_UNR/audit" "$S137_MA_UNR/attest"
+printf 'head=whatever-sha\n' > "$S137_MA_UNR/attest/pr-55"
+touch "$S137_STATE/gh_down"
+mau_before=$(wc -l < "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+s137_ma_run "gh pr merge 55 --merge" "$S137_MA_UNR" >/dev/null 2>&1
+mau_rc=$?
+rm -f "$S137_STATE/gh_down"
+mau_after=$(wc -l < "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+mau_tail=""
+[ "$(( mau_after - mau_before ))" -gt 0 ] && mau_tail=$(tail -"$(( mau_after - mau_before ))" "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null)
+if [ "$mau_rc" = 0 ] \
+   && printf '%s' "$mau_tail" | grep -q '"category":"merge-attestation"' \
+   && printf '%s' "$mau_tail" | grep -q 'fail-open-skip'; then
+  ok "137m: staleness gh-unresolvable → fail-open allow + loud merge-attestation fail-open-skip warn (#544)"
+else
+  ng "137m: staleness-unresolvable should emit fail-open-skip warn (rc=$mau_rc; arm absent ⇒ no warn ⇒ RED) tail=$mau_tail (#544)"
+fi
+
+# 137m-e: helper-absent (§34 stripped-tree) — move ac_closeout_gate.sh (which
+# hosts the merge-attestation functions, §6.1 fail-policy table) aside; the arm
+# fails OPEN (allow) with a category=merge-attestation `helper-missing` warn.
+# Trap-protected restore. RED now: no merge-attestation helper-missing record
+# is emitted (the arm that safe_sources under that category does not exist).
+S137_HELPER="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
+S137_HELPER_BAK="$S137_DIR/ac_closeout_gate.sh.bak"
+s137_helper_restore() { [ -f "$S137_HELPER_BAK" ] && [ ! -f "$S137_HELPER" ] && mv "$S137_HELPER_BAK" "$S137_HELPER"; }
+trap 's137_helper_restore' EXIT INT TERM
+if [ -f "$S137_HELPER" ]; then
+  S137_MA_HM="$S137_DIR/ma-helpermissing"
+  mkdir -p "$S137_MA_HM/audit" "$S137_MA_HM/attest"
+  mv "$S137_HELPER" "$S137_HELPER_BAK"
+  hm_before=$(wc -l < "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+  s137_ma_run "gh pr merge 55 --merge" "$S137_MA_HM" >/dev/null 2>&1
+  hm_rc=$?
+  hm_after=$(wc -l < "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+  s137_helper_restore
+  trap - EXIT INT TERM
+  hm_tail=""
+  [ "$(( hm_after - hm_before ))" -gt 0 ] && hm_tail=$(tail -"$(( hm_after - hm_before ))" "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null)
+  if [ "$hm_rc" = 0 ] \
+     && printf '%s' "$hm_tail" | grep -q '"category":"merge-attestation"' \
+     && printf '%s' "$hm_tail" | grep -q '"decision":"helper-missing"'; then
+    ok "137m: merge-attestation fails OPEN (helper-missing warn) when ac_closeout_gate.sh absent (#544)"
+  else
+    ng "137m: helper-absent should emit merge-attestation helper-missing (rc=$hm_rc; arm absent ⇒ no such warn ⇒ RED) tail=$hm_tail (#544)"
+  fi
+else
+  ng "137m: ac_closeout_gate.sh not present in repo (#544)"
+fi
+
+# 137m-f: SKIP_HOOKS=merge-attestation escape — with no attest file + gh DOWN
+# (would presence-block), the skip allows + audit-logs the escape. RED now: the
+# arm is absent ⇒ `should_skip merge-attestation` is never called ⇒ no record.
+S137_MA_SKIP="$S137_DIR/ma-skip"
+mkdir -p "$S137_MA_SKIP/audit" "$S137_MA_SKIP/attest"   # no attest/pr-55
+touch "$S137_STATE/gh_down"
+msk_before=$(wc -l < "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+s137_ma_run "SKIP_HOOKS=merge-attestation SKIP_REASON='sanctioned' gh pr merge 55 --merge" "$S137_MA_SKIP" >/dev/null 2>&1
+msk_rc=$?
+rm -f "$S137_STATE/gh_down"
+msk_after=$(wc -l < "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+msk_tail=""
+[ "$(( msk_after - msk_before ))" -gt 0 ] && msk_tail=$(tail -"$(( msk_after - msk_before ))" "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null)
+if [ "$msk_rc" = 0 ] \
+   && printf '%s' "$msk_tail" | grep -q '"category":"merge-attestation"' \
+   && printf '%s' "$msk_tail" | grep -q '"decision":"skip"'; then
+  ok "137m: SKIP_HOOKS=merge-attestation allows + audits the escape (#544)"
+else
+  ng "137m: merge-attestation escape should allow + audit skip (rc=$msk_rc; arm absent ⇒ no escape record ⇒ RED) tail=$msk_tail (#544)"
+fi
+
+# §137-inv (structural, mirrors §39b): each new arm must exist in pre_tool_use.sh
+# as an INDEPENDENT matcher reaching its own decided state — i.e. carry both a
+# `should_skip <cat>` entry and a `pass_through_trace <cat>` terminal tail (the
+# SPEC §6.1 mark_allow/block/pass_through_trace decided-state contract, parity
+# with the ac-closeout + merge-strategy arms). RED now: neither symbol is present
+# for either category because the arms have not been written.
+for inv_cat in push-parity merge-attestation; do
+  if grep -q "should_skip $inv_cat" "$HOOK" \
+     && grep -q "pass_through_trace $inv_cat" "$HOOK"; then
+    ok "137-inv: '$inv_cat' arm present with should_skip + pass_through_trace decided tail (#544)"
+  else
+    ng "137-inv: '$inv_cat' arm missing should_skip/pass_through_trace symbol (arm absent ⇒ RED) (#544)"
+  fi
+done
+
+# §137-inv (runtime compose, mirrors §39d): a benign in-sync merge with a valid
+# attestation ALLOWS and the two new arms decide SILENTLY — no pass-through warn
+# for either category (each mark_allow's, no fall-through), composing with
+# ac-closeout + merge-strategy on the same `gh pr merge` with no double-decide.
+S137_INV_STATE="$S137_DIR/inv"
+mkdir -p "$S137_INV_STATE/audit" "$S137_INV_STATE/attest"
+printf 'head=current-sha-999\n' > "$S137_INV_STATE/attest/pr-55"
+printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
+s137_inv_repo=$(s137_build_repo in-sync)
+s137_inv_canon=$(cd "$s137_inv_repo" && pwd -P)
+printf '%s\n' "$s137_inv_canon" > "$S137_INV_STATE/registry.txt"  # in_scope under the override
+inv_before=$(wc -l < "$S137_INV_STATE/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+inv_rc=$(
+  cd "$s137_inv_repo" || exit 1
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' 'gh pr merge 55 --merge' | jq -Rs .)" \
+    | PATH="$S137_SHIM:$PATH" GH_SHIM_STATE="$S137_STATE" \
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" GHJIG_STATE_DIR_OVERRIDE="$S137_INV_STATE" \
+      bash "$HOOK" >/dev/null 2>&1
+  printf '%s' "$?"
+)
+inv_after=$(wc -l < "$S137_INV_STATE/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+inv_tail=""
+[ "$(( inv_after - inv_before ))" -gt 0 ] && inv_tail=$(tail -"$(( inv_after - inv_before ))" "$S137_INV_STATE/audit/audit.jsonl" 2>/dev/null)
+rm -rf "$(dirname "$s137_inv_repo")"
+if [ "$inv_rc" = 0 ] \
+   && ! printf '%s' "$inv_tail" | grep -q '"category":"push-parity","decision":"pass-through"' \
+   && ! printf '%s' "$inv_tail" | grep -q '"category":"merge-attestation","decision":"pass-through"'; then
+  ok "137-inv: benign in-sync attested merge allows; new arms decide silently (no fall-through) (#544)"
+else
+  ng "137-inv: benign merge must allow with no pass-through for the new arms (rc=$inv_rc) tail=$inv_tail (#544)"
+fi
+
+rm -rf "$S137_DIR"
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
