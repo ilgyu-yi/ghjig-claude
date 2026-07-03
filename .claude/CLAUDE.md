@@ -77,6 +77,7 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **secret** — secret patterns in the staged diff blocked, with a `.shellsecretignore` path allow-list (SPEC §6.1).
 - **ac-closeout** — `gh pr merge` blocked when a linked issue has unchecked AC items and no `## AC closeout` marker comment yet (SPEC §6.1).
 - **merge-strategy** — `gh pr merge` to the default branch blocked unless the strategy is `--merge` (SPEC §6.1, §5.7.1).
+- **push-parity + merge-attestation** — un-skippable pre-merge gate. `push-parity` blocks `gh pr merge` when the local branch is strictly ahead of its pushed remote head (git-only, #244); `merge-attestation` blocks a merge whose review was skipped (no `$(ghjig_state_dir)/attest/pr-<N>` file — a zero-network presence fact, fail-closed even when `gh` is down) or done at a stale head (gh staleness compare, #543). `/ship` writes the attestation only after a review passes (SPEC §5.7). Forgeable attestation is out of the §6.1 threat model (mistake-prevention, not a security boundary). Both `SKIP_HOOKS`-escapable and audited (SPEC §6.1, §5.7).
 - **sensitive-file** — Edit/Write on `.env`, `*.pem`, `credentials*`, `id_rsa*`, `id_ed25519*` blocked, including under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except the two carve-outs `$GHJIG_ROOT/` and `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
