@@ -56,6 +56,21 @@ SMOKE_AUDIT="$SMOKE_STATE/audit/audit.jsonl"
 SMOKE_REG="$SMOKE_STATE/registry.txt"
 mkdir -p "$SMOKE_STATE/audit"
 export GHJIG_STATE_DIR_OVERRIDE="$SMOKE_STATE"
+# #544 — the un-skippable `merge-attestation` gate blocks EVERY `gh pr merge`
+# whose PR lacks a $(ghjig_state_dir)/attest/pr-<N> file (zero-network presence
+# check) and would otherwise turn every pre-existing ac-closeout/merge-strategy/
+# pass-through merge fixture (which merges under the whole-run SMOKE_STATE) into a
+# fail-closed block. Seed a VALID attestation for the PR numbers those fixtures
+# merge, at the fixed head `smoke-attest-head` their gh shims report for
+# `headRefOid`, so merge-attestation resolves to a SILENT mark_allow and the
+# fixtures keep asserting their own gate's verdict. (The §137 suite overrides
+# GHJIG_STATE_DIR_OVERRIDE per-case, so these seeds never leak into it.)
+SMOKE_ATTEST_HEAD=smoke-attest-head
+mkdir -p "$SMOKE_STATE/attest"
+for _pr in 0 2 5 7 29 39 43 100 200 340 499 777; do
+  printf 'head=%s\n' "$SMOKE_ATTEST_HEAD" > "$SMOKE_STATE/attest/pr-$_pr"
+done
+unset _pr
 # §361 — mark every fixture-fire audit record as test-origin (Directive #356
 # signal 1). Only the exact token `test` flips audit_log's `source` field; a
 # real Bash-tool action cannot inject this into the hook subprocess (SPEC §7),
@@ -3004,6 +3019,7 @@ mkdir -p "$GH38_SHIM" "$GH38_STATE"
 cat > "$GH38_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
   *"pr view"*"closingIssuesReferences"*)
     # #500: branch on the PR number in the query so a URL-resolved PR (777) and
     # the current-branch fallback PR (5) return DIFFERENT linked issues — needed
@@ -3619,6 +3635,7 @@ mkdir -p "$PT39_SHIM" "$PT39_STATE"
 cat > "$PT39_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
   *"pr view"*"closingIssuesReferences"*) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
   *"pr view"*"--json number"*)           cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
   *"issue view"*"--json body"*)          cat "$GH_SHIM_STATE/issue_body" 2>/dev/null ;;
@@ -8969,6 +8986,7 @@ mkdir -p "$PT78_SHIM" "$PT78_STATE"
 cat > "$PT78_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
   *"repo view"*"defaultBranchRef"*) cat "$GH_SHIM_STATE/default_branch" 2>/dev/null ;;
   # Per-PR bases for the #290 finding-B test: PR 5 is on the default branch,
   # PR 7 is on a non-default base. (Specific cases before the generic one.)
