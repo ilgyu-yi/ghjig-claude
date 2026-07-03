@@ -83,7 +83,7 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
 - **shell-root resolution** — hooks self-locate via `BASH_SOURCE` through the `.claude/ghjig-root` symlink; ambient never consulted, `GHJIG_ROOT_OVERRIDE` = test seam (SPEC §3.2.1).
 - **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `ghjig-state/`; missing/empty registry fails open (SPEC §3.2.2).
-- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty scope registry; active `GHJIG_ROOT_OVERRIDE` seam) once per session, naming the fix (SPEC §6.5(c)).
+- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty scope registry; retired `GHJIG_SHELL_ROOT`; active `GHJIG_ROOT_OVERRIDE` seam) naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source (hook-to-helper and helper-to-helper) goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).
 - **pass-through invariant** — every matcher reaches a decided state per fire; happy paths `mark_allow` silently, anomalous silent fall-through is caught by `pass_through_trace` (SPEC §6.1).
 - **audit observability** — records carry an additive `source` field and reviewers emit categorized reject records; observability surfaces, not gates (SPEC §6.1).
