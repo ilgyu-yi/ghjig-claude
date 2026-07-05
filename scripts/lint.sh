@@ -21,12 +21,28 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 GHJIG_SHELLCHECK_VERSION="0.11.0"
 
+# SHA256 over the release .tar.xz (verified at download time).
 _sha256_for_platform() {
   case "$1" in
     linux.x86_64)   echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" ;;
     linux.aarch64)  echo "12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588" ;;
     darwin.x86_64)  echo "3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6" ;;
     darwin.aarch64) echo "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79" ;;
+    *) return 1 ;;
+  esac
+}
+
+# SHA256 over the EXTRACTED shellcheck binary — the artifact actually executed.
+# Pinning this (not just the tarball) lets us re-verify on every cache hit, so a
+# tampered or pre-seeded cached binary is never run (#549 security review: the
+# cache-hit path must uphold "never run an unverified binary", not just the
+# cold download path).
+_bin_sha256_for_platform() {
+  case "$1" in
+    linux.x86_64)   echo "4da528ddb3a4d1b7b24a59d4e16eb2f5fd960f4bd9a3708a15baddbdf1d5a55b" ;;
+    linux.aarch64)  echo "127f13925eadd52c341bca0ebaf9ab0dbd78c6468f30a8f262a528bf8de47546" ;;
+    darwin.x86_64)  echo "2589be755bb115f4421b8271eb7c08df1e03729f00350c1e4cf53b4a0bf9c2df" ;;
+    darwin.aarch64) echo "61c17246d69f012cd458ae82f244c46023dac75d1b69733ca1cc7d28fb270fd7" ;;
     *) return 1 ;;
   esac
 }
@@ -60,13 +76,15 @@ _detect_platform() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Resolve the pinned binary: cache-hit -> reuse; else download + verify +
-#    extract + cache. FAIL-CLOSED: on download failure or SHA256 mismatch we
-#    print a legible error and exit 1 — an unverified binary is NEVER run.
+# 2. Resolve the pinned binary: cache-hit -> re-verify hash + reuse; else
+#    download + verify tarball + extract + verify binary + cache. FAIL-CLOSED:
+#    on download failure, SHA256 mismatch (tarball OR the executed binary, cold
+#    path AND every cache hit) we print a legible error and exit 1 — an
+#    unverified binary is NEVER run.
 #    Echoes the resolved binary path on stdout (everything else -> stderr).
 # ---------------------------------------------------------------------------
 ensure_pinned_shellcheck() {
-  local platform os arch expected_sha cache_dir bin url tarball actual_sha extract_dir
+  local platform os arch expected_sha expected_bin_sha cache_root cache_dir bin url tarball actual_sha extract_dir actual_bin_sha
   platform="$(_detect_platform)"
   os="${platform%.*}"
   arch="${platform#*.}"
@@ -75,22 +93,48 @@ ensure_pinned_shellcheck() {
     echo "ERROR: no pinned SHA256 for platform '$platform' (shellcheck v${GHJIG_SHELLCHECK_VERSION})" >&2
     exit 1
   }
+  expected_bin_sha="$(_bin_sha256_for_platform "$platform")" || {
+    echo "ERROR: no pinned binary SHA256 for platform '$platform' (shellcheck v${GHJIG_SHELLCHECK_VERSION})" >&2
+    exit 1
+  }
 
-  # Gitignored, registry-free cache (never the scope-guard registry surface).
-  cache_dir="${GHJIG_SHELLCHECK_CACHE:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ghjig-shellcheck}/v${GHJIG_SHELLCHECK_VERSION}/${os}-${arch}"
+  # Cache root — gitignored, registry-free, and NOT a predictable world-writable
+  # location. In CI $RUNNER_TEMP is job-isolated; locally we prefer a per-user
+  # $HOME/.cache over a shared /tmp so another user cannot pre-seed the binary
+  # path (#549 security review). Overridable via $GHJIG_SHELLCHECK_CACHE.
+  if [ -n "${GHJIG_SHELLCHECK_CACHE:-}" ]; then
+    cache_root="$GHJIG_SHELLCHECK_CACHE"
+  elif [ -n "${RUNNER_TEMP:-}" ]; then
+    cache_root="${RUNNER_TEMP}/ghjig-shellcheck"
+  else
+    cache_root="${XDG_CACHE_HOME:-${HOME}/.cache}/ghjig-shellcheck"
+  fi
+  cache_dir="${cache_root}/v${GHJIG_SHELLCHECK_VERSION}/${os}-${arch}"
   bin="$cache_dir/shellcheck"
 
+  # Cache hit — re-verify the cached binary against its pinned hash before
+  # trusting it. A tampered / pre-seeded / truncated binary is discarded and
+  # re-fetched (still fail-closed below), so an unverified binary is never run.
   if [ -x "$bin" ]; then
-    echo "$bin"
-    return 0
+    actual_bin_sha="$(_sha256_of_file "$bin")"
+    if [ "$actual_bin_sha" = "$expected_bin_sha" ]; then
+      echo "$bin"
+      return 0
+    fi
+    echo "→ cached shellcheck failed re-verification; discarding and re-fetching" >&2
+    rm -f "$bin"
   fi
 
   mkdir -p "$cache_dir"
+  # Tighten the cache root so a co-tenant cannot pre-create/replace entries.
+  chmod 700 "$cache_root" 2>/dev/null || true
   url="https://github.com/koalaman/shellcheck/releases/download/v${GHJIG_SHELLCHECK_VERSION}/shellcheck-v${GHJIG_SHELLCHECK_VERSION}.${platform}.tar.xz"
   tarball="$(mktemp)"
 
   echo "→ fetching pinned shellcheck v${GHJIG_SHELLCHECK_VERSION} (${platform})" >&2
-  if ! curl --retry 3 --retry-all-errors -sSL -o "$tarball" "$url"; then
+  # -f: an HTTP error is a download failure (not an error-page written to disk);
+  # --proto/--proto-redir keep the fetch and any redirect on https.
+  if ! curl --retry 3 --retry-all-errors -fsSL --proto '=https' --proto-redir '=https' -o "$tarball" "$url"; then
     echo "ERROR: failed to download shellcheck from $url" >&2
     rm -f "$tarball"
     exit 1
@@ -121,8 +165,23 @@ ensure_pinned_shellcheck() {
     exit 1
   fi
 
-  mv "$extract_dir/shellcheck-v${GHJIG_SHELLCHECK_VERSION}/shellcheck" "$bin"
-  chmod +x "$bin"
+  # Verify the EXTRACTED binary against its pinned hash too — the executed
+  # artifact is pinned end-to-end, and the same hash gates every later cache hit.
+  actual_bin_sha="$(_sha256_of_file "$extract_dir/shellcheck-v${GHJIG_SHELLCHECK_VERSION}/shellcheck")"
+  if [ "$actual_bin_sha" != "$expected_bin_sha" ]; then
+    echo "ERROR: extracted shellcheck binary SHA256 mismatch (${platform})" >&2
+    echo "  expected: $expected_bin_sha" >&2
+    echo "  actual:   $actual_bin_sha" >&2
+    rm -f "$tarball"
+    rm -rf "$extract_dir"
+    exit 1
+  fi
+
+  # Stage into the cache dir then atomically rename, so a concurrent run never
+  # observes a partially-written (truncated-yet-executable) binary.
+  chmod +x "$extract_dir/shellcheck-v${GHJIG_SHELLCHECK_VERSION}/shellcheck"
+  mv "$extract_dir/shellcheck-v${GHJIG_SHELLCHECK_VERSION}/shellcheck" "$bin.tmp.$$"
+  mv "$bin.tmp.$$" "$bin"
   rm -f "$tarball"
   rm -rf "$extract_dir"
   echo "$bin"
