@@ -20,48 +20,19 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - name: install shellcheck (Linux only — macOS runners pre-install shellcheck)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: ensure shellcheck present on macOS (brew fallback for image churn)
-        if: runner.os == 'macOS'
-        run: command -v shellcheck >/dev/null || { brew install shellcheck && command -v shellcheck; }
-      - name: verify shellcheck present
-        run: command -v shellcheck && shellcheck --version | head -3
+      # Version resolution is owned by scripts/lint.sh (pinned + SHA256-verified,
+      # #545) — no OS-conditional apt/brew install here. Cache the resolver's
+      # download dir so a green run never re-fetches from the release CDN
+      # (CDN flake would be non-reproducible red-that-is-not-a-code-defect).
+      - name: cache pinned shellcheck
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ghjig-shellcheck
+          key: shellcheck-0.11.0-${{ runner.os }}-${{ runner.arch }}
+      # Enumeration, per-file bash -n + shellcheck, and the Linux peak-RSS flag
+      # all live in scripts/lint.sh so "clean locally" == "clean in CI". #545, SPEC §11.
       - name: bash -n + shellcheck over shell sources
-        run: |
-          set -e
-          # Enumerate via find — portable across bash 3.2 (macOS system bash)
-          # and bash 4+ (Linux). `shopt -s globstar` would be the bash 4+
-          # equivalent but is rejected by macOS-runner /bin/bash, which is
-          # still 3.2 (Apple stopped shipping bash 4 over GPLv3). NUL-delimited
-          # to survive any future path-with-spaces. See AC #4 in PR #20.
-          files=()
-          [ -f bin/ghjig ] && files+=(bin/ghjig)
-          while IFS= read -r -d '' f; do
-            files+=("$f")
-          done < <(find scripts .claude/hooks -type f -name '*.sh' -print0)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "no shell files found — repo layout changed?"
-            exit 1
-          fi
-          # Parse-check (bash -n catches heredoc/parser corner cases shellcheck
-          # doesn't) then shellcheck — both PER FILE, not in one combined
-          # shellcheck invocation. shellcheck holds every file's AST in memory
-          # for the whole run, so a combined pass over the full set peaks at
-          # ~18 GB RSS (dominated by the 13k-line scripts/test/smoke.sh) and
-          # OOM-kills the GitHub ubuntu runner — surfacing as "the runner has
-          # received a shutdown signal", not a lint finding (#539). Per-file
-          # caps peak RSS at the single largest file. external-sources=false
-          # (.shellcheckrc) means no cross-file analysis is lost by splitting;
-          # .shellcheckrc silences (SC1090) + inline disables are read per
-          # invocation. See SPEC §11.
-          for f in "${files[@]}"; do
-            echo "→ bash -n $f"
-            bash -n "$f"
-            echo "→ shellcheck $f"
-            shellcheck --severity=warning --shell=bash "$f"
-          done
+        run: ./scripts/lint.sh
         shell: bash
 
   smoke:

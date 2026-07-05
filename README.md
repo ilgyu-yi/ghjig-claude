@@ -125,4 +125,7 @@ The shell version is a single [semver](https://semver.org) 0.x line in the top-l
 ```bash
 ./scripts/test/smoke.sh           # 733+ assertions across hooks, helpers, slash commands
 ./scripts/build_toc.sh --check    # SPEC.md TOC freshness
+./scripts/lint.sh                 # bash -n + pinned shellcheck (same version CI runs — clean locally ⇒ clean in CI)
 ```
+
+`scripts/lint.sh` resolves a **pinned, SHA256-verified** shellcheck version so a local run predicts CI exactly. Full details in **SPEC §11**.

@@ -14173,6 +14173,85 @@ fi
 
 rm -rf "$S137_DIR"
 
+# ---------- §138: pinned-reproducible shellcheck lint runner (#545) ----------
+# SPEC §11 (syntax job). The CI `syntax` job's shellcheck must become a single
+# reproducible predicate that a developer runs locally identically — `scripts/lint.sh`
+# — with the memory-cliff regression (#543/#539, combined `shellcheck "${files[@]}"`
+# peaked ~18 GB RSS and OOM-killed the runner) permanently guarded by a per-file loop,
+# and the shellcheck binary version-pinned + SHA256-verified fail-closed so "clean
+# locally" and "clean in CI" are one predicate by construction.
+#
+# The runner DOES NOT EXIST YET (Phase B / Doc→Test→Code): scripts/lint.sh is absent
+# and ci.yml still installs shellcheck unpinned via apt-get with no ./scripts/lint.sh
+# call. Every product assertion below (a-e) therefore reports RED; f is a
+# Doc-phase-confirming guard, expected GREEN (the SPEC §11 rewrite already landed).
+# Anti-vacuity: the structural locks (138b, 138e) pair a required POSITIVE anchor with
+# the forbidden-form absence, so an empty/comment-only file cannot green them.
+S138_LINT="$SHELL_ROOT/scripts/lint.sh"
+S138_CI="$SHELL_ROOT/.github/workflows/ci.yml"
+S138_SPEC="$SHELL_ROOT/SPEC.md"
+
+# §138a (product): scripts/lint.sh exists AND is executable — the single lint
+# predicate CI and developers both invoke. RED now: the file is absent.
+if [ -f "$S138_LINT" ] && [ -x "$S138_LINT" ]; then
+  ok "138a: scripts/lint.sh exists and is executable (#545)"
+else
+  ng "138a: scripts/lint.sh missing or not executable (#545)"
+fi
+
+# §138b (product, bounded-memory structural lock): lint.sh invokes shellcheck inside a
+# per-file loop (single-file loop var `"$f"`) and NEVER as a combined multi-file
+# expansion (`"${files[@]}"` or a `*.sh` glob) — the #543/#539 memory-cliff guard.
+# Anti-vacuity: require the POSITIVE per-file anchor (count ≥1), not merely the absence
+# of the combined form. RED now: file absent ⇒ per-file anchor count 0.
+s138b_perfile=$(grep -cE 'shellcheck[^#]*"\$f"' "$S138_LINT" 2>/dev/null)
+s138b_combined=$(grep -cE 'shellcheck[^#]*("\$\{files\[@\]\}"|\*\.sh)' "$S138_LINT" 2>/dev/null)
+if [ "${s138b_perfile:-0}" -ge 1 ] && [ "${s138b_combined:-0}" -eq 0 ]; then
+  ok "138b: lint.sh runs shellcheck per file (\"\$f\") with no combined multi-file expansion (#545)"
+else
+  ng "138b: lint.sh missing per-file shellcheck loop or still uses a combined \"\${files[@]}\"/glob pass (#545)"
+fi
+
+# §138c (product): version pin + fail-closed SHA256 verification present in lint.sh —
+# a pinned-version anchor (GHJIG_SHELLCHECK_VERSION) AND a checksum anchor (sha256/
+# shasum) AND a fail-closed anchor (exit/error on mismatch). RED now: file absent.
+if grep -qF 'GHJIG_SHELLCHECK_VERSION' "$S138_LINT" 2>/dev/null \
+   && grep -qiE 'sha256|shasum|sha256sum' "$S138_LINT" 2>/dev/null \
+   && grep -qiE 'exit 1|mismatch|does not match' "$S138_LINT" 2>/dev/null; then
+  ok "138c: lint.sh pins shellcheck version and SHA256-verifies it fail-closed (#545)"
+else
+  ng "138c: lint.sh missing version pin (GHJIG_SHELLCHECK_VERSION) or fail-closed SHA256 verification (#545)"
+fi
+
+# §138d (product): Linux peak-RSS memory flag present — the per-file pass measured
+# under `/usr/bin/time -v` so an approaching-limit regression surfaces legibly. RED
+# now: file absent.
+if grep -qF '/usr/bin/time' "$S138_LINT" 2>/dev/null; then
+  ok "138d: lint.sh measures peak RSS via /usr/bin/time on Linux (#545)"
+else
+  ng "138d: lint.sh missing /usr/bin/time peak-RSS memory guard (#545)"
+fi
+
+# §138e (product, parity structural lock): ci.yml `syntax` job invokes ./scripts/lint.sh
+# AND no longer carries the unpinned `apt-get install ... shellcheck` version source.
+# Anti-vacuity: require the POSITIVE ./scripts/lint.sh anchor AND the absence of the old
+# unpinned install. RED now: ci.yml still apt-installs shellcheck and has no lint.sh call.
+s138e_aptshellcheck=$(grep -cE 'apt-get install.*shellcheck' "$S138_CI" 2>/dev/null)
+if grep -qF './scripts/lint.sh' "$S138_CI" 2>/dev/null && [ "${s138e_aptshellcheck:-0}" -eq 0 ]; then
+  ok "138e: ci.yml syntax job runs ./scripts/lint.sh with no unpinned apt-get shellcheck install (#545)"
+else
+  ng "138e: ci.yml missing ./scripts/lint.sh call or still apt-get installs unpinned shellcheck (#545)"
+fi
+
+# §138f (Doc-phase-confirming — expected GREEN): SPEC §11 references scripts/lint.sh AND
+# the version-pinned contract. The Doc commit landed, so this greens now.
+if grep -qF 'scripts/lint.sh' "$S138_SPEC" 2>/dev/null \
+   && grep -qiE 'pinned|version-pinned' "$S138_SPEC" 2>/dev/null; then
+  ok "138f: SPEC §11 documents scripts/lint.sh as version-pinned (#545)"
+else
+  ng "138f: SPEC §11 missing scripts/lint.sh reference or version-pinned wording (#545)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
