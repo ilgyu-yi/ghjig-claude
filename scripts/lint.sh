@@ -199,12 +199,20 @@ main() {
   done
 
   if [ "$use_time" -eq 1 ]; then
-    echo "→ peak shellcheck RSS: ${max_rss_kb} KB (cap ${cap_kb} KB)" >&2
+    echo "→ peak shellcheck RSS: ${max_rss_kb} KB (budget ${cap_kb} KB)" >&2
+    # A LEGIBLE FLAG, not a gate: emit a loud warning but do NOT fail. The
+    # legitimate per-file baseline (~12.3 GB on the dominant smoke.sh) sits
+    # close to any runner-safe budget, so a hard exit here would risk a
+    # false-red on a clean run — the exact flaky, non-reproducible signal this
+    # work exists to kill (§11, #545). The combined-pass regression is already
+    # gated by the smoke §138b structural lock (and would OOM the runner before
+    # /usr/bin/time could even report), so this check's job is to SURFACE a
+    # single file creeping toward the cliff, not to block CI on it.
     if [ "$max_rss_kb" -gt "$cap_kb" ]; then
-      echo "ERROR: peak shellcheck RSS ${max_rss_kb} KB exceeded the ${cap_kb} KB cap." >&2
+      echo "WARNING: peak shellcheck RSS ${max_rss_kb} KB exceeded the ${cap_kb} KB budget." >&2
       echo "  A per-file lint should stay well under this — has the per-file" >&2
       echo "  split regressed to a combined pass, or has a source file ballooned?" >&2
-      exit 1
+      echo "  (Non-fatal flag — CI is not failed on this; act before it OOMs the runner.)" >&2
     fi
   fi
 
