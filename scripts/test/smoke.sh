@@ -462,6 +462,47 @@ s501_run() {  # $1 = basename → echoes the hook rc for an Edit under $TMP/fake
 # 501g (regression): the canonical lowercase '.env' still blocks.
 [ "$(s501_run '.env')" = 2 ]      && ok "501g: '.env' still blocked (lowercase regression) (#501)"        || ng "501g: '.env' regression — no longer blocked (#501)"
 
+# ---- §555 A1 (#555 / Directive #550): the Edit/Write carve-outs must LEXICALLY
+# normalize $target (collapse `.`/`..` segments as pure string ops, NO pwd -P /
+# realpath / filesystem access) before the prefix match, so a ..-laden absolute
+# path can't borrow a carve-out to skip the out-of-scope gate. Pre-fix a raw
+# prefix match on `$SHELL_ROOT/../../.../etc/passwd` set shell_self_mod /
+# user_global_memory and allowed the edit. `passwd` is a non-sensitive basename,
+# so the out-of-scope arm is the sole decider (isolates the carve-out bypass).
+# Runs from $TMP/fake. NOTE (parked-PR #561 root cause): the first fix physically
+# resolved $target, which only collapses `..` when the ancestor dir EXISTS; on a
+# CI runner lacking `$HOME/.claude` it fell back to the raw path and the home
+# carve-out bypass re-opened — the 555a1-home-absent case below pins that exact
+# condition (HOME → a temp dir with NO .claude subdir; lexical normalization must
+# still block).
+s555a1_run() {  # $1 = file_path → echoes hook rc for an Edit on it
+  ( cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$1\"}" \
+    | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 ); echo $?
+}
+# 555a1-shell: a ..-traversal out of the $SHELL_ROOT carve-out → out-of-scope block.
+[ "$(s555a1_run "$SHELL_ROOT/../../../../../../../../etc/passwd")" = 2 ] \
+  && ok "555a1: ..-path escaping the \$SHELL_ROOT carve-out → out-of-scope blocked (#555)" \
+  || ng "555a1: ..-path carve-out bypass not blocked — raw prefix match (#555)"
+# 555a1-home: same escape out of the $HOME/.claude carve-out → out-of-scope block.
+[ "$(s555a1_run "$HOME/.claude/../../../../../../../../etc/passwd")" = 2 ] \
+  && ok "555a1: ..-path escaping the \$HOME/.claude carve-out → out-of-scope blocked (#555)" \
+  || ng "555a1: ..-path \$HOME/.claude carve-out bypass not blocked (#555)"
+# 555a1-home-absent (parked-PR regression pin): run with HOME → a temp dir that
+# has NO .claude subdir — the CI condition that broke the physical-resolve fix.
+# The `$HOME/.claude` carve-out ancestor does not exist, so a physical resolve
+# would fall back to the raw `..`-path and match the carve-out (bypass); the
+# lexical collapse folds it to /etc/passwd and must still block.
+S555A1_HOME=$(mktemp -d)   # empty dir — no .claude under it
+[ "$( ( cd "$TMP/fake" && fake_input "Edit" "{\"file_path\":\"$S555A1_HOME/.claude/../../../../../../../../etc/passwd\"}" \
+    | HOME="$S555A1_HOME" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 ); echo $? )" = 2 ] \
+  && ok "555a1: ..-path escaping \$HOME/.claude blocked even when \$HOME/.claude is ABSENT (#555)" \
+  || ng "555a1: carve-out bypass re-opens when \$HOME/.claude absent (physical-resolve regression) (#555)"
+rm -rf "$S555A1_HOME"
+# 555a1-regression (no over-block): a GENUINE shell-self edit still allowed.
+[ "$(s555a1_run "$SHELL_ROOT/.claude/CLAUDE.md")" = 0 ] \
+  && ok "555a1: genuine \$SHELL_ROOT self-edit still allowed (no over-block) (#555)" \
+  || ng "555a1: genuine shell-self edit wrongly blocked (#555)"
+
 # Bash rm -rf $HOME
 out=$(cd "$TMP/fake" && fake_input "Bash" "{\"command\":\"rm -rf \$HOME/somewhere\"}" \
   | "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>&1)
@@ -1690,6 +1731,90 @@ else
   ng "matcher: grep -f wrongly entered the destructive arm (#212)"
 fi
 
+# ---------- §555 cluster A (#555 / Directive #550): matcher bypass/false-block ----------
+# A3: `mv -- <src> <out-of-registry>` — the POSIX `--` end-of-options guard must
+# NOT let a destructive mv/cp evade BOTH entry arms. Pre-fix the flagless arm saw
+# the `--` right after `mv ` and bailed; the flag-keyed arm needs a force flag.
+if [ "$(hook_run 'mv -- /etc/ce-probe /etc/ce-out')" = "2" ]; then
+  ok "555a3: 'mv -- <src> <out-of-registry>' still enters destructive gate → blocked (#555)"
+else
+  ng "555a3: 'mv --' evaded both destructive arms (bypass) (#555)"
+fi
+# A3 no over-block: `mv -- <in-scope> <in-scope>` still passes (`./ok` under $TMP/fake).
+if [ "$(hook_run 'mv -- ./ok ./ok2')" = "0" ]; then
+  ok "555a3: 'mv -- <in-scope> <in-scope>' still allowed (no over-block) (#555)"
+else
+  ng "555a3: in-scope 'mv --' wrongly blocked (#555)"
+fi
+# A4: a BUNDLED short force `git push -uf` (bare, no target) must hit the
+# irreversible force-push fail-safe. Pre-fix `-uf` carried no isolated `-f\b`
+# token → the force arm never entered and the bare force slipped past.
+if [ "$(hook_run 'git push -uf')" = "2" ]; then
+  ok "555a4: bare bundled-short force 'git push -uf' → blocked (#555)"
+else
+  ng "555a4: 'git push -uf' bare force slipped past the fail-safe (#555)"
+fi
+# A4 (reordered cluster) — `-fu` bare force also blocked.
+if [ "$(hook_run 'git push -fu')" = "2" ]; then
+  ok "555a4: bare bundled-short force 'git push -fu' → blocked (#555)"
+else
+  ng "555a4: 'git push -fu' bare force slipped past (#555)"
+fi
+# A4 no over-block: a branch NAME containing '-f' (`my-feature`) is NOT a force
+# flag → a non-protected push of it stays allowed (the token-start anchor guard).
+if [ "$(hook_run 'git push -u my-feature')" = "0" ]; then
+  ok "555a4: branch name containing '-f' not misread as force (no over-block) (#555)"
+else
+  ng "555a4: branch name with '-f' wrongly treated as force-push (#555)"
+fi
+# A2: a `git reset --hard` / `git clean -f` mentioned only inside a -m/-F commit
+# MESSAGE value is DATA, not a command → the destructive arm must NOT false-block
+# it. Pre-fix the reset arm grepped the un-elided cmd; the clean arm heredoc-only.
+if [ "$(hook_run 'git commit -m "docs(#1): note git reset --hard usage"')" = "0" ]; then
+  ok "555a2: 'git reset --hard' inside a commit message no longer false-blocks (#555)"
+else
+  ng "555a2: commit message mentioning 'git reset --hard' still false-blocked (#555)"
+fi
+if [ "$(hook_run 'git commit -m "docs(#1): run git clean -fd to reset"')" = "0" ]; then
+  ok "555a2: 'git clean -fd' inside a commit message no longer false-blocks (#555)"
+else
+  ng "555a2: commit message mentioning 'git clean -fd' still false-blocked (#555)"
+fi
+# A2 regression: a REAL reset/clean invocation still blocks (message-strip never
+# removes a genuine command verb).
+if [ "$(hook_run 'git reset --hard')" = "2" ]; then
+  ok "555a2: real 'git reset --hard' still blocked (regression) (#555)"
+else
+  ng "555a2: real 'git reset --hard' no longer blocked (#555)"
+fi
+if [ "$(hook_run 'git clean -fd')" = "2" ]; then
+  ok "555a2: real 'git clean -fd' still blocked (regression) (#555)"
+else
+  ng "555a2: real 'git clean -fd' no longer blocked (#555)"
+fi
+# A5: an OPERAND literally named `env` (or rm|mv|cp|sudo|doas|time) must still be
+# scope-checked — pre-fix check_destructive_args skipped ANY token equal to those
+# words regardless of position, so a non-command-position `env` skipped
+# path_in_scope entirely. cwd stays $TMP/fake (registered, so the hook's in_scope
+# gate is satisfied); an `env` SYMLINK pointing at the UNREGISTERED $TMP makes the
+# `env` operand resolve out of scope. Pre-fix `env` is skipped → allow; post-fix
+# it is scope-checked → block. The symlink isolates the skipped-operand as the
+# sole out-of-scope arg (the source stays in scope).
+ln -s "$TMP" "$TMP/fake/env" 2>/dev/null
+if [ "$(hook_run "mv $TMP/fake/README.md env")" = "2" ]; then
+  ok "555a5: non-command-position operand 'env' is scope-checked → blocked (#555)"
+else
+  ng "555a5: operand named 'env' skipped path_in_scope (bypass) (#555)"
+fi
+rm -f "$TMP/fake/env"
+# A5 no over-block: a COMMAND-position wrapper (`sudo rm -rf <in-scope>`) still
+# skips the wrapper/verb words and passes for an in-scope operand.
+if [ "$(hook_run 'sudo rm -rf ./ok')" = "0" ]; then
+  ok "555a5: 'sudo rm -rf <in-scope>' still allowed (wrapper/verb skip preserved) (#555)"
+else
+  ng "555a5: command-position wrapper/verb skip regressed (#555)"
+fi
+
 # ---------- 23. SKIP_HOOKS escape parsing (#38, #206) ----------
 # SPEC §7 escape has TWO forms. §23a-f cover the LEADING env-prefix form,
 # which only works where the prefix arrives INSIDE the command string —
@@ -2011,6 +2136,20 @@ DETACHED_DIR=$(mktemp -d)
    || ng "branch_guard: detached HEAD on non-tip SHA falsely protected (#30)"
 
 rm -rf "$DETACHED_DIR"
+
+# §555 A7 (#555 / Directive #550): is_protected_branch must recognize a
+# protected branch NAME case-insensitively, for parity with the force-push arm's
+# `grep -qiE`. On a case-insensitive filesystem `Main`/`MASTER` resolve to the
+# same ref as `main`/`master`; a case-sensitive test left the edit/commit gates
+# blind to those checkouts. Pre-fix these return non-zero (unprotected).
+is_protected_branch Main    && ok "555a7: is_protected_branch recognizes 'Main' (case-insensitive) (#555)"   || ng "555a7: 'Main' not recognized as protected — case-sensitive (#555)"
+is_protected_branch MASTER  && ok "555a7: is_protected_branch recognizes 'MASTER' (case-insensitive) (#555)" || ng "555a7: 'MASTER' not recognized as protected — case-sensitive (#555)"
+# A7 no over-block: a genuinely-unprotected branch name is still unprotected.
+if is_protected_branch feature-x; then
+  ng "555a7: unprotected branch 'feature-x' wrongly treated as protected (#555)"
+else
+  ok "555a7: unprotected branch 'feature-x' still unprotected (no over-block) (#555)"
+fi
 
 # ---------- 20. audit_log JSONL safety (#26) ----------
 # audit_log must produce one valid JSON object per line regardless of the

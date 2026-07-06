@@ -83,11 +83,25 @@ except ValueError:
     case "$_opts" in *f*) ;; *) set +f ;; esac
   fi
 
+  # #555 A5: skip the verb/wrapper words (rm|mv|cp|sudo|doas|time|env) ONLY when
+  # they sit in COMMAND position (the leading wrapper→verb prefix). Pre-fix the
+  # skip fired on ANY token equal to one of those words regardless of position,
+  # so an OPERAND literally named `env`/`time`/etc. (`mv <in-scope> env`) skipped
+  # path_in_scope entirely → a bypass. `at_cmd` stays true across leading wrappers
+  # (sudo/doas/time/env) and drops the moment the destructive verb (rm/mv/cp) — or
+  # any other first word — is seen, so every subsequent operand is scope-checked.
+  local at_cmd=1
   for arg in "${args[@]}"; do
     case "$arg" in
       -*) continue ;;
-      rm|mv|cp|sudo|doas|time|env) continue ;;
     esac
+    if [ -n "$at_cmd" ]; then
+      case "$arg" in
+        rm|mv|cp) at_cmd=; continue ;;            # destructive verb → operands follow
+        sudo|doas|time|env) continue ;;           # leading wrapper → still command position
+      esac
+      at_cmd=   # any other leading word is the command; operands follow
+    fi
     case "$arg" in
       '$HOME'|'$HOME'/*) arg="${HOME}${arg#'$HOME'}" ;;
       '${HOME}'|'${HOME}'/*) arg="${HOME}${arg#'${HOME}'}" ;;
@@ -189,8 +203,14 @@ case "$tool" in
     # filename like `my-rf-file` is not matched). Over-entry is harmless:
     # check_destructive_args makes the real in-scope/out-of-scope decision and
     # already inspects every operand regardless of flag position.
+    # #555 A3: the flagless second arm skips an optional leading `--` end-of-options
+    # marker before the operand test, so `mv -- <src> <out-of-registry>` (POSIX
+    # `--` guard) still ENTERS check_destructive_args instead of evading both arms
+    # (the raw `[^-...]` after `mv ` saw the `--` and bailed). check_destructive_args
+    # treats `--` as a flag (skipped) and scope-checks every operand, so an all-in-
+    # scope `mv -- a b` still passes — the change only widens ENTRY (tightens the gate).
     if printf '%s' "$cmd" | grep -qE '\b(rm|mv|cp)\s+([^;|&]*\s)?(-[A-Za-z]*[fFrR][A-Za-z]*|--force|--recursive)(\s|$)' \
-       || printf '%s' "$cmd" | grep -qE '\b(mv|cp)\s+[^-;|&[:space:]]'; then
+       || printf '%s' "$cmd" | grep -qE '\b(mv|cp)\s+(--\s+)?[^-;|&[:space:]]'; then
       # #505: the second arm enters check_destructive_args for a FLAGLESS mv/cp
       # that has an operand — a flagless `mv in /out` clobbers an out-of-registry
       # DEST yet carries no force/recursive flag, so the first (flag-keyed) arm
@@ -209,7 +229,19 @@ case "$tool" in
     fi
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}reset\s+--hard\b"; then
       decided=
-      should_skip destructive && decided=1 || block destructive "git reset --hard blocked"
+      # #555 A2: refine — message-strip raw_cmd so a `git reset --hard` mentioned
+      # only inside a -m/-F commit MESSAGE (data) doesn't false-block; a real
+      # invocation still blocks. `message` mode elides only the message-flag VALUE
+      # and never a real command verb, so this can't under-block (parity with the
+      # force-push/protected-push arms that already elide via strip_command_data …
+      # message). grep-count into a var (a refining conditional grep would be
+      # mis-read by the §39b matcher-entry awk). Fail-closed: strip → raw on failure.
+      gr_hit=$(printf '%s' "$(strip_command_data "$raw_cmd" message)" | grep -cE "${GIT_PREFIX}reset\s+--hard\b")
+      if [ "${gr_hit:-0}" -gt 0 ]; then
+        should_skip destructive && decided=1 || block destructive "git reset --hard blocked"
+      else
+        decided=1   # reset --hard only inside a commit-message value → allow (silent)
+      fi
       [ -z "$decided" ] && pass_through_trace destructive "$cmd"
     fi
     if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}clean\s+-[A-Za-z]*f"; then
@@ -220,7 +252,11 @@ case "$tool" in
       # inside a heredoc body, so this can't under-block. The hit is computed into
       # a var via grep-count (a refining conditional grep would be mis-read by the
       # §39b matcher-entry awk). Fail-closed via strip_command_data (raw on fail).
-      gc_hit=$(printf '%s' "$(strip_command_data "$raw_cmd" heredoc)" | grep -cE "${GIT_PREFIX}clean\s+-[A-Za-z]*f")
+      # #555 A2: `message`-mode strip (⊇ heredoc) — also elides a -m/-F commit
+      # MESSAGE value so a `git clean -f` documented inside a commit message
+      # doesn't false-block; a real -f flag is never a message value, so this
+      # can't under-block. Fail-closed via strip_command_data (raw on failure).
+      gc_hit=$(printf '%s' "$(strip_command_data "$raw_cmd" message)" | grep -cE "${GIT_PREFIX}clean\s+-[A-Za-z]*f")
       if [ "${gc_hit:-0}" -gt 0 ]; then
         should_skip destructive && decided=1 || block destructive "git clean -f blocked"
       else
@@ -676,6 +712,23 @@ case "$tool" in
               *)          : ;;                       # bare token → bail
             esac
           fi
+          # #555 A6: final validation of the resolved tf_repo (URL- or flag-
+          # derived). The parses above validate segment COUNT only, so a `.`/`..`
+          # path segment (`../../evil/issues/1`, `owner/..`) or an out-of-charset
+          # segment slipped through — the trust/discussion `gh issue view --repo`
+          # would then resolve against an attacker-chosen repo. Reject a dot-segment
+          # and enforce the GitHub owner/repo charset; a rejected value → empty →
+          # fall back to the CURRENT repo (fail-soft, tightening the trust check).
+          if [ -n "$tf_repo" ]; then
+            case "/$tf_repo/" in
+              */../*|*/./*) tf_repo="" ;;            # . or .. path segment → bail
+            esac
+          fi
+          if [ -n "$tf_repo" ]; then
+            case "$tf_repo" in
+              *[!A-Za-z0-9._/-]*) tf_repo="" ;;      # out-of-charset segment → bail
+            esac
+          fi
           tf_completed=
           tf_not_planned=
           # #505: accept the equals form `--reason=completed` (gh-valid) too,
@@ -947,7 +1000,13 @@ case "$tool" in
     #     reliable proxy — a feature branch tracking origin/main could otherwise
     #     clobber main. Fail-safe: when the target can't be confirmed
     #     non-protected, block. Escape: SKIP_HOOKS=force-push.
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*(\-f\b|\-\-force\b|\-\-force-with-lease\b)"; then
+    # #555 A4: the short-force alternative `(^|space)-[A-Za-z]*f[A-Za-z]*\b`
+    # matches a BUNDLED short cluster (`-uf`/`-fu`) whose `f` had no isolated
+    # `-f\b` token → the bare bundled force previously skipped the irreversible
+    # fail-safe block entirely. Anchored to a token start (`(^|[[:space:]])`) so a
+    # branch NAME containing `-f` (`my-feature`) is not mis-read as a flag. Entry
+    # is a coarse pre-filter; fp_force_segs below re-confirms per push segment.
+    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}push\b.*((^|[[:space:]])\-[A-Za-z]*f[A-Za-z]*\b|\-\-force\b|\-\-force-with-lease\b)"; then
       decided=
       # Isolate the actual git-push SEGMENT(s) (heredoc-stripped) so a force flag,
       # protected token, or target named in a SIBLING segment (gh pr create --base
@@ -959,7 +1018,10 @@ case "$tool" in
       # `\` with the next) BEFORE segmenting, else a `git \<nl> push \<nl> --force`
       # continuation splits across newlines and no segment carries `git push`
       # together (#17 regression guard). Heredoc bodies are already stripped.
-      fp_force_segs=$(push_segments "$(strip_command_data "$raw_cmd" message | awk '{ if (sub(/\\$/,"")) printf "%s ", $0; else print }')" | grep -E "(\-f\b|\-\-force\b|\-\-force-with-lease\b)")
+      # #555 A4: same bundled-short-force alternative as the entry grep, so a
+      # `git push -uf origin x` push segment is recognized as force-bearing here
+      # too (else the entry over-matched but the seg filter dropped it → no gate).
+      fp_force_segs=$(push_segments "$(strip_command_data "$raw_cmd" message | awk '{ if (sub(/\\$/,"")) printf "%s ", $0; else print }')" | grep -E "((^|[[:space:]])\-[A-Za-z]*f[A-Za-z]*\b|\-\-force\b|\-\-force-with-lease\b)")
       if [ -z "$fp_force_segs" ]; then
         # The force flag lived only in a non-push sibling segment → not a
         # force-push → allow (silent).
@@ -1145,6 +1207,40 @@ case "$tool" in
     target=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty')
     [ -z "$target" ] && exit 0
 
+    # #555 A1: normalize $target LEXICALLY (a pure-string collapse of `.`/`..`
+    # segments — NO `pwd -P`/`realpath`/`[ -d ]`/any filesystem access) BEFORE the
+    # carve-out prefix matches below. Pre-fix the carve-outs prefix-matched the RAW
+    # $target, so a `..`-laden absolute path (`$SHELL_ROOT/../../etc/passwd`) matched
+    # `"$SHELL_ROOT"/*`, set the carve-out flag, and skipped the out-of-scope gate
+    # (:1180 normalizes, but the carve-out short-circuits before it). A PHYSICAL
+    # resolve only collapses `..` when the ancestor dir EXISTS — a security matcher
+    # must neutralize a `..`-escape even for a not-yet-existing target (an Edit/Write
+    # routinely CREATES a path, and `$HOME/.claude` is absent on CI runners), so a
+    # physical resolve fell back to the raw path there and the bypass re-opened.
+    # Collapsing purely lexically grants a carve-out only to a path lexically UNDER
+    # the root regardless of what exists on disk — a traversal escape falls through
+    # to the out-of-scope block (tightening). Used ONLY for the two carve-out case
+    # matches; $target itself is preserved for the sensitive-file check and block
+    # messages. Make $target absolute first (prefix cwd), then fold segments.
+    resolved_target="$target"
+    case "$resolved_target" in
+      /*) ;;
+      *) resolved_target="$(pwd -P)/$resolved_target" ;;
+    esac
+    # Lexical `.`/`..` collapse — walk segments, drop `.`/empty, pop on `..`. No
+    # filesystem access, so an absent ancestor cannot defeat the normalization.
+    _rt_norm=""; _rt_rest="$resolved_target"
+    while [ -n "$_rt_rest" ]; do
+      _rt_seg="${_rt_rest%%/*}"
+      case "$_rt_rest" in */*) _rt_rest="${_rt_rest#*/}" ;; *) _rt_rest="" ;; esac
+      case "$_rt_seg" in
+        ''|.) ;;                              # `//` empty or `.` → drop
+        ..) _rt_norm="${_rt_norm%/*}" ;;      # pop last kept segment (root-clamped)
+        *)  _rt_norm="$_rt_norm/$_rt_seg" ;;  # keep
+      esac
+    done
+    resolved_target="${_rt_norm:-/}"
+
     # Shell self-modification carve-out (#210): paths under
     # $GHJIG_ROOT/ skip the branch + out-of-scope checks (the
     # shell legitimately edits its own substrate, which is outside the
@@ -1154,7 +1250,7 @@ case "$tool" in
     # document the sensitive check as firing under BOTH carve-outs. So we
     # set a flag (mirroring the $HOME/.claude/ carve-out) and fall through.
     shell_self_mod=
-    case "$target/" in "$SHELL_ROOT"/*) shell_self_mod=1 ;; esac
+    case "$resolved_target/" in "$SHELL_ROOT"/*) shell_self_mod=1 ;; esac
 
     # User-global auto-memory carve-out (issue #91): paths under
     # $HOME/.claude/ are legitimate write targets for the persistent
@@ -1167,7 +1263,7 @@ case "$tool" in
     # — no carve-out for that, because writing a credentials file
     # into ~/.claude/ would be just as bad.
     user_global_memory=
-    case "$target/" in
+    case "$resolved_target/" in
       "$HOME"/.claude/*) user_global_memory=1 ;;
     esac
 
