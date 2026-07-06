@@ -4537,6 +4537,36 @@ else
   fi
 fi
 
+# ---------- 42f. N=3 escalation ownership + input provisioning (#552) ----------
+# Cluster F, Directive #550: the revise→reject escalation lives under the
+# "handled by caller" Verdict dispatch heading. Its ownership must name the
+# caller (not "the reviewer escalates"), AND the comment-history it counts must
+# be provisioned as an Input the reviewer/caller can actually read. Guards
+# against re-introducing the unowned escalation with no provisioned data.
+if [ -f "$DR_PATH" ]; then
+  # (a) escalation is caller-owned (not "the reviewer escalates").
+  if grep -qiF 'Escalation (caller-owned)' "$DR_PATH" \
+     && ! grep -qiE 'the reviewer escalates to `?reject' "$DR_PATH"; then
+    ok "42f-a: N=3 escalation is caller-owned, not 'the reviewer escalates' (#552)"
+  else
+    ng "42f-a: N=3 escalation ownership still ambiguous / unassigned (#552)"
+  fi
+  # (b) the counted data is provisioned as an Input (Revise-round count, in BOTH
+  #     rulebooks) so the escalation isn't counting unprovisioned comment history.
+  rrc_count=$(grep -cF 'Revise-round count' "$DR_PATH")
+  if [ "$rrc_count" -ge 2 ]; then
+    ok "42f-b: Revise-round count provisioned as Input in both rulebooks ($rrc_count) (#552)"
+  else
+    ng "42f-b: Revise-round count Input under-provisioned (found $rrc_count, want >=2) (#552)"
+  fi
+  # (c) escalation still TIGHTENS to reject after N=3 — block-path preserved.
+  if grep -qiE 'N=3.*reject|reject handling' "$DR_PATH"; then
+    ok "42f-c: escalation still resolves to reject after N=3 (block-path preserved) (#552)"
+  else
+    ng "42f-c: N=3 escalation no longer resolves to reject (regression) (#552)"
+  fi
+fi
+
 # ---------- 42e. activation-reviewer behavioral assertions (#69 / Directive #62) ----------
 # Gated behind GHJIG_BEHAVIORAL_SMOKE=1. When set, shells out to the live
 # agent via `claude -p --agent activation-reviewer` and asserts the documented
@@ -9248,7 +9278,7 @@ fi
 # parent's uncommitted work when sharing the tree. Belt-and-suspenders to the
 # canonical worktree-isolation invocation (SPEC §1.5).
 s77_missing=""
-for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer plan-challenger explorer; do
+for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer plan-challenger planner explorer; do
   f="$SHELL_ROOT/.claude/agents/$a.md"
   if ! { [ -f "$f" ] \
          && grep -qiF 'Working-tree discipline' "$f" \
@@ -9257,9 +9287,26 @@ for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan
   fi
 done
 if [ -z "$s77_missing" ]; then
-  ok "77: all 7 read-only Bash subagents carry the read-only-git working-tree constraint (#285, +plan-challenger #530)"
+  ok "77: all 8 read-only Bash subagents carry the read-only-git working-tree constraint (#285, +plan-challenger #530, +planner #552)"
 else
-  ng "77: working-tree-discipline constraint missing from:$s77_missing (#285)"
+  ng "77: working-tree-discipline constraint missing from:$s77_missing (#285/#552)"
+fi
+
+# ---------- 77b. planner listed in CLAUDE.md working-tree-isolation set (#552) ----------
+# planner carries Bash and is read-only-by-intent; it must appear in the
+# CLAUDE.md isolation roster alongside the other read-only reviewers, not be
+# silently exempt (cluster F, Directive #550).
+S77B_CLAUDE="$SHELL_ROOT/.claude/CLAUDE.md"
+if grep -qiF 'Working-tree isolation' "$S77B_CLAUDE" \
+   && grep -nE 'Working-tree isolation.*`planner`' "$S77B_CLAUDE" >/dev/null 2>&1; then
+  ok "77b: planner listed in CLAUDE.md working-tree-isolation roster (#552)"
+else
+  # accept planner appearing anywhere inside the isolation-roster sentence
+  if awk '/\*\*Working-tree isolation\*\*/{f=1} f&&/planner/{print; exit}' "$S77B_CLAUDE" | grep -q planner; then
+    ok "77b: planner listed in CLAUDE.md working-tree-isolation roster (#552)"
+  else
+    ng "77b: planner missing from CLAUDE.md working-tree-isolation roster (#552)"
+  fi
 fi
 
 # ---------- 78. merge-strategy matcher (#288) ----------
