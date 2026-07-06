@@ -78,7 +78,7 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **ac-closeout** — `gh pr merge` blocked when a linked issue has unchecked AC items and no `## AC closeout` marker comment yet (SPEC §6.1).
 - **merge-strategy** — `gh pr merge` to the default branch blocked unless the strategy is `--merge` (SPEC §6.1, §5.7.1).
 - **push-parity / merge-attestation** — un-skippable `gh pr merge` gate: blocks merging with unpushed commits (#244), a skipped review (no `attest/pr-<N>`, zero-network fail-closed) or a stale-head review (#246/#543). `/ship` writes the attestation post-pass; `SKIP_HOOKS`-escapable (SPEC §6.1, §5.7).
-- **sensitive-file** — Edit/Write on `.env`, `*.pem`, `credentials*`, `id_rsa*`, `id_ed25519*` blocked, including under both carve-outs (SPEC §6.1).
+- **sensitive-file** — Edit/Write on `.env`/`.env.*`/`*.pem`/`*.pem.*`/`credentials*`/`id_rsa*`/`id_ed25519*` blocked (case-insensitive basename), under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except the two carve-outs `$GHJIG_ROOT/` and `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
 - **shell-root resolution** — hooks self-locate via `BASH_SOURCE` through the `.claude/ghjig-root` symlink; ambient never consulted, `GHJIG_ROOT_OVERRIDE` = test seam (SPEC §3.2.1).
@@ -86,7 +86,7 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty scope registry; retired `GHJIG_SHELL_ROOT`; active `GHJIG_ROOT_OVERRIDE` seam) naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source (hook-to-helper and helper-to-helper) goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).
 - **pass-through invariant** — every matcher reaches a decided state per fire; happy paths `mark_allow` silently, anomalous silent fall-through is caught by `pass_through_trace` (SPEC §6.1).
-- **audit observability** — records carry an additive `source` field and reviewers emit categorized reject records; observability surfaces, not gates (SPEC §6.1).
+- **audit observability** — records carry an additive `source` field and reviewers emit categorized reject records (SPEC §6.1).
 - **type-aware hooks** — `issue_type.sh` predicates drive the AC-closeout Directive skip and the `proposed-protect` matcher (block branching a `status:proposed` or Directive Issue) (SPEC §1.7, §6.1).
 - **trusted-filer-mutate** — blocks a trusted-filer `gh issue close` without `--reason completed`, and `--remove-label directive` on any filer (SPEC §6.1).
 - **label-parent-consistency** — blocks a `gh issue edit --add-label` that contradicts the body's line-1 parent marker (+ initiative/directive + parent-XOR arms) (SPEC §6.1).
