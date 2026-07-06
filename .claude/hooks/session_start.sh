@@ -83,6 +83,13 @@ safe_source "$SHELL_ROOT/scripts/lib/audit_log_path.sh"          friction-adviso
 # (The binding-symlink-repoint disable stays a documented residual — SPEC §6.5(c)
 #  — because this detector is itself reached THROUGH the binding.)
 _ce_reg=$(ghjig_registry_file 2>/dev/null || true)
+# Mirror the reader's back-compat resolution order (cwd_guard.sh:12,62): if the
+# per-project registry is ABSENT, in_scope/path_in_scope fall back to the legacy
+# shared registry — so an empty legacy-shared file ALSO silently disables
+# enforcement. Resolve the SAME file the reader would, else that state stays a
+# silent blind spot (banner mute while enforcement is OFF). Absent-both remains
+# the transparent normal case (the [ -f ] guard below simply won't fire).
+[ -f "${_ce_reg:-}" ] || _ce_reg="${GHJIG_ROOT:-}/.claude/state/registry.txt"
 if [ -n "$_ce_reg" ] && [ -f "$_ce_reg" ] && ! grep -q '[^[:space:]]' "$_ce_reg" 2>/dev/null; then
   # Banner FIRST (the user-visible AC5 signal), debounced once per session.
   _reg_stamp="${TMPDIR:-/tmp}/ghjig-banner-regzero.${CLAUDE_SESSION_ID:-$PPID}"
@@ -91,7 +98,7 @@ if [ -n "$_ce_reg" ] && [ -f "$_ce_reg" ] && ! grep -q '[^[:space:]]' "$_ce_reg"
   fi
   # Audit record in a SUBSHELL so any audit_log misbehavior (e.g. a `set -u`
   # abort on an unusual env) cannot kill this hook before/after the banner.
-  ( audit_log warn registry-zeroed notice "per-project registry present-but-empty → enforcement OFF (in_scope fails open): $_ce_reg" ) >/dev/null 2>&1 || true
+  ( audit_log warn registry-zeroed notice "scope-guard registry present-but-empty → enforcement OFF (in_scope fails open): $_ce_reg" ) >/dev/null 2>&1 || true
 fi
 
 # 1) Shell self-sync check — always runs regardless of target cwd.

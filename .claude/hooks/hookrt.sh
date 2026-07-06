@@ -134,7 +134,7 @@ audit_log() {
   case "${GHJIG_AUDIT_SOURCE:-}" in test) _src="test" ;; *) _src="live" ;; esac
   # Per-project audit (#314) when in hook context; else legacy shared path.
   esd=$(ghjig_state_dir)
-  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="$GHJIG_ROOT/.claude/audit/audit.jsonl"; fi
+  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="${GHJIG_ROOT:-}/.claude/audit/audit.jsonl"; fi
   mkdir -p "$(dirname "$log")"
   local r_reason r_cwd
   r_cwd=$(_audit_json_string "$cwd")
