@@ -75,7 +75,12 @@ is_protected_branch() {
   # tolerable. (Bash's built-in `[[ =~ ]]` is POSIX-ERE-only and rejects
   # the `\S` shorthand used in PROTECTED_BRANCH_PATTERN; staying with grep
   # keeps the ERE flavor consistent across all matchers in the codebase.)
-  if [ -n "$b" ] && printf '%s' "$b" | grep -qE "^(${PROTECTED_BRANCH_PATTERN})$"; then
+  # #555 A7: case-INSENSITIVE (`-i`), for parity with the force-push arm's
+  # `grep -qiE` protected-token check. On a case-insensitive filesystem a
+  # `Main`/`MASTER` checkout resolves to the same ref as `main`/`master`, so a
+  # case-sensitive test here left the edit/commit gates blind to that branch —
+  # a fail-open. `-i` closes it (tightens the block-path; never widens allow).
+  if [ -n "$b" ] && printf '%s' "$b" | grep -qiE "^(${PROTECTED_BRANCH_PATTERN})$"; then
     return 0
   fi
   # Detached HEAD (no symbolic ref): compare HEAD's SHA against the tip
