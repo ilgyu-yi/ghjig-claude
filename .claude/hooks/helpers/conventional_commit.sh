@@ -227,8 +227,25 @@ _codepoint_len() {
   if command -v python3 >/dev/null 2>&1; then
     printf '%s' "$1" | python3 -c 'import sys; print(len(sys.stdin.read()))'
   else
-    # wc -m counts characters under a UTF-8 locale on BSD and GNU.
-    printf '%s' "$1" | LC_ALL=en_US.UTF-8 wc -m | tr -d ' '
+    # wc -m counts characters under a UTF-8 locale on BSD and GNU. A hardcoded
+    # en_US.UTF-8 is absent on many minimal Linux hosts; libc then silently
+    # falls to the C locale and counts BYTES, over-counting multibyte subjects
+    # and false-rejecting the 1..72 codepoint bound. Prefer whichever UTF-8
+    # locale the host actually provides (C.UTF-8 is present on modern glibc/
+    # musl; en_US.UTF-8 on BSD/macOS), else fall through to en_US.UTF-8.
+    local _utf8_locale=en_US.UTF-8
+    if command -v locale >/dev/null 2>&1; then
+      local _avail; _avail=$(locale -a 2>/dev/null)
+      # here-strings, not `| grep -q`: under `set -o pipefail` grep -q closes the
+      # pipe on match → SIGPIPE on the writer → nonzero pipeline status even on a
+      # HIT, which would defeat the detection.
+      if grep -qiE '^C\.(UTF-8|utf8)$' <<<"$_avail"; then
+        _utf8_locale=C.UTF-8
+      elif grep -qiE '^en_US\.(UTF-8|utf8)$' <<<"$_avail"; then
+        _utf8_locale=en_US.UTF-8
+      fi
+    fi
+    printf '%s' "$1" | LC_ALL="$_utf8_locale" wc -m | tr -d ' '
   fi
 }
 

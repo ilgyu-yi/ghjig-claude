@@ -1293,6 +1293,25 @@ if grep -q 'pr_cache_head' "$SHELL_ROOT/.claude/hooks/stop.sh" \
 else
   ng "15s-d: stop.sh missing the /sync-pr arm wiring (#375)"
 fi
+# §15s-e (#554/D1): a non-numeric GHJIG_STOP_THROTTLE must NOT abort the hook.
+# stop.sh runs under `set -u`; an unsanitized value in the modulo arithmetic
+# (throttle line) is an unbound-variable error that kills the hook — silently
+# dropping the /review + /sync-pr advisories (0 would divide-by-zero the same
+# way). The var is now sanitized (empty/0/non-numeric → default 5). Runs stop.sh
+# IN-SCOPE (physical-resolved cwd in the registry, so the throttle line is
+# actually reached) with a garbage throttle; a clean exit is the signal — a
+# pre-fix set -u abort exits non-zero.
+S15E_STATE=$(mktemp -d); S15E_CWD=$(cd "$(mktemp -d)" && pwd -P)
+printf '%s\n' "$S15E_CWD" > "$S15E_STATE/registry.txt"
+if ( cd "$S15E_CWD" || exit 1
+     GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" GHJIG_STATE_DIR_OVERRIDE="$S15E_STATE" \
+     GHJIG_STOP_THROTTLE='not-a-number' \
+       bash "$SHELL_ROOT/.claude/hooks/stop.sh" </dev/null >/dev/null 2>&1 ); then
+  ok "15s-e: non-numeric GHJIG_STOP_THROTTLE does not abort stop.sh (#554)"
+else
+  ng "15s-e: non-numeric GHJIG_STOP_THROTTLE aborted stop.sh (set -u / div-by-zero) (#554)"
+fi
+rm -rf "$S15E_STATE" "$S15E_CWD"
 
 # ---------- 16. heredoc -m subject extraction (#28) ----------
 # pre_tool_use must accept the heredoc `-m "$(cat <<'TAG' ... TAG )"` form
@@ -1492,6 +1511,35 @@ if (
   ok "16n: awk fallback (no python3) honors line-1 precedence — parity (#383)"
 else
   ng "16n: awk fallback mis-extracts body <<EOF prose without python3 (rc=$?) (#383)"
+fi
+
+# 16o (#554/D2): the wc -m codepoint fallback (python3 absent) is locale-robust.
+# A hardcoded LC_ALL=en_US.UTF-8 is absent on many minimal Linux hosts; libc
+# then silently falls to the C locale and `wc -m` counts BYTES — over-counting a
+# multibyte subject and false-rejecting the 1..72 codepoint bound. The fallback
+# now selects a UTF-8 locale the host actually provides, so an ambient LC_ALL=C
+# does not collapse it to a byte count. Hide python3 (force the wc path) + add
+# `locale` to the curated PATH so the detection branch runs. Guarded on a UTF-8
+# locale actually existing (the fix cannot conjure one on a locale-less host).
+s16o_loc=$(command -v locale 2>/dev/null) && ln -sf "$s16o_loc" "$S16N_BIN/locale"
+# here-string, not `| grep -q`: under `set -o pipefail` grep -q's early pipe
+# close SIGPIPEs `locale -a` → nonzero pipeline even on a match (the documented
+# smoke SIGPIPE trap), which would wrongly skip this test on every host.
+s16o_avail=$(locale -a 2>/dev/null || true)
+if command -v locale >/dev/null 2>&1 && grep -qiE '^(C|en_US)\.(UTF-8|utf8)$' <<<"$s16o_avail"; then
+  if (
+      . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+      export PATH="$S16N_BIN" LC_ALL=C LANG=C
+      command -v python3 >/dev/null 2>&1 && exit 3   # guard: python3 must be absent
+      len=$(_codepoint_len "가나다")                 # 3 codepoints, 9 UTF-8 bytes
+      [ "$len" = 3 ]
+    ); then
+    ok "16o: wc -m codepoint fallback stays codepoint-correct under ambient LC_ALL=C (#554)"
+  else
+    ng "16o: wc -m fallback byte-counted a multibyte subject under LC_ALL=C (rc=$?) (#554)"
+  fi
+else
+  ok "16o: no UTF-8 locale on host — codepoint-fallback locale test skipped (#554)"
 fi
 
 # ---------- 22. git option-prefix matcher tolerance (#37) ----------
@@ -2006,6 +2054,24 @@ mkdir -p "$AUDIT_QUOTED_DIR"
   fi
 ) && ok "audit_log: cwd with embedded quote stays JSONL-parseable (#26)" \
    || ng "audit_log: cwd metachar corrupts JSONL (#26)"
+
+# 20d (#554/D3): the legacy-path fallback (hookrt.sh) references GHJIG_ROOT. With
+# no per-project state dir AND GHJIG_ROOT unset, a bare `$GHJIG_ROOT` is a `set -u`
+# unbound-variable hard abort for a future non-hook/non-CLI caller. It now uses
+# `${GHJIG_ROOT:-}`. Under set -u with all state vars unset, audit_log must not
+# emit an 'unbound variable' abort (the write itself may fail — that is fine;
+# the signal is the absence of the set -u crash).
+d3err=$(
+  . "$SHELL_ROOT/.claude/hooks/helpers/log.sh" 2>/dev/null
+  unset GHJIG_ROOT GHJIG_STATE_DIR_OVERRIDE CLAUDE_PROJECT_DIR
+  set -u
+  audit_log warn registry-zeroed notice "d3 set-u probe" 2>&1 >/dev/null
+)
+if printf '%s' "$d3err" | grep -qi 'unbound variable'; then
+  ng "20d: audit_log legacy path set -u aborts on unset GHJIG_ROOT (#554)"
+else
+  ok "20d: audit_log legacy path is set -u-safe on unset GHJIG_ROOT (#554)"
+fi
 rm -rf "$AUDIT_TMP"
 
 # ---------- 29. status_compact gh-cache (#53) ----------
@@ -3997,6 +4063,33 @@ else
   ng "502e: no persistent registry-zeroed audit record — disarmed state traceless in the log (#502)"
 fi
 rm -rf "$SS502_TMPDIR" "$SS502_STATE"
+# 502f (#554/D4): the banner must also stat the LEGACY shared registry. When the
+# per-project registry is ABSENT, in_scope/path_in_scope fall back to the legacy
+# shared "${GHJIG_ROOT}/.claude/state/registry.txt" (cwd_guard.sh:12,62) — so an
+# empty legacy file ALSO silently disables enforcement, but pre-fix the banner
+# (which only stat'd the per-project file) stayed mute: a silent-disabled blind
+# spot. The banner now mirrors the reader's resolution order. Guarded on the
+# legacy file NOT pre-existing (never clobber a real registration); the file is
+# gitignored + removed after.
+SS502F_LEGACY="$SHELL_ROOT/.claude/state/registry.txt"
+if [ ! -e "$SS502F_LEGACY" ]; then
+  mkdir -p "$(dirname "$SS502F_LEGACY")"
+  : > "$SS502F_LEGACY"                         # empty legacy shared registry
+  SS502F_STATE=$(mktemp -d)                    # per-project override w/ NO registry.txt → absent
+  SS502F_TMPDIR=$(mktemp -d)
+  ss502f_cnt=$( ( cd "$TMP/fake" || exit 0
+      GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" CLAUDE_SESSION_ID="smoke-502f-$$" \
+      CLAUDE_PROJECT_DIR="$SS502F_STATE" GHJIG_STATE_DIR_OVERRIDE="$SS502F_STATE" \
+      TMPDIR="$SS502F_TMPDIR" \
+        bash "$SHELL_ROOT/.claude/hooks/session_start.sh" </dev/null 2>&1 >/dev/null
+    ) | grep -c 'registry-zeroed.*Fix:' || true )
+  [ "$ss502f_cnt" = 1 ] \
+    && ok "502f: empty LEGACY shared registry (per-project absent) → banner fires (#554)" \
+    || ng "502f: empty legacy shared registry silently disabled enforcement — banner mute (#554)"
+  rm -f "$SS502F_LEGACY"; rm -rf "$SS502F_STATE" "$SS502F_TMPDIR"
+else
+  ok "502f: legacy shared registry pre-exists — D4 legacy-empty test skipped to avoid clobber (#554)"
+fi
 # 502d: SPEC §6.5(c) documents the registry-zeroed detector AND the
 # binding-repoint residual + the §1.4 "no fail-open flip" decision.
 if grep -qiE 'registry-zeroed detector' "$SHELL_ROOT/SPEC.md" 2>/dev/null \

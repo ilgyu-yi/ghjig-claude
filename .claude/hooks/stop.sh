@@ -29,6 +29,11 @@ count=$((count + 1))
 printf '%s\n' "$count" > "$count_file"
 
 throttle_n=${GHJIG_STOP_THROTTLE:-5}
+# Sanitize before arithmetic (set -u context): a non-numeric value would abort
+# the hook under $(( )), and 0 would divide-by-zero — either silently killing the
+# /review + /sync-pr advisories below. Empty/zero/non-numeric → default 5
+# (mirrors the session_start/post_tool_use throttle-var guards).
+case "$throttle_n" in ""|0|*[!0-9]*) throttle_n=5 ;; esac
 [ $((count % throttle_n)) -ne 0 ] && exit 0
 
 # Suggest /review when uncommitted changes are present.
