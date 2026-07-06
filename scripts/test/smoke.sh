@@ -280,6 +280,27 @@ s214_scan() {
   && ok "6c: short sk- identifier not flagged (floor preserved) (#214)" \
   || ng "6c: short sk- identifier wrongly flagged (#214)"
 
+# 6c2 (#551): GitHub App server-to-server (ghs_, incl. Actions GITHUB_TOKEN),
+# user-to-server (ghu_) and refresh (ghr_) token families must be DETECTED —
+# previously only ghp_/gho_/github_pat_ were covered, so these committed CLEAN.
+# Prefix assembled at runtime so no scanner-matching literal lands in this file.
+s551_pfx='gh'
+s551_scan() {
+  ( SCAN_551=$(mktemp -d); cd "$SCAN_551" || exit 1; git init -q
+    printf 'token = "%s"\n' "$1" > leak.txt; git add leak.txt
+    scan_staged_secrets >/dev/null 2>&1 && echo PASSED || echo DETECTED
+    cd / ; rm -rf "$SCAN_551" )
+}
+for fam in s u r; do
+  [ "$(s551_scan "${s551_pfx}${fam}_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab")" = DETECTED ] \
+    && ok "6c2: secret_scan detects gh${fam}_ token family (#551)" \
+    || ng "6c2: gh${fam}_ token family NOT detected (false negative) (#551)"
+done
+# Negative (floor preserved): a short gh_-prefixed identifier must NOT be flagged.
+[ "$(s551_scan "${s551_pfx}s_short")" = PASSED ] \
+  && ok "6c2: short ghs_ identifier not flagged (floor preserved) (#551)" \
+  || ng "6c2: short ghs_ identifier wrongly flagged (#551)"
+
 # 6c: allow-list — leak on a path matched by HEAD's .shellsecretignore is
 # skipped. .shellsecretignore must be committed FIRST (read from HEAD per
 # security review MEDIUM-1) — staging-only does not take effect, which is
@@ -12388,6 +12409,28 @@ if ! "$SHELL_ROOT/scripts/ghjig_skip.sh" branch "short" "x" >/dev/null 2>&1 \
 else
   ng "125-9b: ghjig_skip.sh wrote a token for a too-short fingerprint (footgun) (#479)"
 fi
+# 125-9c. WRITER category validation — ghjig_skip.sh rejects a category outside
+# ^[A-Za-z0-9,_-]+$ (the category is interpolated into the token path, so a
+# ../-traversal value must be refused: exit != 0, no traversed file written) (#551).
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_traverse_probe="$ESC_TOKEN_DIR/../pwned_551"
+rm -f "$esc_traverse_probe.token"
+if ! "$SHELL_ROOT/scripts/ghjig_skip.sh" "../pwned_551" "$ESC_FP" "traversal probe" >/dev/null 2>&1 \
+   && [ ! -e "$esc_traverse_probe.token" ]; then
+  ok "125-9c: ghjig_skip.sh rejects a ../-traversal category and writes no token (#551)"
+else
+  ng "125-9c: ghjig_skip.sh honored an invalid/traversal category (footgun) (#551)"
+fi
+# 125-9d. WRITER category validation — a legitimate hyphenated category
+# (out-of-scope) is still accepted and writes its token (regression guard) (#551).
+rm -f "$ESC_TOKEN_DIR/out-of-scope.token"
+if "$SHELL_ROOT/scripts/ghjig_skip.sh" "out-of-scope" "$ESC_FP" "valid category" >/dev/null 2>&1 \
+   && [ -e "$ESC_TOKEN_DIR/out-of-scope.token" ]; then
+  ok "125-9d: ghjig_skip.sh accepts a valid hyphenated category (#551)"
+else
+  ng "125-9d: ghjig_skip.sh rejected a legitimate category (over-tightened) (#551)"
+fi
+rm -f "$ESC_TOKEN_DIR/out-of-scope.token"
 
 # 125-10. created OUT-OF-RANGE does NOT disarm (security regression, #479 N=3
 # review): a leading-zero value (`$(( ))` parses it as octal) and a >=2^63 value
