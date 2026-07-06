@@ -5,7 +5,7 @@
 #   scan_staged_secrets — walks `git diff --cached --unified=0` extracting
 #     (file, line, content) tuples, drops any whose `file` matches an entry
 #     in `.shellsecretignore` at the target-repo root, and runs each
-#     surviving line through 11 secret patterns. On any hit: emits one
+#     surviving line through 14 secret patterns. On any hit: emits one
 #     `<file>:<line>: <pattern-id>` line per location to stderr, then the
 #     legacy summary, and returns 1. No hits → return 0.
 #
@@ -27,6 +27,9 @@ SECRET_IDS=(
   gh-pat-classic
   gh-pat-oauth
   gh-pat-fine
+  gh-app-server
+  gh-user-server
+  gh-refresh
   gitlab-pat
   anthropic-key
   openai-key
@@ -41,6 +44,9 @@ SECRET_PATTERNS=(
   'ghp_[A-Za-z0-9]{36}'
   'gho_[A-Za-z0-9]{36}'
   'github_pat_[A-Za-z0-9_]{20,}'
+  'ghs_[A-Za-z0-9]{36}'
+  'ghu_[A-Za-z0-9]{36}'
+  'ghr_[A-Za-z0-9]{36}'
   'glpat-[A-Za-z0-9_-]{20}'
   'sk-ant-[A-Za-z0-9_-]+'
   'sk-(proj-|svcacct-|admin-)?[A-Za-z0-9_-]{40,}'

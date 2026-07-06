@@ -33,6 +33,16 @@ if [ -z "$category" ] || [ -z "$fingerprint" ]; then
   echo "ghjig_skip: <cmd_fingerprint> is a distinguishing substring of the intended command (commit subject / version / branch)." >&2
   exit 2
 fi
+# The category is interpolated directly into the token path (tok="$dir/${category}.token"),
+# so an unvalidated value admits ../-traversal on the write side. Constrain to the charset
+# the hook categories use (alnum plus , _ -); reject anything else, writing no token. This
+# tightens the write path — it never widens an escape.
+case "$category" in
+  *[!A-Za-z0-9,_-]*)
+    echo "ghjig_skip: category '$category' has invalid characters (allowed: A-Za-z0-9,_-)." >&2
+    exit 2
+    ;;
+esac
 # Footgun-reducer: refuse a too-short fingerprint (consume-once + 60s TTL are the
 # real narrowing guards; a 1-3 char fingerprint would bind almost any command).
 if [ "${#fingerprint}" -lt 8 ]; then
