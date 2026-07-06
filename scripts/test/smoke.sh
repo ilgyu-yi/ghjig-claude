@@ -9308,6 +9308,36 @@ else
   ng "74c: SPEC §1.7 label count drifted ($s74_ensure ensure + $s74_inline inline = $s74_total) (#267)"
 fi
 
+# §74d: reviewer-gate escape audit parity (#558). `directive-review` is a
+# command-prose-enforced escape — no PreToolUse hook reads it, so `should_skip`
+# never auto-emits its escape record. Every command whose Escape section
+# documents the `SKIP_HOOKS=directive-review` bypass must therefore carry the
+# explicit `audit_log escape directive-review skip` emission instruction, or the
+# "audit-logged" guarantee (SPEC §7) is broken. A doc that keeps the bypass
+# prose but drops the emission fails here.
+s74d_missing=""
+for f in file-directive activate revise-directive complete-directive consume-initiative; do
+  fp="$SHELL_ROOT/.claude/commands/$f.md"
+  # Only require the emission where the bypass is actually documented.
+  if grep -qF 'SKIP_HOOKS=directive-review' "$fp" 2>/dev/null; then
+    grep -qF 'audit_log escape directive-review skip' "$fp" 2>/dev/null || s74d_missing="$s74d_missing $f"
+  fi
+done
+if [ -z "$s74d_missing" ]; then
+  ok "74d: every /file-directive-family reviewer-gate escape emits an audit record (#558)"
+else
+  ng "74d: reviewer-gate escape claims audit-logged but drops emission:$s74d_missing (#558)"
+fi
+
+# §74e: SPEC §7 documents the reviewer-gate escape audit-parity requirement
+# (#558) — the counterpart of §74d on the SPEC side, so the contract can't be
+# removed from the SSOT while the command docs keep emitting.
+if grep -qF 'audit_log escape directive-review skip' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "74e: SPEC §7 pins the reviewer-gate escape audit-parity emission (#558)"
+else
+  ng "74e: SPEC §7 missing reviewer-gate escape audit-parity emission (#558)"
+fi
+
 # ---------- 75. Initiative-tier spec precision (C2–C5, #263) ----------
 # Four integration-boundary invariants the v2 tier shipped without pinning.
 # Each AC becomes a durable grep so the precision can't silently regress
