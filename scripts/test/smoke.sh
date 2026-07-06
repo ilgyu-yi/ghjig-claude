@@ -3186,8 +3186,12 @@ printf -- '- [ ] do the thing\n- [ ] another\n' > "$GH38_STATE/issue_body"
   "$SHELL_ROOT/scripts/ac_closeout.sh" 200 >/dev/null 2>&1
 )
 posts1=$(wc -l < "$GH38_STATE/post_log" 2>/dev/null | tr -d ' ' || echo 0)
-# Now simulate the marker being present (helper would have posted it).
+# Now simulate the marker being present (helper would have posted it). #556:
+# the remedy's skip guard now reads TRUSTED-author comments (the mock serves
+# issue_comments_trusted for the authorAssociation-filtered query), mirroring
+# the gate — so the posted marker must land in the trusted file too.
 printf '## AC closeout (resolved by PR #200)\nbody...\n' > "$GH38_STATE/issue_comments"
+printf '## AC closeout (resolved by PR #200)\n' > "$GH38_STATE/issue_comments_trusted"
 (
   export GH_SHIM_STATE="$GH38_STATE"
   export PATH="$GH38_SHIM:$PATH"
@@ -3198,6 +3202,54 @@ if [ "$posts1" -ge 1 ] && [ "$posts2" = "$posts1" ]; then
   ok "ac-closeout: helper idempotent (first run posts, second skips) (#29)"
 else
   ng "ac-closeout: helper not idempotent (posts1=$posts1, posts2=$posts2) (#29)"
+fi
+
+# 556a (#556 C2): deadlock guard — a lookalike / untrusted `## AC closeout`
+# comment must NOT make the remedy skip while the gate keeps blocking. The
+# gate reads only TRUSTED-author comments with the strict `(resolved by PR #N)`
+# shape; the remedy MUST mirror that. Fixture: an untrusted lookalike sits in
+# the flat comment file, but the trusted-author file is EMPTY → the remedy must
+# still post (not skip). Pre-fix (loose author-unfiltered `^## AC closeout`
+# grep on the flat file) the remedy would SKIP → 0 posts → deadlock.
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] do the thing\n' > "$GH38_STATE/issue_body"
+printf '## AC closeout (resolved by PR #200)\ndrive-by lookalike\n' > "$GH38_STATE/issue_comments"
+: > "$GH38_STATE/issue_comments_trusted"   # no trusted marker present
+(
+  export GH_SHIM_STATE="$GH38_STATE"
+  export PATH="$GH38_SHIM:$PATH"
+  "$SHELL_ROOT/scripts/ac_closeout.sh" 200 >/dev/null 2>&1
+)
+posts556a=$(wc -l < "$GH38_STATE/post_log" 2>/dev/null | tr -d ' ' || echo 0)
+if [ "$posts556a" -ge 1 ]; then
+  ok "ac-closeout: remedy posts despite untrusted lookalike (no deadlock) (#556)"
+else
+  ng "ac-closeout: remedy skipped on untrusted lookalike → gate-deadlock (posts=$posts556a) (#556)"
+fi
+
+# 556b (#556 C1): @mentions in re-emitted AC lines are neutralized (no re-ping).
+# Fixture: an unchecked AC line carries a bare `@someuser`. No trusted marker →
+# remedy posts. The posted body must NOT contain the bare `@someuser` mention
+# (a zero-width space is inserted after `@`). Pre-fix the line is refiled
+# verbatim → the bare mention survives → GitHub re-pings.
+gh38_reset
+printf '100\n' > "$GH38_STATE/pr_issues"
+printf -- '- [ ] ping @someuser about the thing\n' > "$GH38_STATE/issue_body"
+: > "$GH38_STATE/issue_comments"
+: > "$GH38_STATE/issue_comments_trusted"
+(
+  export GH_SHIM_STATE="$GH38_STATE"
+  export PATH="$GH38_SHIM:$PATH"
+  "$SHELL_ROOT/scripts/ac_closeout.sh" 200 >/dev/null 2>&1
+)
+posts556b=$(wc -l < "$GH38_STATE/post_log" 2>/dev/null | tr -d ' ' || echo 0)
+if [ "$posts556b" -ge 1 ] \
+   && ! grep -q '@someuser' "$GH38_STATE/posted_body" 2>/dev/null \
+   && grep -q 'someuser' "$GH38_STATE/posted_body" 2>/dev/null; then
+  ok "ac-closeout: re-emitted AC @mentions neutralized (no re-ping) (#556)"
+else
+  ng "ac-closeout: @mention survived refile (posts=$posts556b, bare mention present) (#556)"
 fi
 
 # 38g: command-shape regression (#31) — matcher + extractor / fallback
