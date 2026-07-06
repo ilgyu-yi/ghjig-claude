@@ -67,7 +67,7 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /file-directive` bypasses the reviewer gate. Audit-logged.
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /file-directive` bypasses the reviewer gate. This escape is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it. To keep the escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
 
 ## Forbidden
 

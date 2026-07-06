@@ -52,7 +52,7 @@ Status is encoded as labels on the Issue (Issues are SSOT). The Project Status f
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate <N>` bypasses the reviewer gate. Audit-logged.
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate <N>` bypasses the reviewer gate. This escape is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it. To keep the escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
 
 ## Forbidden
 
