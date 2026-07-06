@@ -38,6 +38,7 @@ You assume no prior knowledge of the main assistant's discussion. The reviewed b
   gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100
   ```
   Or the equivalent search query `is:open label:directive -label:status:proposed`. An open `directive`-labeled Issue without `status:proposed` is `Active` per the 4-state lifecycle (SPEC §2.1). The 100-cap is a heuristic; if hit, surface in the verdict reason.
+- **Revise-round count** — how many prior `<!-- activation-verdict: revise -->` markers the Issue already carries, passed by the caller (it owns marker posting; if not passed, count via `gh issue view <N> --json comments`). This is context for the caller-owned N=3 escalation (see Verdict dispatch); it never alters the content checks — the verdict itself stays content-only.
 
 **For completion review:**
 - The Directive's body (success signals as written at activation time).
@@ -95,6 +96,7 @@ You assume no prior knowledge of the main assistant's discussion. The reviewed b
   - **Notes** — links, prior discussion, the `Parent Directive: #<N>` marker.
 - If a `Parent Directive: #<N>` marker is present, the parent Directive's state (open/Active vs closed/absent) — fetch with `gh issue view <N> --json state,labels` when resolvable.
 - The list of other open Issues for duplicate/coverage check (`gh issue list --state open --limit 100 --json number,title,body`) when available.
+- **Revise-round count** — how many prior `<!-- activation-verdict: revise -->` markers the Issue already carries, passed by the caller (it owns marker posting; if not passed, count via `gh issue view <N> --json comments`). This is context for the caller-owned N=3 escalation (see Verdict dispatch); it never alters the content checks — the verdict itself stays content-only.
 
 ### Checks (Execution Issue)
 
@@ -199,7 +201,7 @@ For an `execution` Issue, parent is a single body line (`Parent Directive: #N`),
 ## Verdict dispatch (informational — handled by caller per SPEC §1.7 / §2.1 / §5.x reviewer-gating contract)
 
 - `pass` → caller proceeds. `/activate` (and its `/activate-directive` alias) removes `status:proposed` → Active; `/file-directive` files the Issue with `directive` + `status:proposed`; `/complete-directive` closes the Issue `--reason completed` and posts the closing comment.
-- `revise` → caller posts the findings as a comment carrying the marker `<!-- activation-verdict: revise -->`, retains `status:proposed`, and adds the `awaiting-author` label (any filer). The author edits the body in place (same #N) and re-runs `/activate`. **Escalation:** after **N=3** `revise` rounds on the same Issue (counted by the number of `<!-- activation-verdict: revise -->` markers in its comments), the reviewer escalates to `reject`.
+- `revise` → caller posts the findings as a comment carrying the marker `<!-- activation-verdict: revise -->`, retains `status:proposed`, and adds the `awaiting-author` label (any filer). The author edits the body in place (same #N) and re-runs `/activate`. **Escalation (caller-owned):** the caller tracks revise rounds by counting the `<!-- activation-verdict: revise -->` markers it has posted on the Issue (also surfaced to the reviewer as the **Revise-round count** Input, so a verdict reason can flag an imminent escalation). After **N=3** revise rounds on the same Issue, the caller stops dispatching a further `revise` comment and applies `reject` handling instead — the escalation is the caller's dispatch decision, consistent with this section's *handled by caller* contract. This tightens (never loosens) the outcome: a fourth-round Issue is rejected, not endlessly re-revised.
 - `reject` → caller posts the verdict (+ structured fields) carrying the marker `<!-- activation-verdict: reject -->` and applies **filer-aware handling** (verdict itself is content-only):
   - **Trusted filer** (`authorAssociation` ∈ OWNER/MEMBER/MAINTAINER/COLLABORATOR): keep the Issue **open** + add `awaiting-author`; never close (composes with the `trusted-filer-mutate` hook). The filer decides: refile, restructure, push back, or self-close.
   - **Untrusted filer, `refile-body-draft` present:** close the original (`--reason "not planned"`) and auto-create a `discussion`-tier Issue preserving the draft + a lineage link. (Both modes — discussion tier is friction-free, SPEC §5.19.)
