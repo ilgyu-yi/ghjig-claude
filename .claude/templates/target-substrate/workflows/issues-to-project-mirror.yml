@@ -75,16 +75,21 @@ jobs:
           echo "project_num=$project_num" >> "$GITHUB_OUTPUT"
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
 
-          # Derive Type from labels.
-          labels_json=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json labels --jq '[.labels[].name]')
+          # Derive Type from labels. Fail-soft (#553 E2): a transient API error
+          # degrades to the stale-view default rather than aborting the step red
+          # (matches the graceful-degradation contract in the header + the
+          # best-effort field writes below). Empty labels ⇒ Execution/Active.
+          labels_json=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json labels --jq '[.labels[].name]' 2>/dev/null || echo '[]')
           type_val="Execution"
           if printf '%s' "$labels_json" | jq -e 'index("directive") != null' >/dev/null 2>&1; then
             type_val="Directive"
           fi
           echo "type_val=$type_val" >> "$GITHUB_OUTPUT"
 
-          # Derive Status from labels + open/closed.
-          state=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json state --jq '.state')
+          # Derive Status from labels + open/closed. Fail-soft (#553 E2): a
+          # transient API error → empty state, which is not CLOSED, so the
+          # label-derived default applies (stale-view degradation, not red).
+          state=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json state --jq '.state' 2>/dev/null || echo '')
           status_val="Active"
           if [ "$state" = "CLOSED" ]; then
             status_val="Completed"
@@ -113,12 +118,17 @@ jobs:
           # first, behavior for existing Issues unchanged). The Project Parent
           # field is free-text, so the referent's type is immaterial.
           parent_val=""
-          body=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json body --jq '.body')
-          first_line=$(printf '%s\n' "$body" | head -1 || true)
-          if printf '%s' "$first_line" | grep -qE '^Parent Directive: #[0-9]+$'; then
-            parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Directive: #([0-9]+)$/#\1/')
-          elif printf '%s' "$first_line" | grep -qE '^Parent Initiative: #[0-9]+$'; then
-            parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Initiative: #([0-9]+)$/#\1/')
+          # Fail-soft body fetch (#553 E2): a transient API error → empty body →
+          # empty parent (stale-view degradation, not a red step).
+          body=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo '')
+          # Match the tolerant resolve_parent_directive.sh parse (#553 E1): strip
+          # a web-UI CRLF `\r` and drop the `$` end-anchor so trailing whitespace
+          # or text after the `#N` no longer silently blanks the Project Parent.
+          first_line=$(printf '%s\n' "$body" | head -1 | tr -d '\r' || true)
+          if printf '%s' "$first_line" | grep -qE '^Parent Directive: #[0-9]+'; then
+            parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Directive: #([0-9]+).*/#\1/')
+          elif printf '%s' "$first_line" | grep -qE '^Parent Initiative: #[0-9]+'; then
+            parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Initiative: #([0-9]+).*/#\1/')
           fi
           echo "parent_val=$parent_val" >> "$GITHUB_OUTPUT"
 

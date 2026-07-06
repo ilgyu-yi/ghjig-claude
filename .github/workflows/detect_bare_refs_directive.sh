@@ -53,17 +53,26 @@ detect_bare_refs_directive() {
   [ -n "$refs" ] || return 0
 
   # gate 3: at least one Refs target is directive-scoped (own label or climb).
+  # A single directive-scoped bare Ref is sufficient to flag, so short-circuit
+  # the gh fan-out on the first hit rather than scanning to a fixed position
+  # (#553 E5 — the old `count>=5` position cap silently dropped a directive Ref
+  # at sorted position 6+, a §10.5 false-negative). The short-circuit keeps the
+  # common flagged case cheap regardless of the offending Ref's position; a
+  # raised, documented cap still bounds a pathological (50+ unique-Ref) body.
   # shellcheck disable=SC2086  # $refs is a newline-separated list — split intended
   for n in $refs; do
-    [ "$count" -ge 5 ] && break                         # bound gh fan-out on a pathological body
+    [ "$count" -ge 50 ] && break                        # bound gh fan-out on a pathological body (raised 5→50, #553 E5)
     count=$((count + 1))
     labels=$(gh issue view "$n" --repo "$repo" --json labels --jq '.labels[].name' 2>/dev/null) || continue
     if printf '%s\n' "$labels" | grep -qx 'directive'; then
       flagged="$flagged $n"
-      continue
+      break
     fi
     d=$(climb_to_directive "$n" "$repo")
-    [ -n "$d" ] && flagged="$flagged $n"
+    if [ -n "$d" ]; then
+      flagged="$flagged $n"
+      break
+    fi
   done
 
   if [ -n "$flagged" ]; then

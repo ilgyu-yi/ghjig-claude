@@ -68,7 +68,18 @@ jobs:
           # --patch` shows the unified diff; the `^+++ b/changelog_unreleased
           # /<cat>/<N>.md$` line captures added paths in the diff with
           # category and integer-stem already validated by the regex.
-          added=$(gh pr diff "$PR_NUM" --repo "$REPO" --patch \
+          #
+          # Capture the diff transport status SEPARATELY from the grep (#553 E3):
+          # a trailing `|| true` on the whole pipeline used to conflate a
+          # `gh pr diff` API/transport failure with "no fragment added", blocking
+          # a valid PR with a misleading no-fragment error. A transport failure
+          # is now its own hard error; only the grep's no-match (exit 1) is
+          # allowed to fall through to the empty-`added` branch below.
+          if ! diff_out=$(gh pr diff "$PR_NUM" --repo "$REPO" --patch); then
+            echo "::error::Failed to fetch the PR diff (gh pr diff transport/API error) — cannot evaluate the changelog fragment. This is NOT a missing-fragment failure; re-run the job." >&2
+            exit 1
+          fi
+          added=$(printf '%s\n' "$diff_out" \
             | grep -E '^\+\+\+ b/changelog_unreleased/(added|changed|deprecated|removed|fixed|security)/[0-9]+\.md$' \
             | sed -E 's|^\+\+\+ b/||' \
             || true)
@@ -104,8 +115,12 @@ jobs:
               continue
             fi
 
-            if ! grep -qE "\(#${stem}\)" "$path"; then
-              echo "::error file=$path::Fragment body does not contain (#${stem}) matching filename stem. See changelog_unreleased/TEMPLATE.md." >&2
+            # Bullet + (#<stem>) ref must co-occur on ONE line (#553 E4): the two
+            # checks were line-independent, so a malformed multi-line fragment
+            # (a `- ` bullet on one line, the `(#N)` ref on another) passed both.
+            # Requiring `^- .*(#<stem>)` on a single line closes that gap.
+            if ! grep -qE "^- .*\(#${stem}\)" "$path"; then
+              echo "::error file=$path::Fragment bullet line must contain (#${stem}) matching the filename stem on the SAME line (single-line '- ... (#${stem})'). See changelog_unreleased/TEMPLATE.md." >&2
               bad=1
               continue
             fi
