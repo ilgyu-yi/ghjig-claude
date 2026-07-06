@@ -5537,6 +5537,24 @@ SHIM
     ng "48m-6: fail-soft path wrongly flagged: '$out' (#337)"
   fi
 
+  # Case 7 — FLAG at sorted position 6+ (#553 E5): five non-directive Refs
+  # precede a directive-scoped one. The old `count>=5` position cap broke the
+  # gh fan-out before reaching #66, silently DROPPING the §10.5 violation
+  # (false-negative). RED pre-fix, GREEN after the short-circuit + raised cap.
+  dbr_reset
+  printf 'main\n' > "$DBR_STATE/default"
+  printf 'main\n' > "$DBR_STATE/base_807"
+  : > "$DBR_STATE/closing_807"
+  printf 'Refs #61 Refs #62 Refs #63 Refs #64 Refs #65 Refs #66\n' > "$DBR_STATE/prbody_807"
+  for t in 61 62 63 64 65; do printf 'task\n' > "$DBR_STATE/labels_$t"; done   # non-directive, no marker
+  printf 'directive\n' > "$DBR_STATE/labels_66"                                 # directive at position 6
+  out=$(dbr_call 807)
+  if printf '%s' "$out" | grep -q 'flag=.*66'; then
+    ok "48m-7: a directive Ref at sorted position 6 is still flagged (no 5-cap false-negative) (#553)"
+  else
+    ng "48m-7: position-6 directive Ref dropped by the scan cap: '$out' (#553)"
+  fi
+
   # 48m-sync: the three detector copies are byte-identical (cmp-lock).
   if [ -f "$DBR_INSTALL" ] && [ -f "$DBR_TARGETSUB" ] \
      && cmp -s "$DBR_CANON" "$DBR_INSTALL" \
@@ -6633,6 +6651,74 @@ if [ -z "$s57j_bad" ]; then
   ok "57j: dir-mode Project field uses non-reserved name 'Item Type' (#342)"
 else
   ng "57j: reserved/renamed Project field-name issues:$s57j_bad (#342)"
+fi
+
+# 57k (#553 E1): the mirror Parent parse tolerates a web-UI CRLF (\r) and any
+# trailing text after `#N`, matching the tolerant resolve_parent_directive.sh
+# regex (`^Parent Directive: #([0-9]+)`, no `$`-anchor). The old `$`-anchored
+# grep+sed silently BLANKED the Project Parent on a CRLF first line or a
+# trailing-text marker. Replicates the workflow's first-line parse against
+# fixtures (functional); §57k2 structurally locks the file to the same parse
+# so this replica can't drift silently.
+s57k_parse() {
+  local body="$1" first_line parent_val=""
+  first_line=$(printf '%s\n' "$body" | head -1 | tr -d '\r' || true)
+  if printf '%s' "$first_line" | grep -qE '^Parent Directive: #[0-9]+'; then
+    parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Directive: #([0-9]+).*/#\1/')
+  elif printf '%s' "$first_line" | grep -qE '^Parent Initiative: #[0-9]+'; then
+    parent_val=$(printf '%s' "$first_line" | sed -E 's/^Parent Initiative: #([0-9]+).*/#\1/')
+  fi
+  printf '%s' "$parent_val"
+}
+s57k_ok=1
+s57k_reasons=""
+[ "$(s57k_parse "$(printf 'Parent Directive: #42\r\nrest')")" = '#42' ] \
+  || { s57k_ok=0; s57k_reasons="$s57k_reasons crlf-blanked;"; }
+[ "$(s57k_parse 'Parent Directive: #42 (umbrella note)')" = '#42' ] \
+  || { s57k_ok=0; s57k_reasons="$s57k_reasons trailing-text-blanked;"; }
+[ "$(s57k_parse 'Parent Directive: #42')" = '#42' ] \
+  || { s57k_ok=0; s57k_reasons="$s57k_reasons plain-lf-regressed;"; }
+[ "$(s57k_parse "$(printf 'Parent Initiative: #7\r')")" = '#7' ] \
+  || { s57k_ok=0; s57k_reasons="$s57k_reasons crlf-initiative-blanked;"; }
+if [ "$s57k_ok" = 1 ]; then
+  ok "57k: mirror Parent parse tolerates CRLF + trailing text (no \$-anchor false-blank); LF + Initiative markers still resolve (#553)"
+else
+  ng "57k: mirror Parent parse still \$-anchored / CR-sensitive:$s57k_reasons (#553)"
+fi
+
+# 57k2 (#553 E1): structural lock — both mirror copies strip CR (`tr -d '\r'`)
+# and use the non-\$-anchored sed (`([0-9]+).*` capture) so the §57k replica
+# stays faithful to the shipped workflow.
+s57k2_bad=""
+for wf in "$MIRROR_WF" "$MIRROR_TMPL"; do
+  [ -f "$wf" ] || { s57k2_bad="$s57k2_bad MISSING:${wf##*/}"; continue; }
+  grep -qF "tr -d '\\r'" "$wf" || s57k2_bad="$s57k2_bad ${wf##*/}:no-cr-strip"
+  grep -qF 's/^Parent Directive: #([0-9]+).*/#\1/' "$wf" || s57k2_bad="$s57k2_bad ${wf##*/}:anchored-sed"
+done
+if [ -z "$s57k2_bad" ]; then
+  ok "57k2: both mirror copies CR-strip + drop the \$-anchor in the Parent sed (#553)"
+else
+  ng "57k2: mirror Parent parse not CR-tolerant / still \$-anchored:$s57k2_bad (#553)"
+fi
+
+# 57l (#553 E2): the three per-issue derive-fetches (labels / state / body) are
+# fail-soft — a transient API error degrades to the stale-view default rather
+# than aborting the step red. Structural: each `gh issue view … --json {labels,
+# state,body}` in the derive step carries a `2>/dev/null || …` fallback.
+s57l_bad=""
+for wf in "$MIRROR_WF" "$MIRROR_TMPL"; do
+  [ -f "$wf" ] || { s57l_bad="$s57l_bad MISSING:${wf##*/}"; continue; }
+  grep -qF "gh issue view \"\$ISSUE_NUM\" --repo \"\$REPO\" --json labels --jq '[.labels[].name]' 2>/dev/null || echo '[]'" "$wf" \
+    || s57l_bad="$s57l_bad ${wf##*/}:labels-hard"
+  grep -qF "gh issue view \"\$ISSUE_NUM\" --repo \"\$REPO\" --json state --jq '.state' 2>/dev/null || echo ''" "$wf" \
+    || s57l_bad="$s57l_bad ${wf##*/}:state-hard"
+  grep -qF "gh issue view \"\$ISSUE_NUM\" --repo \"\$REPO\" --json body --jq '.body' 2>/dev/null || echo ''" "$wf" \
+    || s57l_bad="$s57l_bad ${wf##*/}:body-hard"
+done
+if [ -z "$s57l_bad" ]; then
+  ok "57l: mirror per-issue derive-fetches (labels/state/body) are fail-soft (stale-view, not red) (#553)"
+else
+  ng "57l: a mirror derive-fetch is not fail-soft (transient API error → red step):$s57l_bad (#553)"
 fi
 
 # ---------- 58. substrate-flip (cluster E+F+G+H) command + reviewer + SPEC rewrite (#96 / Directive #92) ----------
@@ -7861,6 +7947,44 @@ if [ "$s66g_ok" = 1 ]; then
   ok "66g: check-changelog.yml fragment-gate fails on ANY malformed fragment (all-valid bad=1 accumulator + post-loop exit, no any-valid ok=1 mask) and checks the leading \"- \" bullet (#303)"
 else
   ng "66g: check-changelog.yml fragment-gate still has any-valid masking / missing dash-bullet check:$s66g_reasons (#303)"
+fi
+
+# §66h (#553 E4) — the fragment bullet and its `(#N)` ref must co-occur on ONE
+# line. The old gate ran a `^- ` bullet grep and a `(#N)` ref grep that were
+# line-INDEPENDENT, so a malformed multi-line fragment (a `- ` bullet on line 1,
+# an orphan `(#N)` on line 2) satisfied both and passed. Functional check of the
+# exact combined regex the fixed gate now uses (`^- .*(#<stem>)`).
+s66h_tmp=$(mktemp)
+printf -- '- a changelog bullet with no ref on this line\n(#5) orphan ref on its own line\n' > "$s66h_tmp"
+if grep -qE '^- .*\(#5\)' "$s66h_tmp"; then
+  ng "66h: multi-line fragment (bullet + ref split across lines) wrongly accepted by single-line grep (#553)"
+else
+  ok "66h: multi-line fragment (bullet/ref on different lines) rejected by combined bullet+ref grep (#553)"
+fi
+printf -- '- a proper single-line changelog bullet (#5)\n' > "$s66h_tmp"
+if grep -qE '^- .*\(#5\)' "$s66h_tmp"; then
+  ok "66h2: well-formed single-line fragment (bullet + ref together) still accepted (#553)"
+else
+  ng "66h2: well-formed single-line fragment wrongly rejected (#553)"
+fi
+rm -f "$s66h_tmp"
+
+# §66i (#553 E3+E4) — structural lock on the two check-changelog fixes:
+#  E3: `gh pr diff` transport status captured SEPARATELY (its own failure branch,
+#      not a whole-pipeline `|| true` that conflates transport failure with
+#      "no fragment"), so a diff/API error is a hard error, not a silent block.
+#  E4: the per-fragment validation uses the single-line combined `^- .*(#<stem>)`
+#      bullet+ref grep.
+s66i_ok=1
+s66i_reasons=""
+grep -qF 'if ! diff_out=$(gh pr diff "$PR_NUM" --repo "$REPO" --patch); then' "$S66_SHELL_WF" \
+  || { s66i_ok=0; s66i_reasons="$s66i_reasons missing-diff-transport-guard;"; }
+grep -qF '^- .*\(#${stem}\)' "$S66_SHELL_WF" \
+  || { s66i_ok=0; s66i_reasons="$s66i_reasons missing-single-line-bullet-ref-grep;"; }
+if [ "$s66i_ok" = 1 ]; then
+  ok "66i: check-changelog captures gh pr diff transport separately (E3) + validates bullet+ref on one line (E4) (#553)"
+else
+  ng "66i: check-changelog missing diff-transport guard / single-line bullet+ref grep:$s66i_reasons (#553)"
 fi
 
 # §66d — ensure_v3_labels.sh enumerates skip-changelog. The label is the
