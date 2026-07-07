@@ -99,7 +99,7 @@ Quality check on a proposed Directive body (`/file-directive`, `/activate-direct
 
 - **When**: every Directive transition that mutates body content or asserts completion. Annotation-only `/block-directive` does not run this reviewer (no body change).
 - **Input**: proposed body or evidence + list of currently Active Directives + MISSION.
-- **Output**: `ship` / `refine` / `block`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check. A **mandatory-invariant preservation gate** runs *before* the evidence judgment (same shape as `plan-reviewer`, mapping to `reject`/`revise`); full details in SPEC §4.9/§6.0.
+- **Output**: `pass` / `revise` / `reject`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check. A **mandatory-invariant preservation gate** runs *before* the evidence judgment (same shape as `plan-reviewer`, mapping to `reject`/`revise`); full details in SPEC §4.9/§6.0.
 - **Spec**: SPEC §4.9.1.
 
 > **Triage classifier — retired (#173).** The former binary triage classifier agent was deleted. Its `status:proposed` substantive gate is now `activation-reviewer` (above); its template-shape classification is absorbed by `/activate`'s type-mismatch matrix. `/triage` survives only as a one-cycle alias for `/activate` (SPEC §5.12/§5.18).
