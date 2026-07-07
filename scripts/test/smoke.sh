@@ -13644,6 +13644,7 @@ S132_REVIEWER="$SHELL_ROOT/.claude/agents/plan-reviewer.md"
 S132_SPEC="$SHELL_ROOT/SPEC.md"
 S132_WORKON="$SHELL_ROOT/.claude/commands/work-on.md"
 S132_PRBODY="$SHELL_ROOT/.claude/templates/pr_body.md"
+S132_ACTIVATION="$SHELL_ROOT/.claude/agents/activation-reviewer.md"
 
 # (a) plan-challenger.md exists AND carries the adversarial mandate.
 if [ -f "$S132_CHALLENGER" ]; then
@@ -13713,10 +13714,102 @@ else
   s132=0; s132_why="${s132_why}prbody-file-missing;"
 fi
 
-if [ "$s132" = 1 ]; then
-  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530)"
+# (f) #568 — mandatory-invariant preservation gate. The dispatch manifest carries
+# a `Mandatory invariants` field, BOTH reviewer prompts run an invariant-preservation
+# gate BEFORE they judge the contest / weigh evidence (a dropped invariant is a
+# disqualification, not a taste call), and the plan-reviewer's minimalism guard
+# carves out the invariant so "minimalism-by-deferral" can never justify dropping one.
+
+# (f.1) work-on.md dispatch contract passes the invariant manifest to the reviewers.
+if [ -f "$S132_WORKON" ]; then
+  grep -qF 'Mandatory invariants' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-mandatory-invariants-field;"; }
 else
-  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530)"
+  s132=0; s132_why="${s132_why}workon-file-missing-568;"
+fi
+
+# (f.2) plan-reviewer.md: invariant-preservation gate marker + disqualification token
+# + a "before the contest / regardless of axis" phrase, AND the gate section's heading
+# precedes the `Judge the contest` anchor. Ordering is compared by MATCHED-MARKER line
+# position resolved at runtime (grep -n), never a hardcoded line number, so it stays
+# robust to reformatting.
+if [ -f "$S132_REVIEWER" ]; then
+  grep -qiE 'invariant-preservation gate' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-invariant-gate-marker;"; }
+  grep -qiE 'disqualif' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-disqualif-token;"; }
+  grep -qiE 'before the (axis )?contest|regardless of axis' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-before-contest-phrase;"; }
+  pr_gate_ln=$(grep -niE 'invariant-preservation gate' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  pr_contest_ln=$(grep -nF 'Judge the contest' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -n "$pr_gate_ln" ] && [ -n "$pr_contest_ln" ] && [ "$pr_gate_ln" -lt "$pr_contest_ln" ]; then
+    :
+  else
+    s132=0; s132_why="${s132_why}reviewer-gate-not-before-contest;"
+  fi
+else
+  s132=0; s132_why="${s132_why}reviewer-file-missing-568;"
+fi
+
+# (f.3) activation-reviewer.md: same gate marker + disqualification token + a
+# "before the evidence judgment" phrase, AND the gate heading precedes the
+# `Evidence sufficiency (completion only)` body-check anchor (line 82-shaped; the
+# case-sensitive body form, NOT the lowercase frontmatter mention). Same runtime
+# matched-marker ordering, no hardcoded line arithmetic.
+if [ -f "$S132_ACTIVATION" ]; then
+  grep -qiE 'invariant-preservation gate' "$S132_ACTIVATION" \
+    || { s132=0; s132_why="${s132_why}activation-no-invariant-gate-marker;"; }
+  grep -qiE 'disqualif' "$S132_ACTIVATION" \
+    || { s132=0; s132_why="${s132_why}activation-no-disqualif-token;"; }
+  grep -qiE 'before (the )?evidence' "$S132_ACTIVATION" \
+    || { s132=0; s132_why="${s132_why}activation-no-before-evidence-phrase;"; }
+  ar_gate_ln=$(grep -niE 'invariant-preservation gate' "$S132_ACTIVATION" 2>/dev/null | head -1 | cut -d: -f1)
+  ar_ev_ln=$(grep -nF 'Evidence sufficiency (completion only)' "$S132_ACTIVATION" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -n "$ar_gate_ln" ] && [ -n "$ar_ev_ln" ] && [ "$ar_gate_ln" -lt "$ar_ev_ln" ]; then
+    :
+  else
+    s132=0; s132_why="${s132_why}activation-gate-not-before-evidence;"
+  fi
+else
+  s132=0; s132_why="${s132_why}activation-file-missing-568;"
+fi
+
+# (f.4) plan-reviewer.md minimalism carve-out: the `minimalism-by-deferral` guard
+# names the `technical taste alone` carve-out and the `no worse elsewhere` clause
+# (which now folds in a dropped invariant), so minimalism can't be weaponized to
+# drop an invariant.
+if [ -f "$S132_REVIEWER" ]; then
+  grep -qF 'minimalism-by-deferral' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-minimalism-by-deferral;"; }
+  grep -qiF 'technical taste alone' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-technical-taste-carveout;"; }
+  grep -qiF 'no worse elsewhere' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-no-worse-elsewhere;"; }
+fi
+
+# (f.5) empty-manifest attestation — both reviewer prompts document what to do when
+# NO invariant is declared (an explicit "none declared" / attestation, so an empty
+# manifest is a deliberate statement, not a silent skip of the gate).
+grep -qiE 'none declared|attest' "$S132_REVIEWER" \
+  || { s132=0; s132_why="${s132_why}reviewer-no-empty-manifest-attest;"; }
+grep -qiE 'none declared|attest' "$S132_ACTIVATION" \
+  || { s132=0; s132_why="${s132_why}activation-no-empty-manifest-attest;"; }
+
+# (f.6) guard non-regression — the invariant gate is ADDITIVE; the pre-existing
+# contest guards (lazy-concession / fake-diff / shared-blindspot) must survive the
+# #568 edit. These should PASS today (they already document invariants); pinning
+# them stops a future edit from silently dropping them alongside the gate work.
+grep -qiE 'lazy.concession|lazy-concession' "$S132_REVIEWER" \
+  || { s132=0; s132_why="${s132_why}reviewer-regression-lazy-concession;"; }
+grep -qiE 'fake-diff' "$S132_REVIEWER" \
+  || { s132=0; s132_why="${s132_why}reviewer-regression-fake-diff;"; }
+grep -qiE 'shared-blindspot|shared blindspot' "$S132_REVIEWER" \
+  || { s132=0; s132_why="${s132_why}reviewer-regression-shared-blindspot;"; }
+
+if [ "$s132" = 1 ]; then
+  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression)"
+else
+  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------

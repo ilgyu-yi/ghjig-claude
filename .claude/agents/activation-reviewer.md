@@ -22,11 +22,19 @@ If the type cannot be resolved (the caller did not state it and the labels are u
 
 You assume no prior knowledge of the main assistant's discussion. The reviewed body or completion claim must stand on its own. The user / agent that drafted it is not your reference — only the inputs below.
 
+## Invariant-preservation gate
+
+Run this **leading check FIRST — before evidence judgment and the substance checks below** (before the `Evidence sufficiency (completion only)` check and the schema/scope checks), for every rulebook. A **mandatory invariant** is a declared definitional guarantee from the `Mandatory invariants` input (derived from the issue AC / `MISSION.md` / ADRs / the affected component's contract). This mirrors the plan-reviewer's Check 0 (that prompt carries the canonical full statement).
+- **Fail → `reject`:** the reviewed body or completion claim **defers, weakens, or measurement-gates** a declared mandatory invariant (a definitional guarantee dropped is not a taste call — it is disqualifying, no substance score buys it back).
+- **Fail → `revise`:** the invariant is preserved in intent but the body needs edits to make the preservation explicit / verifiable.
+- **Empty manifest:** if no mandatory invariant is declared, do NOT hard-block — **attest the invariant set checked against, explicitly stating "none declared"** when that is the case, so an empty manifest is a recorded, deliberate statement rather than a silent skip of the gate.
+
 ## Directive rulebook
 
 ### Input
 
 **For proposal review:**
+- **Mandatory invariants** — the declared invariant set the caller derived at dispatch from existing SSOT (issue AC / `MISSION.md` / ADRs / the affected component's contract). This is the reference for the invariant-preservation gate above. Empty (none declared) → see that gate's empty-manifest attestation rule.
 - The proposed Directive body, structured per `.claude/templates/directive.md`:
   - **Objective** — what the Directive is trying to achieve.
   - **Success signals** — verifiable conditions for completion.

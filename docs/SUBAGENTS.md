@@ -86,7 +86,7 @@ Adversarial rival-author (read-only). Dispatched by `/work-on` **×2, mutually b
 
 ### plan-reviewer
 
-Judges the plan **contest** (SPEC §4.8, #530): given the base Plan A and the two `plan-challenger` rivals, it adjudicates `{A, B1, B2}` — picks the winner, or declares A forced when both challengers fail. Guards: a lazy concession (no named axis) is rejected; a fake-diff resolves to A-stands. A `shared-blindspot` check (reads the code) backstops same-model correlation. This replaces the old "grade the planner's self-authored alternatives" role — the interested party no longer controls the choice set.
+Judges the plan **contest** (SPEC §4.8, #530): given the base Plan A and the two `plan-challenger` rivals, it adjudicates `{A, B1, B2}` — picks the winner, or declares A forced when both challengers fail. Guards: a lazy concession (no named axis) is rejected; a fake-diff resolves to A-stands. A `shared-blindspot` check (reads the code) backstops same-model correlation. A **mandatory-invariant preservation gate** runs *before* the axis contest — a candidate that defers/weakens/measurement-gates a declared invariant is disqualified regardless of axis score (plus a `minimalism-by-deferral` guard mirroring `fake-diff`); full details in SPEC §4.8/§6.0. This replaces the old "grade the planner's self-authored alternatives" role — the interested party no longer controls the choice set.
 
 - **When**: after `planner` + the two `plan-challenger`s run in `/work-on`, before the user (attended) or the harness (unattended) approves the plan.
 - **Input**: base Plan A + the two challenger outputs {B1, B2} + issue body + MISSION.
@@ -99,7 +99,7 @@ Quality check on a proposed Directive body (`/file-directive`, `/activate-direct
 
 - **When**: every Directive transition that mutates body content or asserts completion. Annotation-only `/block-directive` does not run this reviewer (no body change).
 - **Input**: proposed body or evidence + list of currently Active Directives + MISSION.
-- **Output**: `ship` / `refine` / `block`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check.
+- **Output**: `pass` / `revise` / `reject`. Five checks: schema completeness, success-signal verifiability, scope clarity, non-goal clarity, Active-Directive conflict. Completion review adds an evidence-sufficiency check. A **mandatory-invariant preservation gate** runs *before* the evidence judgment (same shape as `plan-reviewer`, mapping to `reject`/`revise`); full details in SPEC §4.9/§6.0.
 - **Spec**: SPEC §4.9.1.
 
 > **Triage classifier — retired (#173).** The former binary triage classifier agent was deleted. Its `status:proposed` substantive gate is now `activation-reviewer` (above); its template-shape classification is absorbed by `/activate`'s type-mismatch matrix. `/triage` survives only as a one-cycle alias for `/activate` (SPEC §5.12/§5.18).
