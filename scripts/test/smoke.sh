@@ -13846,10 +13846,50 @@ else
   s132=0; s132_why="${s132_why}spec-file-missing-571;"
 fi
 
-if [ "$s132" = 1 ]; then
-  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression); + #571 judge-side dismissal evidence-burden guard (refute-not-outweigh, claimed-magnitude anchor, anti-relabel/evidenced-downrate hatches, benign-incumbent de-novo carve-out, additive-after-gate ordering, SPEC §4.8/§6.0 pointer)"
+# (f.8) #573 — symmetric steelman (two limbs). The former A-only steelman-the-incumbent
+# authored advocacy for A alone, autoregressively priming the verdict toward the incumbent.
+# It is now SYMMETRIC across {A, B1, B2} and split by concern: an INVARIANT limb inside
+# Check 0 (before disqualification) and an AXIS limb at the head of Check 1 (before "Pick
+# the winner"). Decoupled assertions (no single-line coupling); ordering pinned by runtime
+# matched-marker position (reuses the `invariant-preservation gate` / `Judge the contest`
+# markers), so it stays robust to reformatting. Fails on the pre-#573 A-only prose.
+if [ -f "$S132_REVIEWER" ]; then
+  grep -qiF 'symmetric steelman' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-symmetric-steelman;"; }
+  grep -qF 'steelman — invariant limb' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-steelman-invariant-limb;"; }
+  grep -qF 'steelman — axis limb' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-steelman-axis-limb;"; }
+  grep -qiE 'every candidate|\{A, ?B1, ?B2\}' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-steelman-not-symmetric-coverage;"; }
+  grep -qiF 'invariants A preserves' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-steelman-drops-A-invariant;"; }
+  # invariant limb sits inside Check 0: gate_ln < inv_ln < contest_ln
+  s_gate_ln=$(grep -niE 'invariant-preservation gate' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  s_contest_ln=$(grep -nF 'Judge the contest' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  s_inv_ln=$(grep -nF 'steelman — invariant limb' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  s_axis_ln=$(grep -nF 'steelman — axis limb' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  s_win_ln=$(grep -nF 'Pick the **winner**' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -n "$s_gate_ln" ] && [ -n "$s_contest_ln" ] && [ -n "$s_inv_ln" ] \
+     && [ "$s_gate_ln" -lt "$s_inv_ln" ] && [ "$s_inv_ln" -lt "$s_contest_ln" ]; then :; \
+  else s132=0; s132_why="${s132_why}reviewer-inv-limb-not-in-check0;"; fi
+  # axis limb sits at the head of Check 1: contest_ln < axis_ln < winner_ln
+  if [ -n "$s_contest_ln" ] && [ -n "$s_axis_ln" ] && [ -n "$s_win_ln" ] \
+     && [ "$s_contest_ln" -lt "$s_axis_ln" ] && [ "$s_axis_ln" -lt "$s_win_ln" ]; then :; \
+  else s132=0; s132_why="${s132_why}reviewer-axis-limb-not-check1-head;"; fi
 else
-  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568/#571)"
+  s132=0; s132_why="${s132_why}reviewer-file-missing-573;"
+fi
+# (f.8-SPEC) SPEC §4.8 steelman sentence reflects symmetric treatment.
+if [ -f "$S132_SPEC" ]; then
+  grep -qiF 'symmetric steelman' "$S132_SPEC" \
+    || { s132=0; s132_why="${s132_why}spec-no-symmetric-steelman-pointer;"; }
+fi
+
+if [ "$s132" = 1 ]; then
+  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression); + #571 judge-side dismissal evidence-burden guard (refute-not-outweigh, claimed-magnitude anchor, anti-relabel/evidenced-downrate hatches, benign-incumbent de-novo carve-out, additive-after-gate ordering, SPEC §4.8/§6.0 pointer); + #573 symmetric steelman (invariant limb in Check 0 + axis limb at Check-1 head, {A,B1,B2} coverage, A-invariant retained, matched-marker region ordering, SPEC §4.8 symmetric pointer)"
+else
+  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568/#571/#573)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------
