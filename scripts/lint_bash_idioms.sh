@@ -9,9 +9,10 @@
 #
 #   1. REUSE, don't re-handroll (invariant #6, #276/#490): for general
 #      quoting/array idioms it invokes the ALREADY-PINNED shellcheck resolved by
-#      scripts/lint.sh (ensure_pinned_shellcheck) at a BROADER advisory severity
-#      (--severity=style) than the CI gate's --severity=warning, so its findings
-#      are NON-OVERLAPPING with the gate (softer style/info the gate never blocks).
+#      scripts/lint.sh (ensure_pinned_shellcheck) at a BROADER (superset) advisory
+#      severity (--severity=style) than the CI gate's --severity=warning — it
+#      surfaces the softer style/info the gate never blocks, on top of the
+#      warning/error the gate already covers (never a second quoting engine).
 #      If shellcheck cannot be resolved (offline, no cache) it DEGRADES GRACEFULLY
 #      — the shellcheck arm is skipped, the greps still run; never a hard fail.
 #   2. Project-policy greps (the only hand-rolled code): a raw `source`/`.` of a
