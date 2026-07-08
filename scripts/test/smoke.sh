@@ -13806,10 +13806,50 @@ grep -qiE 'fake-diff' "$S132_REVIEWER" \
 grep -qiE 'shared-blindspot|shared blindspot' "$S132_REVIEWER" \
   || { s132=0; s132_why="${s132_why}reviewer-regression-shared-blindspot;"; }
 
-if [ "$s132" = 1 ]; then
-  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression)"
+# (f.7) #571 — judge-side dismissal evidence-burden guard. The (f.6) guards police the
+# CHALLENGERS; this guard polices the JUDGE's own A-stands dismissal of a domination
+# claim (refute, don't outweigh; scaled to the challenger's CLAIMED magnitude) and closes
+# the reclassification-to-dodge (B1) + unevidenced-down-rate (B2) escape hatches while
+# preserving benign-incumbent (fires only on a domination claim; A never re-justified de
+# novo). It is ADDITIVE inside Check 1, so it must sit AFTER the Check-0 invariant gate
+# (matched-marker runtime position, no hardcoded line); SPEC §4.8/§6.0 carry a thin pointer.
+if [ -f "$S132_REVIEWER" ]; then
+  grep -qiF 'dismissal evidence-burden' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-dismissal-burden-marker;"; }
+  grep -qiE 'refut' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-refute-token;"; }
+  grep -qiE 'outweigh' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-outweigh-token;"; }
+  grep -qiF 'claimed' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-claimed-magnitude-anchor;"; }
+  grep -qiE 'reclassification|trade-off i weighed' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-anti-relabel-clause;"; }
+  grep -qiE 'down-rate' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-downrate-clause;"; }
+  grep -qiF 'de novo' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-benign-incumbent-carveout;"; }
+  pr_burden_ln=$(grep -niF 'dismissal evidence-burden' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  pr_gate2_ln=$(grep -niE 'invariant-preservation gate' "$S132_REVIEWER" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -n "$pr_burden_ln" ] && [ -n "$pr_gate2_ln" ] && [ "$pr_burden_ln" -gt "$pr_gate2_ln" ]; then
+    :
+  else
+    s132=0; s132_why="${s132_why}reviewer-burden-not-after-gate;"
+  fi
 else
-  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568)"
+  s132=0; s132_why="${s132_why}reviewer-file-missing-571;"
+fi
+# (f.7-SPEC) SPEC §4.8/§6.0 thin pointer to the dismissal evidence-burden guard.
+if [ -f "$S132_SPEC" ]; then
+  grep -qiF 'dismissal evidence-burden' "$S132_SPEC" \
+    || { s132=0; s132_why="${s132_why}spec-no-dismissal-burden-pointer;"; }
+else
+  s132=0; s132_why="${s132_why}spec-file-missing-571;"
+fi
+
+if [ "$s132" = 1 ]; then
+  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression); + #571 judge-side dismissal evidence-burden guard (refute-not-outweigh, claimed-magnitude anchor, anti-relabel/evidenced-downrate hatches, benign-incumbent de-novo carve-out, additive-after-gate ordering, SPEC §4.8/§6.0 pointer)"
+else
+  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568/#571)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------
