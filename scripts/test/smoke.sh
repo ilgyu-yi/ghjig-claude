@@ -13886,10 +13886,51 @@ if [ -f "$S132_SPEC" ]; then
     || { s132=0; s132_why="${s132_why}spec-no-symmetric-steelman-pointer;"; }
 fi
 
-if [ "$s132" = 1 ]; then
-  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression); + #571 judge-side dismissal evidence-burden guard (refute-not-outweigh, claimed-magnitude anchor, anti-relabel/evidenced-downrate hatches, benign-incumbent de-novo carve-out, additive-after-gate ordering, SPEC §4.8/§6.0 pointer); + #573 symmetric steelman (invariant limb in Check 0 + axis limb at Check-1 head, {A,B1,B2} coverage, A-invariant retained, matched-marker region ordering, SPEC §4.8 symmetric pointer)"
+# (f.9) #575 — axis-selection contract: weight-not-filter + judge axis-selection sanity
+# check + drop-axis attestation. The selector's "focus 2 axes" is a WEIGHT (all axes stay in
+# view via the domination bar), not a FILTER; `plan-reviewer` gains an after-the-fact
+# axis-selection sanity check (backstop on the non-adversarial selector); `/work-on` emits a
+# drop-axis attestation via the HOUSE IDIOM — source hookrt.sh THEN a bare `audit_log info
+# plan-axis` (a bare `command -v audit_log` guard WITHOUT sourcing silently no-ops every run).
+if [ -f "$S132_WORKON" ] && [ -f "$S132_CHALLENGER" ] && [ -f "$S132_REVIEWER" ]; then
+  grep -qiF 'weight, not a filter' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-weight-not-filter;"; }
+  grep -qiF 'all axes in view' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-no-all-axes-in-view;"; }
+  grep -qiE 'lead(ing)? with' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-no-lead-with;"; }
+  # framing-only guardrail: the domination verb must survive the reframe
+  grep -qiF 'beat Plan A' "$S132_CHALLENGER" \
+    || { s132=0; s132_why="${s132_why}challenger-framing-dropped-beat;"; }
+  grep -qiF 'axis-selection sanity check' "$S132_REVIEWER" \
+    || { s132=0; s132_why="${s132_why}reviewer-no-axis-sanity-check;"; }
+  grep -qF 'audit_log info plan-axis' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-plan-axis-attestation;"; }
+  grep -qiF 'focused={' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-focused-split;"; }
+  grep -qiF 'deferred={' "$S132_WORKON" \
+    || { s132=0; s132_why="${s132_why}workon-no-deferred-split;"; }
+  # source-precedes-emit: a hookrt.sh source must sit just above the plan-axis emission
+  # (the A defect #575 fixes — a bare guard with no source is a silent no-op / phantom trail).
+  pa_ln=$(grep -nF 'audit_log info plan-axis' "$S132_WORKON" 2>/dev/null | head -1 | cut -d: -f1)
+  src_near=$(grep -nF 'hooks/hookrt.sh' "$S132_WORKON" 2>/dev/null | cut -d: -f1 | awk -v p="$pa_ln" '$1<=p{m=$1} END{print m}')
+  if [ -n "$pa_ln" ] && [ -n "$src_near" ] && [ "$src_near" -lt "$pa_ln" ] && [ "$((pa_ln - src_near))" -le 3 ]; then :; \
+  else s132=0; s132_why="${s132_why}workon-plan-axis-not-sourced;"; fi
 else
-  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568/#571/#573)"
+  s132=0; s132_why="${s132_why}axis-contract-file-missing-575;"
+fi
+# (f.9-SPEC) SPEC reflects weight-not-filter + the plan-axis attestation pointer.
+if [ -f "$S132_SPEC" ]; then
+  grep -qiF 'weight, not a filter' "$S132_SPEC" \
+    || { s132=0; s132_why="${s132_why}spec-no-weight-not-filter;"; }
+  grep -qiF 'plan-axis' "$S132_SPEC" \
+    || { s132=0; s132_why="${s132_why}spec-no-plan-axis-pointer;"; }
+fi
+
+if [ "$s132" = 1 ]; then
+  ok "132: adversarial-pairing plan review pinned — plan-challenger (beat/concession/fake-diff/perf+sec axis/§4.9.3/worktree), plan-reviewer (judge {A,B1,B2}/lazy/fake-diff/shared-blindspot/VERDICT grammar), SPEC §4.11-distinction (generation diversity vs vote redundancy + acting context), work-on axis-selector+parallel dispatch+judge, pr_body contest record (#530); + #568 mandatory-invariant gate (work-on manifest field, both reviewers gate-before-contest/evidence + disqualif + empty-manifest attest, minimalism carve-out, guard non-regression); + #571 judge-side dismissal evidence-burden guard (refute-not-outweigh, claimed-magnitude anchor, anti-relabel/evidenced-downrate hatches, benign-incumbent de-novo carve-out, additive-after-gate ordering, SPEC §4.8/§6.0 pointer); + #573 symmetric steelman (invariant limb in Check 0 + axis limb at Check-1 head, {A,B1,B2} coverage, A-invariant retained, matched-marker region ordering, SPEC §4.8 symmetric pointer); + #575 axis-selection contract (weight-not-filter framing in work-on+challenger, judge axis-selection sanity check, drop-axis plan-axis attestation via source-then-bare-audit_log house idiom with source-precedes-emit pin, beat-Plan-A framing-only guardrail, SPEC pointers)"
+else
+  ng "132: adversarial-pairing plan review contract violated:$s132_why (#530/#568/#571/#573/#575)"
 fi
 
 # ---------- §110: README assertion-count floor (#409) ----------
