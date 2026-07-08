@@ -23,7 +23,7 @@ Directives should be evaluated against this two-sided principle, not against abs
 
 ## Success looks like
 
-Twelve months out, the shell's success is best summarized as **a Claude Code session running in `unattended` mode against a real engineering issue produces a merged PR whose quality matches what a careful senior engineer would have produced in the same hours.** That requires:
+Twelve months out, the shell's success is best summarized as **a Claude Code session running in `unattended` mode against a real engineering issue produces a merged PR whose quality matches what a careful senior engineer would have produced in the same hours.** Senior-engineering quality has two distinct axes, and the shell owns **both**: *correctness assurance* ("does it work" — tests, shellcheck, the reviewer's correctness/scope/security checks) and the **readability / language-idiom axis** ("is it written the way its language wants to be written" — readable, well-factored, reaping each language's intended benefits/philosophy), the latter carried as an advisory, per-language, first-class review concern (SPEC §4.5.1). That requires:
 
 - **The flow holds in unattended runs.** Clean execution end-to-end (issue → branch → Doc → Test → Code → /ship → merge) is the dominant path, not the exception. Hard blockers (incompatible plan, secret detected, AC unticked) surface as audit-logged `parked` states rather than silent regressions.
 - **The directing layer works.** A team that picks up GHJig-Claude uses the dir-mode hierarchy (`MISSION.md` → Directive Issue → Execution Issue) to plan two or three weeks of work, ship it under reviewer gates, and reach the Directive's success signals without revising the shell. GHJig-Claude itself is the first concrete example.
