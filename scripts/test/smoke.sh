@@ -14994,6 +14994,105 @@ else
   ng "138f: SPEC §11 missing scripts/lint.sh reference or version-pinned wording (#545)"
 fi
 
+# ---------- §139: readability / language-idiom quality axis (#546) ----------
+# SPEC §4.5.1 + .claude/rubrics/bash.md. Senior-engineering quality has two axes:
+# correctness (shellcheck/tests/reviewer, already covered) and the readability /
+# language-idiom axis ("is the bash written the way bash wants to be written").
+# The axis is carried as a per-language rubric SSOT, applied by code-reviewer as
+# ADVISORY idiom-notes that never escalate to block, with a deterministic subset
+# surfaced by a born-advisory checker scripts/lint_bash_idioms.sh.
+#
+# Doc landed (Phase A): (a)-(e) are product/Doc-confirming and green now. The
+# deterministic checker DOES NOT EXIST YET (Phase B/Test): (f) is the load-bearing
+# intended-RED — it fails until scripts/lint_bash_idioms.sh lands in Phase C.
+S139_RUBRIC="$SHELL_ROOT/.claude/rubrics/bash.md"
+S139_CODE_REV="$SHELL_ROOT/.claude/agents/code-reviewer.md"
+S139_SPEC="$SHELL_ROOT/SPEC.md"
+S139_MISSION="$SHELL_ROOT/MISSION.md"
+S139_CHECKER="$SHELL_ROOT/scripts/lint_bash_idioms.sh"
+S139_FX_BAD="$SHELL_ROOT/scripts/test/fixtures/idiom/bash/unidiomatic.sh"
+S139_FX_GOOD="$SHELL_ROOT/scripts/test/fixtures/idiom/bash/idiomatic.sh"
+
+# §139a (AC2): the bash idiom rubric SSOT exists AND carries each required criterion
+# token — the deterministic set (safe_source, git add -A) and the LLM set (function
+# altitude, DRY), plus the motivating SMELL and the #276/#490 reuse scope note. The
+# `safe_source` criterion heading carries backticks, so match that literal form.
+if [ -f "$S139_RUBRIC" ] \
+   && grep -qF '`safe_source` discipline' "$S139_RUBRIC" 2>/dev/null \
+   && grep -qF 'git add -A' "$S139_RUBRIC" 2>/dev/null \
+   && grep -qF 'Function size / altitude' "$S139_RUBRIC" 2>/dev/null \
+   && grep -qF 'DRY across helpers' "$S139_RUBRIC" 2>/dev/null \
+   && grep -qF 'SMELL: detection-by-attribute-combination' "$S139_RUBRIC" 2>/dev/null \
+   && grep -qF "Reuse, don't re-handroll" "$S139_RUBRIC" 2>/dev/null; then
+  ok "139a: .claude/rubrics/bash.md carries all required idiom criteria + SMELL + reuse note (#546)"
+else
+  ng "139a: .claude/rubrics/bash.md missing or lacks a required criterion / SMELL / reuse token (#546)"
+fi
+
+# §139b: code-reviewer.md wires the advisory axis — an Idiom notes (advisory) output
+# section, the never-block rule (NEVER escalate to block), and the conditional per-
+# language rubric read (.claude/rubrics/). All three are the wiring, not the criteria.
+if grep -qF 'Idiom notes (advisory)' "$S139_CODE_REV" 2>/dev/null \
+   && grep -qF 'NEVER escalate to' "$S139_CODE_REV" 2>/dev/null \
+   && grep -qF '.claude/rubrics/' "$S139_CODE_REV" 2>/dev/null; then
+  ok "139b: code-reviewer.md wires advisory idiom axis (Idiom notes + never-block + rubric read) (#546)"
+else
+  ng "139b: code-reviewer.md missing Idiom notes section, never-block rule, or .claude/rubrics/ read (#546)"
+fi
+
+# §139c (NARROWING GUARD, invariant #1): the criteria text lives ONLY in the rubric
+# file, NOT inlined into the always-loaded reviewer prompt (else the rubric SSOT is a
+# second copy that drifts). code-reviewer.md must NOT carry the rubric BODY tokens.
+s139c_smell=$(grep -cF 'SMELL: detection-by-attribute-combination' "$S139_CODE_REV" 2>/dev/null)
+s139c_norm=$(grep -cF 'normalize once' "$S139_CODE_REV" 2>/dev/null)
+if [ "${s139c_smell:-0}" -eq 0 ] && [ "${s139c_norm:-0}" -eq 0 ]; then
+  ok "139c: code-reviewer.md does NOT inline the rubric body (criteria stay SSOT in bash.md) (#546)"
+else
+  ng "139c: code-reviewer.md inlines rubric-body criteria text — drift risk, criteria must stay in bash.md (#546)"
+fi
+
+# §139d (AC4): SPEC §4.5.1 subsection exists AND MISSION.md names the axis. Both are
+# Doc-confirming (landed in Phase A), so green now.
+if grep -qF '#### 4.5.1 Readability / language-idiom review axis' "$S139_SPEC" 2>/dev/null \
+   && grep -qF 'readability / language-idiom axis' "$S139_MISSION" 2>/dev/null; then
+  ok "139d: SPEC §4.5.1 + MISSION.md carry the readability / language-idiom axis (#546)"
+else
+  ng "139d: SPEC §4.5.1 subsection or MISSION.md language-idiom-axis sentence missing (#546)"
+fi
+
+# §139e (B2 ANTI-VACUITY LOCK): the motivating-smell worked example is structurally
+# explicit, not degraded to a bare mention. Require ALL THREE: the exemplar
+# (Unidiomatic (but correct)), the discriminator-fix (branch on the discriminator OR
+# normalize once), and the correct-but-unidiomatic property (The unidiomatic form is).
+if grep -qF 'Unidiomatic (but correct)' "$S139_RUBRIC" 2>/dev/null \
+   && { grep -qF 'branch on the explicit discriminator' "$S139_RUBRIC" 2>/dev/null \
+        || grep -qF 'normalize once' "$S139_RUBRIC" 2>/dev/null; } \
+   && grep -qF 'The unidiomatic form is' "$S139_RUBRIC" 2>/dev/null; then
+  ok "139e: bash.md worked example is structurally explicit (exemplar + fix + correct-but-unidiomatic) (#546)"
+else
+  ng "139e: bash.md worked example degraded — missing exemplar, discriminator-fix, or correctness note (#546)"
+fi
+
+# §139f (CHECKER DEMONSTRATION, AC3 — LOAD-BEARING intended-RED): the born-advisory
+# deterministic checker flags unidiomatic.sh (emits findings) and clears idiomatic.sh
+# (no findings). Both fixtures are shellcheck-warning-CLEAN, proving the idiom axis is
+# distinct from the correctness axis. scripts/lint_bash_idioms.sh does not exist until
+# Phase C, so this MUST fail now — the intended Phase-B red. Guarded so an absent
+# checker (or absent fixture) fails CLEANLY as ng, never a hard error.
+if [ ! -f "$S139_FX_BAD" ] || [ ! -f "$S139_FX_GOOD" ]; then
+  ng "139f: idiom fixtures missing (unidiomatic.sh / idiomatic.sh) — cannot demonstrate checker (#546)"
+elif [ ! -f "$S139_CHECKER" ]; then
+  ng "139f: scripts/lint_bash_idioms.sh absent — deterministic idiom checker not yet implemented (#546 Phase C)"
+else
+  s139f_bad_out="$(bash "$S139_CHECKER" "$S139_FX_BAD" 2>/dev/null)"
+  s139f_good_out="$(bash "$S139_CHECKER" "$S139_FX_GOOD" 2>/dev/null)"
+  if [ -n "$s139f_bad_out" ] && [ -z "$s139f_good_out" ]; then
+    ok "139f: lint_bash_idioms.sh flags unidiomatic.sh and clears idiomatic.sh (#546)"
+  else
+    ng "139f: lint_bash_idioms.sh did not flag unidiomatic.sh or wrongly flagged idiomatic.sh (#546)"
+  fi
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
