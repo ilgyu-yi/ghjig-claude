@@ -15712,6 +15712,63 @@ else
   ng "144l: SPEC §5.7.1 bypass-coupling paragraph missing (#587)"
 fi
 
+# ---------- §142: Python idiom / readability rubric content-lock (#581) ----------
+# Mirrors §139 (the bash idiom rubric lock) for the new Python rubric SSOT. #581 is a
+# Doc-ONLY addition: it lands ONE file, .claude/rubrics/python.md, applied by
+# code-reviewer as ADVISORY idiom-notes (the same axis as bash.md, SPEC §4.5.1). There
+# is NO Code phase — no Python deterministic checker (deferred until a bound Python repo
+# needs it; python.md §"Deterministic-vs-LLM boundary" records the deferral). So this is
+# a DRIFT-GUARD that is GREEN on arrival (python.md landed in Phase A), not a red-first
+# test. Each arm is guarded to fail CLEANLY as ng (loud, not a hard error) when the file
+# or a token is absent.
+S142_RUBRIC="$SHELL_ROOT/.claude/rubrics/python.md"
+
+# §142a: the Python idiom rubric SSOT exists AND carries each required criterion /
+# structural token verbatim — the title, the deterministic-vs-LLM boundary, a
+# representative spread of the 9 criteria (EAFP, context manager, dataclass, type hint),
+# the motivating design SMELL, and the #276/#490 reuse scope note.
+if [ -f "$S142_RUBRIC" ] \
+   && grep -qF '# Python idiom / readability rubric' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'Deterministic-vs-LLM boundary' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'EAFP' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'context manager' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'dataclass' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'type hint' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF 'SMELL: type-by-attribute-combination' "$S142_RUBRIC" 2>/dev/null \
+   && grep -qF "Reuse, don't re-handroll" "$S142_RUBRIC" 2>/dev/null; then
+  ok "142a: .claude/rubrics/python.md carries title + boundary + criteria spread + SMELL + reuse note (#581)"
+else
+  ng "142a: .claude/rubrics/python.md missing or lacks a required criterion / SMELL / reuse token (#581)"
+fi
+
+# §142b (ANTI-VACUITY LOCK, mirrors §139e): the motivating-smell worked example is
+# structurally explicit, not degraded to a bare mention. Require ALL THREE: the exemplar
+# (Unpythonic (but correct)), the Pythonic discriminator-fix (dispatch / match /
+# singledispatch OR the explicit-discriminator phrase), and the correct-but-unpythonic
+# property (The unpythonic form is). If any is missing the case fails.
+if [ -f "$S142_RUBRIC" ] \
+   && grep -qF 'Unpythonic (but correct)' "$S142_RUBRIC" 2>/dev/null \
+   && { grep -qF 'dispatch' "$S142_RUBRIC" 2>/dev/null \
+        || grep -qF 'match' "$S142_RUBRIC" 2>/dev/null \
+        || grep -qF 'singledispatch' "$S142_RUBRIC" 2>/dev/null \
+        || grep -qF 'explicit discriminator' "$S142_RUBRIC" 2>/dev/null; } \
+   && grep -qF 'The unpythonic form is' "$S142_RUBRIC" 2>/dev/null; then
+  ok "142b: python.md worked example is structurally explicit (exemplar + discriminator-fix + correct-but-unpythonic) (#581)"
+else
+  ng "142b: python.md worked example degraded — missing exemplar, discriminator-fix, or correctness note (#581)"
+fi
+
+# §142c (advisory-never-block contract, mirrors bash.md): the rubric records that its
+# criteria are advisory and never escalate to block — a `never` + `block` co-occurrence
+# on one line, or the standalone `advisory` marker.
+if [ -f "$S142_RUBRIC" ] \
+   && { grep -qF 'advisory' "$S142_RUBRIC" 2>/dev/null \
+        || grep -n 'never' "$S142_RUBRIC" 2>/dev/null | grep -qF 'block'; }; then
+  ok "142c: python.md records the advisory-never-block contract (advisory / never+block) (#581)"
+else
+  ng "142c: python.md missing the advisory-never-block wording (advisory or never+block) (#581)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
