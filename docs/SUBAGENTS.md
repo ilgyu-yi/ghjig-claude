@@ -56,6 +56,7 @@ Pre-commit / pre-PR review. Auto-invoked by `/review` and `/ship`.
 - **When**: at the ship gate before `gh pr ready`, and any time `/review` runs.
 - **Input**: diff + PR body + MISSION + issue body. No chat context — the reviewer is deliberately uninformed by the conversation that produced the diff, so its verdict comes from the artifacts alone.
 - **Output**: `ship` / `ship after fix` / `block (blocker)` with `path:line` anchors on findings.
+- **Readability / language-idiom axis**: for a language with a rubric at `.claude/rubrics/<lang>.md`, the reviewer reads it (only for languages in the diff) and applies it as **advisory idiom-notes that never block** — full details in SPEC §4.5.1.
 - **Spec**: SPEC §4.5.
 
 ### security-reviewer

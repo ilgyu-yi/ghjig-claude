@@ -29,6 +29,7 @@ A worktree-isolated reviewer is checked out at the caller-chosen BASE, not the p
 - Security surface
 - Obvious performance traps
 - Readability, naming
+- **Readability / language-idiom axis (advisory, SPEC §4.5.1)** — detect the languages present in the diff. For each language with a rubric at `.claude/rubrics/<lang>.md`, **read that rubric** (only the ones the diff actually touches — do not read rubrics for absent languages) and apply its criteria. Report matches under a distinct **`Idiom notes (advisory)`** section of your output. These are **advisory only and NEVER escalate to `block`** — `block` stays reserved for correctness / scope / security / doc-sync / AC / enforcement-style. A rubric names its own deterministic-vs-LLM split; apply the LLM-judgment criteria yourself (the deterministic subset is separately handled by `scripts/lint_bash_idioms.sh`).
 - Scope (out-of-request changes mixed in?)
 - **Doc sync (Phase A reflected?)**
 - **MISSION fit (which MISSION item this serves, or violates)**
