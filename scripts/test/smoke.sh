@@ -15245,9 +15245,9 @@ rm -rf "$S140_DIR" "$(dirname "$s140_repo")"
 # observable-discriminator AND the never-block clause together on the Phase-slice
 # bullet, so a bare mention cannot green it.
 #
-# Phase C (issue-reviewer.md Check 6) HAS NOT LANDED: 141a therefore reports RED
-# (the intended failure). 141b-e are Doc-phase-confirming, expected GREEN (SPEC §1.2
-# / §4.7 rewrites already landed).
+# 141a was RED before Phase C (issue-reviewer.md Check 6) landed — the intended
+# Phase-B failure — and is GREEN once Check 6 is in place. 141b-e are
+# Doc-phase-confirming (SPEC §1.2 / §4.7), expected GREEN throughout.
 S141_REVIEWER="$SHELL_ROOT/.claude/agents/issue-reviewer.md"
 S141_SPEC="$SHELL_ROOT/SPEC.md"
 

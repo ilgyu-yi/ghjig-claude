@@ -15,13 +15,13 @@ An optional **Initiative** tier sits above Directives: a planning artifact the s
 The conversation with the human (**communication language**) and the language of durable repo artifacts (**work language**) are separate channels (SPEC §5.7.2, Directive #322). Chat replies stay in the user's language; **all durable artifacts** — commit messages, PR titles/bodies, issue/directive/execution bodies, acceptance criteria, changelog fragments, shell-authored code comments, audit `reason` text — are authored in the **work language**, resolved by `resolve_work_lang` (`.claude/hooks/helpers/work_lang.sh`): `$GHJIG_WORK_LANG` → `.claude/state/work-lang` (cwd-relative) → default `en`. Any language code is accepted (not ko/en-hardcoded). **Before authoring any artifact** (after the conversation concludes), recast the task context into the work language and write every work-language surface from that recast — do not transliterate the chat. Unset → `en` (today's behavior).
 
 ## Work order: Doc → Test → Code
-1. **Doc** — Write the behavior/contract into the SSOT (SPEC, MISSION, README, ADR) first.
+1. **Doc** — Write the contract into the SSOT (SPEC, MISSION, README, ADR) first.
 2. **Test** — Translate the doc into a failing test. Confirm the intended failure.
 3. **Code** — Minimal code to pass the test.
 
 Each phase should be its own commit; the PR's commit graph should show Doc → Test → Code. These phases are commits in **one** Execution Issue, not separate Doc/Test/Code issues (SPEC §1.2).
 
-Relaxed when: `fix` (reproduce-first), `refactor` (doc skippable if behavior unchanged), `perf` (measure first), spikes, typos. State the reason in the PR Plan.
+Relaxed when: `fix` (reproduce-first), `refactor` (doc skippable if external behavior unchanged), `perf` (measure first), spikes, typos. State the reason in the PR Plan.
 
 Strict: `feat`, `docs`, external contract / API / schema changes.
 
