@@ -537,6 +537,54 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace merge-attestation "$cmd"
     fi
 
+    # merge-completeness (#548) — INDEPENDENT advisory arm, WARN-ONLY, sequenced
+    # immediately after merge-attestation on the SAME `gh pr merge` entry grep. The
+    # positive-completeness face of the #544 attestation block: on a `feat`/`fix` PR
+    # whose merge diff touches ZERO source files (non-empty file list, every path
+    # test/doc per the reused `.shellsecretignore` classifier) it emits an
+    # `audit_log warn merge-completeness` record + a one-line stderr notice and
+    # ALLOWS. PR type resolves from headRefName (`<user>/(feat|fix)/…`) with a
+    # PR-title conventional-commit fallback; one bounded `gh pr view --json
+    # headRefName,title,files` (merge_completeness_probe) feeds both type + file
+    # list. It NEVER blocks and has NO skip category — fail-open throughout (PR
+    # unresolvable / gh down / empty JSON / empty list / helper miss → no warn,
+    # allow). Runs only when every block arm above already allowed. SPEC §6.1
+    # 'merge-completeness' row.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
+      decided=
+      if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-completeness; then
+        if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
+          mark_allow merge-completeness
+          decided=1
+        else
+          mc_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+          if [ -z "$mc_pr" ] && command -v gh >/dev/null 2>&1; then
+            mc_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+          fi
+          if [ -z "$mc_pr" ]; then
+            # PR unresolvable → no key for the advisory; fail-open allow, no warn.
+            mark_allow merge-completeness
+            decided=1
+          else
+            mc_probe=$(merge_completeness_probe "$mc_pr" 2>/dev/null || true)
+            mc_type=${mc_probe%%$'\t'*}
+            mc_zero=${mc_probe#*$'\t'}
+            if { [ "$mc_type" = feat ] || [ "$mc_type" = fix ]; } && [ "$mc_zero" = 1 ]; then
+              audit_log warn merge-completeness advisory "PR #${mc_pr} (${mc_type}) merge diff touches zero source files (all test/doc) — verify the implementation reached the PR head before merging (advisory, never blocks, §6.1)"
+              printf '[GHJig-Claude] merge-completeness: PR #%s (%s) merge diff is test/doc-only — no source file changed; confirm the implementation is on the PR head before merging.\n' "$mc_pr" "$mc_type" >&2
+            fi
+            # Every path here allows — advisory arm never blocks.
+            mark_allow merge-completeness
+            decided=1
+          fi
+        fi
+      else
+        # safe_source emitted the merge-completeness helper-missing warn already.
+        decided=1
+      fi
+      [ -z "$decided" ] && pass_through_trace merge-completeness "$cmd"
+    fi
+
     # proposed-protect — block branch-creation referencing an Issue that is not
     # yet a branchable Execution Issue (SPEC §1.7, §6.1, §10.5). Generalized from
     # directive-protect (#171): block when the target Issue is EITHER

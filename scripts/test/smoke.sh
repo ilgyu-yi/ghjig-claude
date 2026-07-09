@@ -15092,6 +15092,148 @@ else
     ng "139f: lint_bash_idioms.sh did not flag unidiomatic.sh or wrongly flagged idiomatic.sh (#546)"
   fi
 fi
+# ---------- §140: merge-completeness advisory warn (#548) ----------
+# SPEC §6.1 'merge-completeness' advisory row — the POSITIVE completeness face of
+# the #544 merge-attestation block (origin: handol #244, an implementation commit
+# never pushed so only the Phase-B test reached the head → the merge would land a
+# test with no code). An INDEPENDENT advisory arm sequenced AFTER the merge-
+# attestation arm on the same `gh pr merge` entry-grep. On a `feat`/`fix` PR whose
+# merge diff touches ZERO source files (non-empty file list, every path test/doc)
+# it emits `audit_log warn merge-completeness` + a one-line stderr notice and
+# ALLOWS (rc 0) — it NEVER blocks. PR type resolves from the PR headRefName
+# (`<user>/(feat|fix)/…`) with a PR-title conventional-commit fallback. Source-vs-
+# test/doc REUSES the `.shellsecretignore` allow-list via secret_scan_path_allowed
+# (no new glob list). One bounded `gh pr view <pr> --json headRefName,title,files`
+# feeds both type + file list. Fail-open throughout (gh down / empty list → no warn).
+#
+# The arm DOES NOT EXIST YET (Phase B / Doc→Test→Code). Assertion (a) is the load-
+# bearing INTENDED RED: it observes rc 0 (the merge falls through to allow) but NO
+# merge-completeness warn record (the absent arm never writes one) → RED. (b)/(c)/(d)
+# hold trivially now (no arm ⇒ no warn) and stay green when Phase C lands the arm.
+#
+# To REACH the (future) completeness arm, the merge-attestation arm above must ALLOW
+# first: each case seeds a VALID attestation ($statedir/attest/pr-77 head == the gh
+# shim's headRefOid) so merge-attestation is not the decider. The repo carries a
+# committed `.shellsecretignore` (copied from SHELL_ROOT) at HEAD so the arm's
+# secret_scan_path_allowed classifier loads the real test/doc/example globs; it has
+# NO upstream so push-parity always allows; ac-closeout allows (empty closingIssues).
+S140_DIR=$(mktemp -d)
+S140_SHIM="$S140_DIR/bin"
+S140_STATE="$S140_DIR/ghstate"   # GH_SHIM_STATE for the gh shim
+mkdir -p "$S140_SHIM" "$S140_STATE"
+
+S140_HEAD='mc-head-999'
+printf '%s\n' "$S140_HEAD" > "$S140_STATE/head_ref_oid"  # merge-attestation staleness match
+printf '77\n' > "$S140_STATE/pr_number"
+
+# gh shim (mirrors §137): a forced-DOWN toggle (touch $GH_SHIM_STATE/gh_down) makes
+# every gh call error. headRefOid feeds merge-attestation; closingIssuesReferences
+# empty → ac-closeout allows; the NEW `--json headRefName,title,files` call (matched
+# by the *files* arm) returns the per-case canned PR JSON object driving the
+# completeness arm's type + file-list.
+cat > "$S140_SHIM/gh" <<'SHIM'
+#!/bin/sh
+if [ -f "$GH_SHIM_STATE/gh_down" ]; then
+  echo "gh: shim forced down (no network)" >&2
+  exit 1
+fi
+case "$*" in
+  *"pr view"*headRefOid*)              cat "$GH_SHIM_STATE/head_ref_oid" 2>/dev/null ;;
+  *"pr view"*closingIssuesReferences*) : ;;   # empty → ac-closeout allows
+  *"pr view"*files*)                   cat "$GH_SHIM_STATE/pr_view_json" 2>/dev/null ;;
+  *"pr view"*number*)                  cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
+esac
+exit 0
+SHIM
+chmod +x "$S140_SHIM/gh"
+
+# Throwaway repo with a committed `.shellsecretignore` at HEAD + no upstream. Built
+# once; every case runs `gh pr merge 77 --merge` here. Mirrors the §137 build idiom.
+s140_repo=$(
+  d=$(mktemp -d); work="$d/work"
+  git init -q "$work" 2>/dev/null
+  (
+    cd "$work" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    git checkout -q -b smoke/feat/1-completeness 2>/dev/null || true
+    cp "$SHELL_ROOT/.shellsecretignore" .shellsecretignore
+    git add .shellsecretignore
+    git commit -q -m c1
+  )
+  printf '%s' "$work"
+)
+S140_CANON=$(cd "$s140_repo" && pwd -P)
+
+# Run `gh pr merge 77 --merge` in the repo with a per-case gh-JSON + state-dir
+# override (carrying a VALID pr-77 attestation + its own audit log + registry).
+# Sets S140_RC and S140_TAIL (the audit records this fire appended).
+s140_case() {
+  local pr_json="$1" statedir="$2" before after
+  mkdir -p "$statedir/audit" "$statedir/attest"
+  printf 'head=%s\n' "$S140_HEAD" > "$statedir/attest/pr-77"   # merge-attestation ALLOWS
+  printf '%s\n' "$S140_CANON" > "$statedir/registry.txt"       # in_scope under the override
+  printf '%s' "$pr_json" > "$S140_STATE/pr_view_json"
+  before=$(wc -l < "$statedir/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+  (
+    cd "$s140_repo" || exit 1
+    # shellcheck disable=SC2069  # intentional: capture stderr, discard stdout
+    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+      "$(printf '%s' 'gh pr merge 77 --merge' | jq -Rs .)" \
+      | PATH="$S140_SHIM:$PATH" \
+        GH_SHIM_STATE="$S140_STATE" \
+        GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+        GHJIG_STATE_DIR_OVERRIDE="$statedir" \
+        bash "$HOOK" >/dev/null 2>&1
+  )
+  S140_RC=$?
+  after=$(wc -l < "$statedir/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
+  S140_TAIL=""
+  [ "$(( after - before ))" -gt 0 ] && S140_TAIL=$(tail -"$(( after - before ))" "$statedir/audit/audit.jsonl" 2>/dev/null)
+}
+
+# §140a (LOAD-BEARING INTENDED RED): feat PR + a merge diff that is ALL test/doc
+# (README.md matches `*.md`; tests/foo.py matches `tests/`) → the arm should emit a
+# merge-completeness warn and ALLOW. RED now: the arm is absent ⇒ rc 0 but NO warn
+# record ⇒ the `warn present` conjunct fails ⇒ clean ng (not a hard error).
+s140_case '{"headRefName":"ilgyu-yi/feat/99-x","title":"feat(#99): x","files":[{"path":"README.md"},{"path":"tests/foo.py"}]}' "$S140_DIR/a"
+if [ "$S140_RC" = 0 ] && printf '%s' "$S140_TAIL" | grep -q '"category":"merge-completeness"'; then
+  ok "140a: feat PR whose merge diff is all test/doc → merge-completeness advisory warn + allow (#548)"
+else
+  ng "140a: feat/all-test-doc merge should WARN + allow (rc=$S140_RC; arm absent ⇒ no merge-completeness warn ⇒ RED) tail=$S140_TAIL (#548)"
+fi
+
+# §140b: feat PR whose diff TOUCHES SOURCE (scripts/lint.sh is not allow-listed) →
+# no warn, allow. Passes now (no arm ⇒ no warn) and stays green after Phase C.
+s140_case '{"headRefName":"ilgyu-yi/feat/99-x","title":"feat(#99): x","files":[{"path":"scripts/lint.sh"}]}' "$S140_DIR/b"
+if [ "$S140_RC" = 0 ] && ! printf '%s' "$S140_TAIL" | grep -q '"category":"merge-completeness"'; then
+  ok "140b: feat PR touching a source file → no merge-completeness warn, allow (#548)"
+else
+  ng "140b: feat+source merge must NOT warn (rc=$S140_RC) tail=$S140_TAIL (#548)"
+fi
+
+# §140c: NON-feat/fix type (chore branch + chore title) + all-test/doc files → no
+# warn, allow (type gate). Passes now and stays green after Phase C.
+s140_case '{"headRefName":"ilgyu-yi/chore/99-x","title":"chore: x","files":[{"path":"README.md"},{"path":"tests/foo.py"}]}' "$S140_DIR/c"
+if [ "$S140_RC" = 0 ] && ! printf '%s' "$S140_TAIL" | grep -q '"category":"merge-completeness"'; then
+  ok "140c: non-feat/fix type + all-test/doc files → no merge-completeness warn, allow (#548)"
+else
+  ng "140c: chore-type merge must NOT warn (rc=$S140_RC) tail=$S140_TAIL (#548)"
+fi
+
+# §140d (FAIL-OPEN): gh forced DOWN on a feat branch → the completeness arm cannot
+# fetch its file list → no warn, never a block (rc 0). (merge-attestation also fail-
+# opens here — attest file present + gh down — so rc stays 0.) The grep excludes the
+# merge-attestation fail-open-skip warn by pinning the category. Green now + after.
+touch "$S140_STATE/gh_down"
+s140_case '{"headRefName":"ilgyu-yi/feat/99-x","title":"feat(#99): x","files":[{"path":"README.md"}]}' "$S140_DIR/d"
+rm -f "$S140_STATE/gh_down"
+if [ "$S140_RC" = 0 ] && ! printf '%s' "$S140_TAIL" | grep -q '"category":"merge-completeness"'; then
+  ok "140d: gh down (fail-open) → no merge-completeness warn, never blocks (rc 0) (#548)"
+else
+  ng "140d: gh-down fail-open must allow with no merge-completeness warn (rc=$S140_RC) tail=$S140_TAIL (#548)"
+fi
+
+rm -rf "$S140_DIR" "$(dirname "$s140_repo")"
 
 # ---------- results ----------
 echo

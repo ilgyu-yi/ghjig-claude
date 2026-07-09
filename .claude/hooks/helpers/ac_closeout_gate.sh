@@ -182,6 +182,77 @@ is_pr_merge_command() {
   return 1
 }
 
+# merge_completeness_probe <pr> — single bounded `gh pr view` round-trip feeding
+# BOTH the type gate and the source-vs-test/doc classification for the
+# merge-completeness advisory arm (#548, SPEC §6.1 'merge-completeness' row).
+# Echoes "<type>\t<zero_source>":
+#   <type>        feat|fix — resolved from the PR headRefName (`<user>/(feat|fix)/…`),
+#                 with a PR-title conventional-commit prefix fallback
+#                 (`feat:`/`feat(…)`/`feat!:`, likewise `fix`). EMPTY for any other
+#                 type — this arm only warns on feat/fix.
+#   <zero_source> 1 when the file list is NON-EMPTY and EVERY path is allow-listed
+#                 (test/doc) by the reused secret_scan classifier; 0 otherwise
+#                 (has source, empty list, or any error).
+# ONE gh round-trip total (`--json headRefName,title,files`). Fail-open throughout:
+# empty PR / gh absent / gh down / empty JSON / empty file list → "<type>\t0" (no
+# warn); the secret_scan classifier missing fails open to has-source (0). NEVER
+# errors, NEVER blocks — advisory only.
+merge_completeness_probe() {
+  local pr="$1"
+  local type="" zero_source=0
+  [ -z "$pr" ] && { printf '\t0'; return 0; }
+  command -v gh >/dev/null 2>&1 || { printf '\t0'; return 0; }
+  command -v jq >/dev/null 2>&1 || { printf '\t0'; return 0; }
+
+  local json rc
+  json=$(_ac_run_gh pr view "$pr" --json headRefName,title,files 2>/dev/null)
+  rc=$?
+  if [ "$rc" != 0 ] || [ -z "$json" ]; then printf '\t0'; return 0; fi
+
+  local head title
+  head=$(printf '%s' "$json" | jq -r '.headRefName // empty' 2>/dev/null)
+  title=$(printf '%s' "$json" | jq -r '.title // empty' 2>/dev/null)
+
+  # type: branch `<user>/(feat|fix)/…` first, then the PR-title CC-prefix fallback.
+  if printf '%s' "$head" | grep -qE '^[^/]+/feat/'; then
+    type=feat
+  elif printf '%s' "$head" | grep -qE '^[^/]+/fix/'; then
+    type=fix
+  elif printf '%s' "$title" | grep -qE '^feat[(!:]'; then
+    type=feat
+  elif printf '%s' "$title" | grep -qE '^fix[(!:]'; then
+    type=fix
+  fi
+
+  # Non-feat/fix → the arm will not warn; skip file classification entirely.
+  if [ -z "$type" ]; then printf '%s\t0' "$type"; return 0; fi
+
+  local files
+  files=$(printf '%s' "$json" | jq -r '.files[]?.path // empty' 2>/dev/null)
+  [ -z "$files" ] && { printf '%s\t0' "$type"; return 0; }   # empty list → no warn
+
+  # Reuse the `.shellsecretignore` classifier (no new glob list). safe_source it
+  # if the hook context has not already sourced it; fail-open to has-source (0)
+  # when the classifier is unavailable.
+  if ! command -v secret_scan_path_allowed >/dev/null 2>&1; then
+    if command -v safe_source >/dev/null 2>&1; then
+      safe_source "${SHELL_ROOT:-}/.claude/hooks/helpers/secret_scan.sh" merge-completeness || true
+    fi
+  fi
+  command -v secret_scan_path_allowed >/dev/null 2>&1 || { printf '%s\t0' "$type"; return 0; }
+  command -v _secret_load_allow_list >/dev/null 2>&1 && _secret_load_allow_list
+
+  local f any_source=0
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    if ! secret_scan_path_allowed "$f"; then any_source=1; break; fi
+  done <<< "$files"
+
+  [ "$any_source" = 0 ] && zero_source=1
+  printf '%s\t%s' "$type" "$zero_source"
+  return 0
+}
+
 pr_needs_closeout() {
   local pr="$1"
   [ -z "$pr" ] && return 2
