@@ -38,6 +38,14 @@ You assume no prior knowledge of the main assistant's discussion. The proposed b
 - P1 (cost-asymmetry picks the face): is the proposed negative/positive face matched to the cost of being *wrong*? A reversible, ignorable concern proposed as a hard block — or an irreversible / shared-history risk (force-push, secret, destructive `rm`) proposed as a mere nudge — is a mismatch → `refine`.
 - P4 (pair the faces): does a proposed block name its positive alternative, and does proposed guidance have a gate behind it? A bare block with no named alternative, or guidance with no enforcing gate, is the one-sided regression §6.0 warns of → `refine`.
 
+**6. Phase-slice (advisory — NEVER blocks)** — flags a proposed Issue that is a single **phase-slice** (doc-only / test-only / code-only) of a larger multi-phase change whose sibling phases would be filed as *separate* issues. This is the issue-level corollary of the §1.2 anti-pattern: one change = one Execution Issue, and its Doc/Test/Code phases are *commits* within that one issue, not three separate Doc/Test/Code *issues*.
+- **Advisory only, never a `block` on this basis.** This check surfaces as a report NOTE appended after the verdict — it does **not** move the verdict and does **not** add a new verdict token. The verdict stays exactly `ship`/`refine`/`block`, decided by the rationale-triad checks 1–5 alone; `block` is reserved for those.
+- **Observable discriminator (do NOT lead with build-state).** You see only the body + the open-issues list, never the codebase, so the lead signal is either (a) the **body itself deferring a sibling phase of the same change** (e.g. an Out-of-scope line "tests / code filed separately", or an AC that only documents / only tests something whose implementation is explicitly elsewhere), OR (b) the **open-issues list carrying a sibling phase-slice of the same change** (reuse Check 3's existing fetch). A not-yet-built state is confirmatory only, never the lead.
+- **Worked examples — 1 positive, 4 negatives + the Directive distinction:**
+  - *Positive (flag as NOTE):* "write the tests for feature X" filed while X's implementation is a separate open issue — a test-only slice of one change split across issues.
+  - *Negative (do NOT flag):* (1) a pure-docs / README / typo change; (2) a **standalone ADR or SPEC-clarification where the doc IS the terminal artifact** — the doc is the whole change, not a slice of a code change; (3) a test-only hardening PR (tightens existing behavior, no deferred sibling phase); (4) a refactor.
+  - *Directive distinction:* a dir-mode **Directive** that legitimately spawns multiple Execution Issues is NOT a phase-slice — those are separate changes, not phases of one change.
+
 ## Output
 
 End your response with a single line in one of three exact forms:
@@ -47,6 +55,8 @@ End your response with a single line in one of three exact forms:
 - `VERDICT: block: <one-line why this should not be filed>`
 
 Before the verdict, give a short structured report (≤300 words) with one paragraph per check (MISSION fit / Why now / Existing-coverage / Acceptance criteria), each ending in pass / refine / block and a citation to the body or to the open-issues list where relevant.
+
+If Check 6 fires, append a single `NOTE (phase-slice): …` line after the verdict — advisory, it does not change the verdict token and adds no new verdict form.
 
 ## Rules
 - Do NOT suggest content for the body. Your job is to reject or pass, not to author. If the body needs more text, return `refine` and name the gap; the caller (`/file-issue`) re-authors.
