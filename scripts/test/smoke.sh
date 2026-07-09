@@ -15234,6 +15234,111 @@ else
 fi
 
 rm -rf "$S140_DIR" "$(dirname "$s140_repo")"
+# ---------- 141. one-body phase-split guard (#579) ----------
+# Pins the #579 contract: a multi-phase change (Doc/Test/Code) is ONE Execution
+# Issue whose phases are *commits*, not three separate issues; the issue-reviewer
+# gains an ADVISORY phase-slice Check 6 that flags the split-across-issues
+# anti-pattern but NEVER escalates to block (the ship/refine/block grammar is
+# unchanged). Structural content-lock (mirrors §132): assert the presence of the
+# CHECK and its KEY CONCEPTS via a small set of STABLE tokens, NOT the full literal
+# exemplar prose (which will churn). Anti-vacuity: the SPEC lock (141e) requires the
+# observable-discriminator AND the never-block clause together on the Phase-slice
+# bullet, so a bare mention cannot green it.
+#
+# 141a was RED before Phase C (issue-reviewer.md Check 6) landed — the intended
+# Phase-B failure — and is GREEN once Check 6 is in place. 141b-e are
+# Doc-phase-confirming (SPEC §1.2 / §4.7), expected GREEN throughout.
+S141_REVIEWER="$SHELL_ROOT/.claude/agents/issue-reviewer.md"
+S141_SPEC="$SHELL_ROOT/SPEC.md"
+
+# §141a (LOAD-BEARING INTENDED RED — Phase C target): issue-reviewer.md carries the
+# advisory phase-slice Check 6. Stable-token structural lock: a phase-slice token AND
+# an advisory-never-block token AND a doc-deliverable/ADR negative concept (terminal
+# artifact / ADR) AND a dir-mode Directive distinction token. The load-bearing RED
+# drivers are `phase-slice` and `terminal artifact`/`ADR` (both count 0 in the file
+# today); the file already carries `Directive` (open-issues fetch line) so that arm
+# alone is not distinctive — the AND makes 141a red cleanly until Phase C adds Check 6.
+if [ -f "$S141_REVIEWER" ]; then
+  if grep -qiE 'phase.slice' "$S141_REVIEWER" \
+     && grep -qiE 'advisory|never[^.]*block' "$S141_REVIEWER" \
+     && grep -qiE 'terminal artifact|\bADR\b' "$S141_REVIEWER" \
+     && grep -qiF 'Directive' "$S141_REVIEWER"; then
+    ok "141a: issue-reviewer.md carries the advisory phase-slice Check 6 (phase-slice + never-block + ADR/terminal-artifact negative + Directive distinction) (#579)"
+  else
+    ng "141a: issue-reviewer.md missing phase-slice Check 6 (expected RED until Phase C: needs phase-slice + advisory-never-block + ADR/terminal-artifact negative + Directive distinction) (#579)"
+  fi
+else
+  ng "141a: issue-reviewer.md file missing (#579)"
+fi
+
+# §141b (Doc-confirming, expected GREEN): SPEC §4.7 carries the Phase-slice Check 6
+# with the advisory-never-block clause. Line-scoped to the Phase-slice bullet so the
+# advisory/never/block tokens must co-occur on the check itself, not scattered.
+if [ -f "$S141_SPEC" ]; then
+  s141b=$(grep 'Phase-slice' "$S141_SPEC")
+  if [ -n "$s141b" ] \
+     && printf '%s' "$s141b" | grep -qi 'advisory' \
+     && printf '%s' "$s141b" | grep -qi 'never' \
+     && printf '%s' "$s141b" | grep -qiF 'block'; then
+    ok "141b: SPEC §4.7 Phase-slice Check 6 is advisory and never blocks (#579)"
+  else
+    ng "141b: SPEC §4.7 missing Phase-slice Check 6 advisory-never-block clause (#579)"
+  fi
+else
+  ng "141b: SPEC.md file missing (#579)"
+fi
+
+# §141c (Doc-confirming, expected GREEN): SPEC §1.2 carries the Issue-level corollary
+# anchor AND the 1:N carve-out phrasing (constrains issue granularity, NOT PR count;
+# issue→PR is 1:N) — so the corollary can't silently drift back to "one PR". Line-scoped.
+if [ -f "$S141_SPEC" ]; then
+  s141c=$(grep 'Issue-level corollary' "$S141_SPEC")
+  if [ -n "$s141c" ] \
+     && printf '%s' "$s141c" | grep -qi 'constrains' \
+     && printf '%s' "$s141c" | grep -qiF 'PR count' \
+     && printf '%s' "$s141c" | grep -qF '1:N'; then
+    ok "141c: SPEC §1.2 Issue-level corollary pins the 1:N issue-vs-PR carve-out (#579)"
+  else
+    ng "141c: SPEC §1.2 missing Issue-level corollary anchor or 1:N carve-out phrasing (#579)"
+  fi
+else
+  ng "141c: SPEC.md file missing (#579)"
+fi
+
+# §141d (invariant — verdict grammar unchanged): issue-reviewer.md still emits EXACTLY
+# ship/refine/block — the advisory Check 6 added no new verdict token. Assert the three
+# canonical verdicts present AND zero non-canonical `VERDICT: <word>` tokens. Passes now
+# and must still pass after Phase C.
+if [ -f "$S141_REVIEWER" ]; then
+  s141d_extra=$(grep -oE 'VERDICT: [a-z]+' "$S141_REVIEWER" | grep -vE 'VERDICT: (ship|refine|block)' | wc -l | tr -d ' ')
+  if grep -qF 'VERDICT: ship' "$S141_REVIEWER" \
+     && grep -qF 'VERDICT: refine' "$S141_REVIEWER" \
+     && grep -qF 'VERDICT: block' "$S141_REVIEWER" \
+     && [ "${s141d_extra:-1}" -eq 0 ]; then
+    ok "141d: issue-reviewer.md verdict grammar is exactly ship/refine/block — no new verdict (#579)"
+  else
+    ng "141d: issue-reviewer.md verdict grammar changed — expected exactly ship/refine/block (#579)"
+  fi
+else
+  ng "141d: issue-reviewer.md file missing (#579)"
+fi
+
+# §141e (anti-vacuity, expected GREEN): the SPEC §4.7 Phase-slice bullet is not a bare
+# mention — it must carry the observable-discriminator concept (open-issues sibling /
+# body-defers) AND the never-block clause together on the same bullet. Line-scoped.
+if [ -f "$S141_SPEC" ]; then
+  s141e=$(grep 'Phase-slice' "$S141_SPEC")
+  if [ -n "$s141e" ] \
+     && printf '%s' "$s141e" | grep -qiF 'open-issues' \
+     && printf '%s' "$s141e" | grep -qiE 'body itself deferring|body-defers|deferring a sibling' \
+     && printf '%s' "$s141e" | grep -qi 'never'; then
+    ok "141e: SPEC §4.7 Phase-slice bullet pairs the observable discriminator with the never-block clause (#579)"
+  else
+    ng "141e: SPEC §4.7 Phase-slice bullet missing observable-discriminator (open-issues/body-defers) or never-block clause (#579)"
+  fi
+else
+  ng "141e: SPEC.md file missing (#579)"
+fi
 
 # ---------- results ----------
 echo
