@@ -82,9 +82,11 @@ the combination per call site. Flag both "this site re-derives a fact that is ex
 re-derived at every call site, and each new shape bolts on another branch:
 ```python
 # attribute pile: hasattr + isinstance, re-derived at every call site
+import math
+
 def area(shape):
     if hasattr(shape, "radius") and isinstance(shape.radius, (int, float)):
-        return 3.14159 * shape.radius ** 2
+        return math.pi * shape.radius ** 2
     elif hasattr(shape, "width") and hasattr(shape, "height"):
         return shape.width * shape.height   # next shape → append yet another branch here
 ```
@@ -92,12 +94,14 @@ def area(shape):
 ✅ **Pythonic** — dispatch on the explicit discriminator (here polymorphism; `enum` + `match` or
 `functools.singledispatch` are equally idiomatic), resolved once at the definition site:
 ```python
+import math
+
 class Shape:
     def area(self) -> float: ...
 
 class Circle(Shape):
     def __init__(self, radius: float) -> None: self.radius = radius
-    def area(self) -> float: return 3.14159 * self.radius ** 2
+    def area(self) -> float: return math.pi * self.radius ** 2
 
 class Rect(Shape):
     def __init__(self, width: float, height: float) -> None:

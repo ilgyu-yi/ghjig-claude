@@ -2103,7 +2103,8 @@ GHJig-Claude/
 │   ├── settings.injected.json        ← injected-target hook config (symlink target; §3.2.1)
 │   ├── CLAUDE.md                     ← shell norms
 │   ├── rubrics/                      ← per-language readability/idiom rubric SSOTs, conditionally read by code-reviewer (§4.5.1, #546)
-│   │   └── bash.md
+│   │   ├── bash.md
+│   │   └── python.md
 │   ├── agents/                       ← 11 subagents (§4); count-guarded (smoke §103)
 │   │   ├── activation-reviewer.md
 │   │   ├── code-reviewer.md
