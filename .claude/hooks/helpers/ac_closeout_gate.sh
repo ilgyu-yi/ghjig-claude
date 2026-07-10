@@ -324,35 +324,99 @@ local_ahead_of_pr() {
   return 0
 }
 
-# attestation_matches <pr> <head> — merge-attestation staleness check (#246,
-# #543, SPEC §6.1). Returns 0 iff $(ghjig_state_dir)/attest/pr-<pr> exists AND
-# its recorded `head=<sha>` equals <head>. Presence (file exists at all) is a
-# separate zero-network fact the caller checks WITHOUT <head>; this predicate
-# additionally requires the head to match. set -u-safe (empty state-dir / pr /
-# head → 1, never a crash).
-attestation_matches() {
+# review_gate_accepts <pr> <head> — merge-review gate acceptance (#586, SPEC
+# §6.1 'merge-review' row, replacing the retired attestation arm #246/#543).
+# Returns 0 (ALLOW) iff a passing GitHub review is PINNED TO <head>; 1 (BLOCK)
+# otherwise. Reads the review OBJECTS authoritatively via
+# `gh api repos/{owner}/{repo}/pulls/<n>/reviews` (state / commit_id /
+# author.login per review), owner/repo via `gh repo view --json nameWithOwner`,
+# the PR author via `gh pr view <n> --json author`, the merger via `gh api user`.
+# All gh calls are timeout-bounded (_ac_run_gh). Identity + head come from the
+# object; only `verdict` is read from marker text (bounds a prompt-injection-
+# flipped verdict). set -u-safe.
+#
+# FAIL-CLOSED (return 1) on ANY lookup failure — empty head (B2 guard), gh
+# error/timeout/down, malformed JSON, empty result — the deliberate divergence
+# from the retired arm's fail-open staleness leg (SPEC §5.7.1: the safe
+# direction for a merge integrity gate is to require a review, not skip it).
+#
+# AGGREGATION (B1): filter reviews to state ∈ {APPROVED, CHANGES_REQUESTED},
+# then take each author's LATEST surviving review (by submitted_at). If any
+# author's filtered-latest is CHANGES_REQUESTED → BLOCK (COMMENTED/PENDING/
+# DISMISSED are dropped BEFORE the per-author-latest, so a later COMMENTED never
+# masks an outstanding veto). reviewDecision is NOT consulted (null on
+# non-branch-protected repos → would fail open).
+# ALLOW in exactly two shapes:
+#   (a) native — an APPROVED review with commit_id==head, no outstanding CR.
+#   (b) self-marker — a COMMENTED review with commit_id==head carrying EXACTLY
+#       ONE `verdict=approve` marker whose review author.login == PR-author ==
+#       merger, no outstanding CR. Conflicting / multiple markers → BLOCK (B2).
+review_gate_accepts() {
   local pr="${1:-}" head="${2:-}"
-  [ -n "$pr" ] && [ -n "$head" ] || return 1
-  local esd; esd=$(ghjig_state_dir 2>/dev/null) || esd=""
-  [ -n "$esd" ] || return 1
-  local f="$esd/attest/pr-$pr"
-  [ -f "$f" ] || return 1
-  local recorded
-  recorded=$(sed -n 's/^head=//p' "$f" 2>/dev/null | head -1)
-  [ -n "$recorded" ] || return 1
-  [ "$recorded" = "$head" ]
-}
+  [ -n "$pr" ] || return 1
+  [ -n "$head" ] || return 1            # empty head → block (B2 guard)
+  command -v gh >/dev/null 2>&1 || return 1
+  command -v jq >/dev/null 2>&1 || return 1
 
-# write_review_attestation <pr> <head> — record that PR <pr>'s review passed at
-# <head>. Writes `head=<sha>` to $(ghjig_state_dir)/attest/pr-<pr> (mkdir -p the
-# dir). Called by /ship strictly AFTER the blind-compare pass (an aborted review
-# writes nothing). set -u-safe: empty state-dir / pr / head → no-op + return 1,
-# never a crash.
-write_review_attestation() {
-  local pr="${1:-}" head="${2:-}"
-  [ -n "$pr" ] && [ -n "$head" ] || return 1
-  local esd; esd=$(ghjig_state_dir 2>/dev/null) || esd=""
-  [ -n "$esd" ] || return 1
-  mkdir -p "$esd/attest" 2>/dev/null || return 1
-  printf 'head=%s\n' "$head" > "$esd/attest/pr-$pr"
+  local rc
+
+  # owner/repo → the reviews API path.
+  local nwo
+  nwo=$(_ac_run_gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  [ -n "$nwo" ] || return 1
+
+  # The review objects (state / commit_id / author.login per review).
+  local reviews
+  reviews=$(_ac_run_gh api "repos/$nwo/pulls/$pr/reviews" 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  [ -n "$reviews" ] || return 1
+  printf '%s' "$reviews" | jq -e 'type=="array"' >/dev/null 2>&1 || return 1
+
+  # Outstanding CHANGES_REQUESTED? Filter to APPROVED/CHANGES_REQUESTED, take the
+  # latest per author, then test whether any survivor is CHANGES_REQUESTED (B1).
+  local cr
+  cr=$(printf '%s' "$reviews" | jq -r '
+    [ .[] | select(.state=="APPROVED" or .state=="CHANGES_REQUESTED") ]
+    | group_by(.author.login // .user.login // "")
+    | map(sort_by(.submitted_at) | last | .state)
+    | any(. == "CHANGES_REQUESTED")
+  ' 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1             # jq error → fail-closed
+  [ "$cr" = "true" ] && return 1        # outstanding veto → block
+
+  # (a) native — an APPROVED review pinned to the current head.
+  local native
+  native=$(printf '%s' "$reviews" | jq -r --arg h "$head" \
+    'any(.[]; .state=="APPROVED" and .commit_id==$h)' 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  [ "$native" = "true" ] && return 0
+
+  # (b) self-marker — a COMMENTED review at head, author == PR-author == merger,
+  # carrying EXACTLY ONE verdict=approve marker (multiple/conflicting → block).
+  local pr_author merger
+  pr_author=$(_ac_run_gh pr view "$pr" --json author -q .author.login 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  merger=$(_ac_run_gh api user -q .login 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  [ -n "$pr_author" ] && [ "$pr_author" = "$merger" ] || return 1
+
+  # Bodies of COMMENTED reviews AT head authored by the (PR-author==merger) self.
+  local self_bodies
+  self_bodies=$(printf '%s' "$reviews" | jq -r --arg h "$head" --arg who "$pr_author" \
+    '.[] | select(.state=="COMMENTED" and .commit_id==$h and ((.author.login // .user.login)==$who)) | .body' \
+    2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+
+  # Count ALL file-review markers (any verdict) across those bodies; the only
+  # accepting shape is a SINGLE verdict=approve marker — multiple or conflicting
+  # markers (e.g. approve + block) fail closed (B2).
+  local markers marker_count=0 verdict
+  markers=$(printf '%s' "$self_bodies" \
+    | grep -oE '<!-- file-review verdict=[A-Za-z]+ head=[^[:space:]]+ reviewer=code-reviewer -->' 2>/dev/null)
+  [ -n "$markers" ] && marker_count=$(printf '%s\n' "$markers" | grep -c .)
+  [ "$marker_count" = 1 ] || return 1
+  verdict=$(printf '%s' "$markers" | sed -nE 's/.*verdict=([A-Za-z]+).*/\1/p')
+  [ "$verdict" = approve ] && return 0
+  return 1
 }

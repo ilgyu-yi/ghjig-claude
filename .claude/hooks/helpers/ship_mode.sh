@@ -36,6 +36,30 @@ resolve_mode() {
   esac
 }
 
+# resolve_review_gate — Stdout: `required` or `bypass`.
+# Governs the §6.1 `merge-review` gate (#586). Resolution order:
+#   1. $GHJIG_REVIEW_GATE (env)
+#   2. .claude/state/review-gate (cwd-relative, read exactly as resolve_mode
+#      reads .claude/state/mode: `head -c 64 | tr -d '[:space:]'`)
+#   3. default `required`
+# Unknown / empty / whitespace-only / malformed values fail CLOSED to
+# `required` — the deliberate divergence from resolve_mode, which fails to
+# `attended` (SPEC §5.7.1: the safe direction for a merge integrity gate is to
+# REQUIRE a review, never to skip it; a garbled value must never silently open
+# the gate). Like mode/work-lang, settings.json is intentionally NOT a layer.
+resolve_review_gate() {
+  local raw=""
+  if [ -n "${GHJIG_REVIEW_GATE:-}" ]; then
+    raw="$GHJIG_REVIEW_GATE"
+  elif [ -f .claude/state/review-gate ]; then
+    raw=$(head -c 64 .claude/state/review-gate 2>/dev/null | tr -d '[:space:]')
+  fi
+  case "$raw" in
+    required|bypass) printf '%s\n' "$raw";;
+    *)               printf '%s\n' "required";;
+  esac
+}
+
 # ship_classify_blocker — JSON on stdin → `clean` | `soft` | `hard` on stdout.
 # Input shape: subset of `gh pr view --json mergeable,mergeStateStatus,statusCheckRollup,reviewDecision,reviewRequests`.
 ship_classify_blocker() {
