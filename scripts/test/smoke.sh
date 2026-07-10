@@ -15340,6 +15340,132 @@ else
   ng "141e: SPEC.md file missing (#579)"
 fi
 
+# ---------- §143: /file-review producer command content-lock (#585) ----------
+# SPEC §5.29 + .claude/commands/file-review.md. `/file-review <pr>` is the verdict-
+# materializer — runs code-reviewer on a PR and posts its verdict as a first-class,
+# commit_id-pinned GitHub review. It is producer-only (adds/changes/removes NO merge
+# gate — that is #586); this content-lock pins the #586 INTEGRATION CONTRACT so it
+# cannot drift: the exact machine-readable marker token, the commit_id-pinned REST
+# submission (NOT `gh pr review`, which cannot pin a commit — the §4.5 head-pin
+# failure), the temp-file body transport with @mention neutralization, ownership
+# resolution, <pr> validation, the file-review audit category, and the unconfirmed-
+# head → post-nothing fail-closed arm.
+#
+# Doc landed (Phase A): (i)/(j) are SPEC-confirming and GREEN now. The command file
+# DOES NOT EXIST YET (Phase C authors it): (a)-(h) are the load-bearing intended-RED
+# — they fail until .claude/commands/file-review.md lands. Each command-file arm
+# guards on `[ -f "$S143_CMD" ]` first, so an absent file fails CLEANLY as ng (an
+# absence sub-check can never vacuously pass on a missing file).
+S143_CMD="$SHELL_ROOT/.claude/commands/file-review.md"
+S143_SPEC="$SHELL_ROOT/SPEC.md"
+
+# §143a (INTEGRATION CONTRACT, #586 — LOAD-BEARING RED): the machine-readable marker
+# carries the byte-identical token substrings from SPEC §5.29 —
+# `<!-- file-review verdict=`, `head=`, and the engine field `reviewer=code-reviewer`.
+# #586 binds these to the GitHub-attested review object, so the spelling is a hard
+# contract, not free text.
+if [ -f "$S143_CMD" ] \
+   && grep -qF '<!-- file-review verdict=' "$S143_CMD" 2>/dev/null \
+   && grep -qF 'head=' "$S143_CMD" 2>/dev/null \
+   && grep -qF 'reviewer=code-reviewer' "$S143_CMD" 2>/dev/null; then
+  ok "143a: file-review.md carries the exact marker token (verdict= + head= + reviewer=code-reviewer) (#585)"
+else
+  ng "143a: file-review.md missing or lacks the exact #586 marker token substrings (#585)"
+fi
+
+# §143b (COMMIT_ID PIN — LOAD-BEARING RED): the review is submitted commit_id-pinned
+# via REST (`commit_id=` bound + the `pulls/…/reviews` endpoint) AND the plain
+# `gh pr review --approve` CLI — which CANNOT pin a commit and would rebind an
+# approval to a racing head — is ABSENT as a submission mechanism.
+if [ -f "$S143_CMD" ] \
+   && grep -qF 'commit_id=' "$S143_CMD" 2>/dev/null \
+   && grep -qF 'pulls/' "$S143_CMD" 2>/dev/null \
+   && ! grep -qF 'gh pr review --approve' "$S143_CMD" 2>/dev/null; then
+  ok "143b: file-review.md pins commit_id via REST (pulls/…/reviews) and never uses gh pr review --approve (#585)"
+else
+  ng "143b: file-review.md missing commit_id/pulls REST pin, or uses the un-pinnable gh pr review --approve (#585)"
+fi
+
+# §143c (BODY TRANSPORT — LOAD-BEARING RED): the reviewer body goes through a written
+# temp file (`body=@<file>`) — the activate.md/reflect.md --body-file idiom — and the
+# untrusted reviewer text is NEVER interpolated via an inline `--body "` shell arg
+# (an injection vector).
+if [ -f "$S143_CMD" ] \
+   && grep -qF 'body=@' "$S143_CMD" 2>/dev/null \
+   && ! grep -qF '--body "' "$S143_CMD" 2>/dev/null; then
+  ok "143c: file-review.md transports the body via body=@<tempfile>, never inline --body \" (#585)"
+else
+  ng "143c: file-review.md missing body=@ temp-file transport, or inline-interpolates via --body \" (#585)"
+fi
+
+# §143d (INJECTION DEFENSE — LOAD-BEARING RED): whole-body `@mention` neutralization
+# is present — the same sanitize idiom SPEC §5.29 and activate.md name, so the posted
+# review cannot mass-ping.
+if [ -f "$S143_CMD" ] \
+   && grep -qF '@mention' "$S143_CMD" 2>/dev/null; then
+  ok "143d: file-review.md neutralizes @mention in the review body (#585)"
+else
+  ng "143d: file-review.md missing @mention neutralization (mass-ping injection defense) (#585)"
+fi
+
+# §143e (OWNERSHIP — LOAD-BEARING RED): ownership branching resolves the acting
+# identity (`gh api user`) and the PR author (`--json author`) to pick native-review
+# vs own-PR COMMENT (GitHub 422s a self approve/request-changes).
+if [ -f "$S143_CMD" ] \
+   && grep -qF 'gh api user' "$S143_CMD" 2>/dev/null \
+   && grep -qF '--json author' "$S143_CMD" 2>/dev/null; then
+  ok "143e: file-review.md resolves ownership via gh api user + --json author (#585)"
+else
+  ng "143e: file-review.md missing gh api user / --json author ownership resolution (#585)"
+fi
+
+# §143f (INPUT VALIDATION — LOAD-BEARING RED): `<pr>` is validated (the `^[0-9]+$`
+# numeric form) before use — untrusted argument handling.
+if [ -f "$S143_CMD" ] \
+   && grep -qF '^[0-9]+$' "$S143_CMD" 2>/dev/null; then
+  ok "143f: file-review.md validates <pr> against ^[0-9]+\$ before use (#585)"
+else
+  ng "143f: file-review.md missing the <pr> ^[0-9]+\$ validation token (#585)"
+fi
+
+# §143g (AUDIT — LOAD-BEARING RED): the command audits under the `file-review`
+# category (the SPEC §5.29 decision trail: posted / invalid / aborted).
+if [ -f "$S143_CMD" ] \
+   && grep -qF 'audit_log' "$S143_CMD" 2>/dev/null \
+   && grep -qF 'file-review' "$S143_CMD" 2>/dev/null; then
+  ok "143g: file-review.md audits under the file-review category (#585)"
+else
+  ng "143g: file-review.md missing audit_log under the file-review category (#585)"
+fi
+
+# §143h (FAIL-CLOSED-TO-SILENCE — LOAD-BEARING RED): the unconfirmed / unresolvable
+# head arm posts NOTHING and audits `invalid` — it never posts an unearned block on
+# a head it could not blind-compare to the private PR head (SPEC §5.29 map row).
+if [ -f "$S143_CMD" ] \
+   && grep -qiF 'post nothing' "$S143_CMD" 2>/dev/null \
+   && grep -qF 'invalid' "$S143_CMD" 2>/dev/null; then
+  ok "143h: file-review.md fails closed on an unconfirmed head — post nothing + audit invalid (#585)"
+else
+  ng "143h: file-review.md missing the unconfirmed-head → post-nothing/invalid fail-closed arm (#585)"
+fi
+
+# §143i (Doc-confirming, expected GREEN): SPEC §5.29 section header exists.
+if [ -f "$S143_SPEC" ] \
+   && grep -qF '### 5.29' "$S143_SPEC" 2>/dev/null; then
+  ok "143i: SPEC §5.29 /file-review section header present (#585)"
+else
+  ng "143i: SPEC §5.29 section header missing (#585)"
+fi
+
+# §143j (Doc-confirming, expected GREEN): the SAME exact marker token appears in SPEC
+# §5.29 — the source of the §143a byte-identical contract (drift lock, both copies).
+if [ -f "$S143_SPEC" ] \
+   && grep -qF '<!-- file-review verdict=' "$S143_SPEC" 2>/dev/null; then
+  ok "143j: SPEC §5.29 documents the exact file-review marker token (#585)"
+else
+  ng "143j: SPEC §5.29 missing the file-review marker token (#585)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
