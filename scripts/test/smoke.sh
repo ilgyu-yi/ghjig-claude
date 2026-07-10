@@ -56,21 +56,17 @@ SMOKE_AUDIT="$SMOKE_STATE/audit/audit.jsonl"
 SMOKE_REG="$SMOKE_STATE/registry.txt"
 mkdir -p "$SMOKE_STATE/audit"
 export GHJIG_STATE_DIR_OVERRIDE="$SMOKE_STATE"
-# #544 — the un-skippable `merge-attestation` gate blocks EVERY `gh pr merge`
-# whose PR lacks a $(ghjig_state_dir)/attest/pr-<N> file (zero-network presence
-# check) and would otherwise turn every pre-existing ac-closeout/merge-strategy/
-# pass-through merge fixture (which merges under the whole-run SMOKE_STATE) into a
-# fail-closed block. Seed a VALID attestation for the PR numbers those fixtures
-# merge, at the fixed head `smoke-attest-head` their gh shims report for
-# `headRefOid`, so merge-attestation resolves to a SILENT mark_allow and the
-# fixtures keep asserting their own gate's verdict. (The §137 suite overrides
-# GHJIG_STATE_DIR_OVERRIDE per-case, so these seeds never leak into it.)
-SMOKE_ATTEST_HEAD=smoke-attest-head
-mkdir -p "$SMOKE_STATE/attest"
-for _pr in 0 2 5 7 29 39 43 100 200 340 499 777; do
-  printf 'head=%s\n' "$SMOKE_ATTEST_HEAD" > "$SMOKE_STATE/attest/pr-$_pr"
-done
-unset _pr
+# #586 — merge-review REPLACES the retired merge-attestation file arm (#544).
+# The gate now reads a GitHub review OBJECT at the current head via `gh` (not a
+# $(ghjig_state_dir)/attest/pr-<N> file), so no state-dir seed makes the
+# pre-existing ac-closeout/merge-strategy/pass-through merge fixtures pass it.
+# Instead each of those fixtures' gh shims (§38/§39/§78) serves a canned
+# APPROVED-at-head review whose commit_id == the `smoke-attest-head` its
+# headRefOid arm reports, plus a nameWithOwner — so merge-review resolves to a
+# SILENT mark_allow (native APPROVED@head) and each fixture keeps asserting its
+# own gate's verdict with no bypass-audit noise polluting the audit-count
+# assertions. (The §137/§140 suites override GHJIG_STATE_DIR_OVERRIDE and carry
+# their own per-case gh state, so nothing here leaks into them.)
 # §361 — mark every fixture-fire audit record as test-origin (Directive #356
 # signal 1). Only the exact token `test` flips audit_log's `source` field; a
 # real Bash-tool action cannot inject this into the hook subprocess (SPEC §7),
@@ -3245,7 +3241,9 @@ mkdir -p "$GH38_SHIM" "$GH38_STATE"
 cat > "$GH38_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
-  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #586 merge-review head-pin match
+  *"api"*"/reviews"*)            printf '[{"state":"APPROVED","commit_id":"smoke-attest-head","submitted_at":"2020-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"lgtm"}]\n' ;;  # #586 native APPROVED@head → merge-review allows
+  *"repo view"*"nameWithOwner"*) echo o/r ;;  # #586 merge-review owner/repo
   *"pr view"*"closingIssuesReferences"*)
     # #500: branch on the PR number in the query so a URL-resolved PR (777) and
     # the current-branch fallback PR (5) return DIFFERENT linked issues — needed
@@ -3497,8 +3495,16 @@ fi
 # safe_source emits `audit_log warn <category> helper-missing` and the
 # hook fail-opens (rc=0) when the helper file is absent.
 #
+# #586 EXCEPTION: `ac_closeout_gate.sh` is shared by the `merge-review` arm,
+# which is the deliberate fail-CLOSED exception in the §6.1 fail-policy table
+# (SPEC §1732) — a helper miss there BLOCKS (rc=2), not fail-open. Its expected
+# rc is therefore 2. The `ac-closeout` arm still emits its own helper-missing
+# warn first (it fail-opens), so category=ac-closeout / decision=helper-missing
+# stays in the tail; only the terminal rc differs (merge-review blocks after).
+#
 # Each iteration: move the helper aside (trap-protected), invoke the
-# right hook with a benign input, assert (a) rc=0, (b) audit.jsonl
+# right hook with a benign input, assert (a) rc matches the row's expected
+# rc (0, or 2 for the fail-closed merge-review-sharing helper), (b) audit.jsonl
 # grew, (c) the new tail contains both the expected category and the
 # `helper-missing` token. Restore immediately so a later assertion
 # failure doesn't leave the live helper missing.
@@ -3609,9 +3615,14 @@ for entry in "${SS_TABLE[@]}"; do
   SS_CUR_PATH=""
   SS_CUR_BAK=""
 
-  # Core contract: rc=0 (fail-open) + audit grew + category + decision tokens.
+  # Expected terminal rc: fail-open (0) for every helper EXCEPT ac_closeout_gate.sh,
+  # which the fail-CLOSED merge-review arm also sources (#586, SPEC §1732) → rc=2.
+  ss_exp_rc=0
+  [ "$ss_helper" = ac_closeout_gate.sh ] && ss_exp_rc=2
+
+  # Core contract: rc matches expected + audit grew + category + decision tokens.
   ss_ok=0
-  if [ "$ss_rc" = 0 ] \
+  if [ "$ss_rc" = "$ss_exp_rc" ] \
      && [ "$ss_new" -ge 1 ] \
      && printf '%s' "$ss_tail" | grep -q "\"category\":\"$ss_cat\"" \
      && printf '%s' "$ss_tail" | grep -q '"decision":"helper-missing"'; then
@@ -3635,7 +3646,7 @@ for entry in "${SS_TABLE[@]}"; do
   if [ "$ss_ok" = 1 ]; then
     ok "safe_source: $ss_helper missing → warn ($ss_cat) emitted (#34)"
   else
-    ng "safe_source: $ss_helper missing — expected category=$ss_cat decision=helper-missing (security-suffix per §6.1); got rc=$ss_rc new=$ss_new tail=$ss_tail (#34)"
+    ng "safe_source: $ss_helper missing — expected rc=$ss_exp_rc category=$ss_cat decision=helper-missing (security-suffix per §6.1); got rc=$ss_rc new=$ss_new tail=$ss_tail (#34)"
   fi
 done
 
@@ -3913,7 +3924,9 @@ mkdir -p "$PT39_SHIM" "$PT39_STATE"
 cat > "$PT39_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
-  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #586 merge-review head-pin match
+  *"api"*"/reviews"*)                    printf '[{"state":"APPROVED","commit_id":"smoke-attest-head","submitted_at":"2020-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"lgtm"}]\n' ;;  # #586 native APPROVED@head → merge-review allows
+  *"repo view"*"nameWithOwner"*)         echo o/r ;;  # #586 merge-review owner/repo
   *"pr view"*"closingIssuesReferences"*) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
   *"pr view"*"--json number"*)           cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
   *"issue view"*"--json body"*)          cat "$GH_SHIM_STATE/issue_body" 2>/dev/null ;;
@@ -9492,7 +9505,9 @@ mkdir -p "$PT78_SHIM" "$PT78_STATE"
 cat > "$PT78_SHIM/gh" <<'SHIM'
 #!/bin/sh
 case "$*" in
-  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #544 merge-attestation staleness match
+  *"pr view"*headRefOid*) echo smoke-attest-head ;;  # #586 merge-review head-pin match
+  *"api"*"/reviews"*)               printf '[{"state":"APPROVED","commit_id":"smoke-attest-head","submitted_at":"2020-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"lgtm"}]\n' ;;  # #586 native APPROVED@head → merge-review allows
+  *"repo view"*"nameWithOwner"*)    echo o/r ;;  # #586 merge-review owner/repo
   *"repo view"*"defaultBranchRef"*) cat "$GH_SHIM_STATE/default_branch" 2>/dev/null ;;
   # Per-PR bases for the #290 finding-B test: PR 5 is on the default branch,
   # PR 7 is on a non-default base. (Specific cases before the generic one.)
@@ -14627,12 +14642,14 @@ exit 0
 SHIM
 chmod +x "$S137_SHIM/gh"
 
-# Baseline shim state for the push-parity cases: a VALID attestation (attest head
-# == gh headRefOid) so the merge-attestation arm ALLOWS, isolating push-parity as
-# the sole decider on those repos.
+# Baseline shim state for the push-parity cases: a canned native APPROVED review
+# pinned to the current head (commit_id == gh headRefOid) + a nameWithOwner, so
+# the merge-review arm ALLOWS (#586, ex-merge-attestation), isolating push-parity
+# as the sole decider on those repos.
 printf 'parity-head\n' > "$S137_STATE/head_ref_oid"
 : > "$S137_STATE/pr_issues"
-printf 'head=parity-head\n' > "$S137_ATTEST_OK/attest/pr-55"
+printf '[{"state":"APPROVED","commit_id":"parity-head","submitted_at":"2020-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"lgtm"}]\n' > "$S137_STATE/reviews.json"
+printf 'octo/repo\n' > "$S137_STATE/name_with_owner"
 
 # Build a throwaway git repo in the requested push-parity state; echo its
 # working-tree path. Mirrors the §32c throwaway git-init idiom. The remote-
@@ -14724,12 +14741,11 @@ s137_parity_case no-upstream allow
 s137_parity_case detached    allow
 
 # 137p-g: SKIP_HOOKS=push-parity escape — on a strictly-ahead repo the skip
-# allows + audit-logs the escape. A VALID attestation keeps merge-attestation
-# from blocking so the escape is observed in isolation. RED now: the arm is
-# absent ⇒ `should_skip push-parity` is never called ⇒ no escape record.
+# allows + audit-logs the escape. The baseline S137_STATE canned APPROVED@head
+# review keeps merge-review from blocking (#586) so the push-parity escape is
+# observed in isolation.
 S137_SKIP_PSTATE="$S137_DIR/skip-parity"
-mkdir -p "$S137_SKIP_PSTATE/audit" "$S137_SKIP_PSTATE/attest"
-printf 'head=parity-head\n' > "$S137_SKIP_PSTATE/attest/pr-55"
+mkdir -p "$S137_SKIP_PSTATE/audit"
 s137_skp_repo=$(s137_build_repo ahead)
 s137_skp_canon=$(cd "$s137_skp_repo" && pwd -P)
 printf '%s\n' "$s137_skp_canon" > "$S137_SKIP_PSTATE/registry.txt"  # in_scope under the override
@@ -15179,10 +15195,14 @@ fi
 # merge-completeness warn record (the absent arm never writes one) → RED. (b)/(c)/(d)
 # hold trivially now (no arm ⇒ no warn) and stay green when Phase C lands the arm.
 #
-# To REACH the (future) completeness arm, the merge-attestation arm above must ALLOW
-# first: each case seeds a VALID attestation ($statedir/attest/pr-77 head == the gh
-# shim's headRefOid) so merge-attestation is not the decider. The repo carries a
-# committed `.shellsecretignore` (copied from SHELL_ROOT) at HEAD so the arm's
+# To REACH the completeness arm, the merge-review arm above must ALLOW first. The
+# completeness arm must run even in the gh-DOWN §140d case, where merge-review
+# would FAIL CLOSED (#586) — so the repo carries `.claude/state/review-gate=bypass`
+# (cwd-relative, resolve_review_gate reads it), which skips merge-review with a
+# loud `merge-review bypass` audit and NO gh calls, regardless of gh being down.
+# That bypass record is category=merge-review, orthogonal to the merge-completeness
+# category the assertions below key on. The repo carries a committed
+# `.shellsecretignore` (copied from SHELL_ROOT) at HEAD so the arm's
 # secret_scan_path_allowed classifier loads the real test/doc/example globs; it has
 # NO upstream so push-parity always allows; ac-closeout allows (empty closingIssues).
 S140_DIR=$(mktemp -d)
@@ -15224,6 +15244,8 @@ s140_repo=$(
     cd "$work" || exit 1
     git config user.email t@t; git config user.name t; git config commit.gpgsign false
     git checkout -q -b smoke/feat/1-completeness 2>/dev/null || true
+    mkdir -p .claude/state
+    printf 'bypass\n' > .claude/state/review-gate   # #586: bypass merge-review (survives gh-down §140d)
     cp "$SHELL_ROOT/.shellsecretignore" .shellsecretignore
     git add .shellsecretignore
     git commit -q -m c1
@@ -15237,8 +15259,7 @@ S140_CANON=$(cd "$s140_repo" && pwd -P)
 # Sets S140_RC and S140_TAIL (the audit records this fire appended).
 s140_case() {
   local pr_json="$1" statedir="$2" before after
-  mkdir -p "$statedir/audit" "$statedir/attest"
-  printf 'head=%s\n' "$S140_HEAD" > "$statedir/attest/pr-77"   # merge-attestation ALLOWS
+  mkdir -p "$statedir/audit"
   printf '%s\n' "$S140_CANON" > "$statedir/registry.txt"       # in_scope under the override
   printf '%s' "$pr_json" > "$S140_STATE/pr_view_json"
   before=$(wc -l < "$statedir/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
