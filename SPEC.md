@@ -444,7 +444,7 @@ Coverage is **parity-guarded** (smoke §116): this section must classify every m
 | activation-reviewer (§4.9) | `keep-as-policy` | The dir-mode substance gate (Directive / Execution / Initiative) is pure shell policy. |
 | implementer (§4.12) | `keep-as-policy` | The default Code-phase author — the action-form of task-boundary narrowing / Code-phase policy; it leans on the already-ceded native subagent-context-discard primitive but is itself the manifest-only authoring + discard-at-Execution policy, exactly like the other keep-as-policy subagents. |
 
-**Slash commands (§5 — 27):**
+**Slash commands (§5 — 28):**
 
 | Command | Posture | Rationale |
 |---------|---------|-----------|
@@ -475,6 +475,7 @@ Coverage is **parity-guarded** (smoke §116): this section must classify every m
 | /replan-check (§5.26) | `keep-as-policy` | Plan-vs-diff divergence check; shell policy. |
 | /reconcile-spec (§5.27) | `keep-as-policy` | Code-vs-SPEC drift classification + user-gated SPEC correction; SSOT-maintenance policy with no harness analogue. |
 | /implement (§5.28) | `keep-as-policy` | The default Phase-C author — manifest-assembly + structured-return absorption around the implementer subagent; the Code-phase discard-at-Execution policy, no harness analogue. |
+| /file-review (§5.29) | `keep-as-policy` | The verdict-materializer — runs code-reviewer on a PR and posts a commit_id-pinned GitHub review; producer for the #586 merge-review gate. No harness analogue. |
 
 **Hook matchers (§6.1 — 17):**
 
