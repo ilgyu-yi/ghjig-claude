@@ -15392,7 +15392,7 @@ fi
 # (an injection vector).
 if [ -f "$S143_CMD" ] \
    && grep -qF 'body=@' "$S143_CMD" 2>/dev/null \
-   && ! grep -qF '--body "' "$S143_CMD" 2>/dev/null; then
+   && ! grep -qF -- '--body "' "$S143_CMD" 2>/dev/null; then
   ok "143c: file-review.md transports the body via body=@<tempfile>, never inline --body \" (#585)"
 else
   ng "143c: file-review.md missing body=@ temp-file transport, or inline-interpolates via --body \" (#585)"
@@ -15413,7 +15413,7 @@ fi
 # vs own-PR COMMENT (GitHub 422s a self approve/request-changes).
 if [ -f "$S143_CMD" ] \
    && grep -qF 'gh api user' "$S143_CMD" 2>/dev/null \
-   && grep -qF '--json author' "$S143_CMD" 2>/dev/null; then
+   && grep -qF -- '--json author' "$S143_CMD" 2>/dev/null; then
   ok "143e: file-review.md resolves ownership via gh api user + --json author (#585)"
 else
   ng "143e: file-review.md missing gh api user / --json author ownership resolution (#585)"
