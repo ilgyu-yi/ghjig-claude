@@ -14547,28 +14547,52 @@ else
   ng "136e: SPEC §4.11 still carries fail-open 'excluded from the majority' or lacks fixed-denominator wording (#544)"
 fi
 
-# ---------- §137: un-skippable pre-merge gate — push-parity + merge-attestation (#544) ----------
-# SPEC §6.1 (two new `gh pr merge` matcher rows) + §5.7. Two independent arms on
+# ---------- §137: un-skippable pre-merge gate — push-parity + merge-review (#544, #586) ----------
+# SPEC §6.1 (`gh pr merge` matcher rows) + §5.7/§5.7.1. Two independent arms on
 # the `gh pr merge` matcher, folded into helpers/ac_closeout_gate.sh:
 #
 #   push-parity (git-only, #244) — block when the local branch is STRICTLY AHEAD
 #     of its pushed remote-tracking head (unpushed commits the merge would leave
 #     behind): `git merge-base --is-ancestor <remote> <local>` true AND the two
 #     SHAs differ. POSITIVE detection — behind / diverged / no-upstream / detached
-#     → allow. Block message names "push your local commits first".
-#   merge-attestation (#246, #543) — block a merge whose review was skipped
-#     ((a) presence: PR# resolves from argv but no $(ghjig_state_dir)/attest/pr-<N>
-#     file — a ZERO-NETWORK filesystem fact, fail-CLOSED even when gh is DOWN) or
-#     done at a stale head ((b) staleness: attest head != `gh pr view --json
-#     headRefOid`). Fail-open lines: helper-miss → allow (helper-missing warn);
-#     PR-head-unresolvable in the STALENESS sub-check only (gh down) → allow +
-#     loud `merge-attestation fail-open-skip` warn. Block message names `/ship`.
+#     → allow. Block message names "push your local commits first". Already shipped
+#     (#544), so its cases (137p) stay GREEN.
+#   merge-review (#586, #585, #543 — REPLACES the retired merge-attestation file
+#     arm, #246/#544) — block a `gh pr merge` lacking a passing GitHub review
+#     PINNED TO THE CURRENT HEAD. Reads the review OBJECTS authoritatively via
+#     `gh api repos/{owner}/{repo}/pulls/<n>/reviews` (state / commit_id /
+#     author.login per review), the head via `gh pr view <n> --json headRefOid`,
+#     the PR author via `gh pr view <n> --json author`, the merger via `gh api
+#     user`, owner/repo via `gh repo view --json nameWithOwner`. AGGREGATION:
+#     filter reviews to state ∈ {APPROVED, CHANGES_REQUESTED}, then latest-per-
+#     author wins (COMMENTED/PENDING/DISMISSED ignored — mirrors reviewDecision).
+#     ALLOW in exactly two shapes: (a) native — an APPROVED review with
+#     commit_id==head and no author's filtered-latest is CHANGES_REQUESTED; (b)
+#     self-marker — a COMMENTED review@head carrying exactly ONE verdict=approve
+#     marker whose author.login == PR-author == merger, no outstanding
+#     CHANGES_REQUESTED. BLOCK on: no review / only stale (commit_id!=head) / an
+#     author's filtered-latest is CHANGES_REQUESTED / verdict=block / conflicting
+#     or multiple markers / empty head. BYPASS (resolve_review_gate → bypass) →
+#     allow + a LOUD `audit_log warn merge-review bypass`. FAIL-CLOSED (block) on
+#     ANY lookup failure (gh down/timeout, PR unresolvable, malformed JSON, helper
+#     miss) — the deliberate divergence from the retired arm's fail-open staleness
+#     leg. SPEC §6.1 merge-review row + §5.7.1 review-gate toggle.
 #
-# These arms DO NOT EXIST YET (Phase B / Doc→Test→Code). Every block-expecting
-# assertion below therefore observes rc=0 (the merge falls through to allow) and
-# reports RED — each asserts rc==2 (or, for the fail-open/escape/warn cases, the
-# presence of a category-typed audit record the absent arm never writes), so the
-# failure mode is "arm absent ⇒ allow / no record ⇒ RED", never a vacuous pass.
+# The merge-review arm DOES NOT EXIST YET (Phase B / Doc→Test→Code): review_gate_
+# accepts, resolve_review_gate, and the merge-review matcher are unwritten, and
+# the merge-attestation arm it REPLACES is still in place (its swap is Phase C).
+# So every `gh pr merge` in the merge-review cases below falls through to that
+# incumbent arm — which blocks on the absent attest file under
+# category=merge-attestation (block cases + fail-closed case), or would need an
+# attest file to allow (allow / bypass cases) — NEVER to a merge-review decision.
+# Each merge-review assertion therefore keys on the `merge-review` audit category
+# / rc the absent arm cannot produce (the block/fail-closed cases demand
+# category=merge-review, not merge-attestation; the allow/bypass cases demand
+# rc=0 the incumbent's presence-block cannot give), so every one reports RED now
+# — arm absent ⇒ wrong category or wrong rc ⇒ RED, never a vacuous pass.
+# CRITICAL: these cases do NOT seed an attest/pr-<N> file (that would let the
+# incumbent arm allow and mask the RED) and do NOT touch the global attest seed
+# (smoke.sh ~L59-71) — Phase C reworks that seed together with the matcher swap.
 
 S137_DIR=$(mktemp -d)
 S137_SHIM="$S137_DIR/bin"
@@ -14577,10 +14601,13 @@ S137_ATTEST_OK="$S137_DIR/attest-ok" # GHJIG_STATE_DIR_OVERRIDE carrying a VALID
 mkdir -p "$S137_SHIM" "$S137_STATE" "$S137_ATTEST_OK/audit" "$S137_ATTEST_OK/attest"
 
 # gh shim (mirrors §38): canned headRefOid + closingIssuesReferences (empty →
-# ac-closeout allows), plus a forced-DOWN toggle (touch $GH_SHIM_STATE/gh_down)
-# that makes every gh call error. The down toggle proves the merge-attestation
-# PRESENCE sub-check is zero-network fail-closed and the STALENESS sub-check
-# fails open.
+# ac-closeout allows), plus the merge-review canned reads (a full review-object
+# ARRAY for `gh api .../pulls/<n>/reviews`; pre-extracted scalar values for the
+# `-q`-queried head / PR author / merger / nameWithOwner reads — same idiom as
+# the headRefOid arm, the shim ignores `-q` and returns the extracted value the
+# caller's `-q` would have produced), plus a forced-DOWN toggle (touch
+# $GH_SHIM_STATE/gh_down) that makes every gh call error. The down toggle proves
+# the merge-review gate FAILS CLOSED on a lookup failure.
 cat > "$S137_SHIM/gh" <<'SHIM'
 #!/bin/sh
 if [ -f "$GH_SHIM_STATE/gh_down" ]; then
@@ -14588,7 +14615,11 @@ if [ -f "$GH_SHIM_STATE/gh_down" ]; then
   exit 1
 fi
 case "$*" in
+  *"api"*/reviews*)                    cat "$GH_SHIM_STATE/reviews.json" 2>/dev/null ;;
+  *"api user"*)                        cat "$GH_SHIM_STATE/api_user" 2>/dev/null ;;
   *"pr view"*headRefOid*)              cat "$GH_SHIM_STATE/head_ref_oid" 2>/dev/null ;;
+  *"pr view"*author*)                  cat "$GH_SHIM_STATE/pr_author" 2>/dev/null ;;
+  *"repo view"*nameWithOwner*)         cat "$GH_SHIM_STATE/name_with_owner" 2>/dev/null ;;
   *"pr view"*closingIssuesReferences*) cat "$GH_SHIM_STATE/pr_issues" 2>/dev/null ;;
   *"pr view"*"--json number"*)         cat "$GH_SHIM_STATE/pr_number" 2>/dev/null ;;
 esac
@@ -14724,170 +14755,207 @@ else
   ng "137p: push-parity escape should allow + audit skip (rc=$skp_rc; arm absent ⇒ no escape record ⇒ RED) tail=$skp_tail (#544)"
 fi
 
-# ── merge-attestation arm ─────────────────────────────────────────────────────
-# Run in $TMP/fake (no upstream ⇒ push-parity always allows there, so it never
-# masks the merge-attestation decision), with a per-case GHJIG_STATE_DIR_OVERRIDE
-# controlling the attestation dir + its own audit log.
-s137_ma_run() {
-  local cmd="$1" statedir="$2"
-  # The override relocates the scope registry too — register $TMP/fake in it or
+# ── merge-review arm (#586, #585 — replacing merge-attestation) ───────────────
+# Each merge-review case gets its OWN gh-shim state dir (canned reviews.json +
+# head / PR-author / merger / owner scalars) AND its own GHJIG_STATE_DIR_OVERRIDE
+# (per-case audit log + scope registry). The merge runs in $TMP/fake by default
+# (no upstream ⇒ push-parity always allows there, so it never masks the
+# merge-review decision) — except the bypass case, which runs in a dedicated cwd
+# carrying `.claude/state/review-gate=bypass` so resolve_review_gate reads it.
+# None of these state dirs carry an attest/pr-55 file, so the incumbent
+# merge-attestation arm presence-BLOCKS every one — the RED signal for the
+# absent merge-review arm.
+S137_RV_HEAD=rvhead-current   # the current PR head SHA the shim reports
+S137_RV_OLD=rvhead-super      # a superseded (stale) head SHA
+
+# s137_rv_shim <dir> — seed a shim state dir with sane merge-review defaults
+# (native reviewer/merger identities distinct from the PR author). Caller
+# overrides reviews.json (+ pr_author/api_user for the self-marker cases).
+s137_rv_shim() {
+  local d="$1"
+  mkdir -p "$d"
+  printf '%s\n' "$S137_RV_HEAD" > "$d/head_ref_oid"
+  printf 'pr-author-bot\n'      > "$d/pr_author"
+  printf 'merger-bot\n'         > "$d/api_user"
+  printf 'octo/repo\n'          > "$d/name_with_owner"
+  : > "$d/pr_issues"            # empty ⇒ ac-closeout allows
+}
+
+# s137_rv_case <name> <expect> <shimdir> <statedir> [<cwd>]
+#   Drives `gh pr merge 55 --merge` through the hook; asserts rc + (for
+#   block/bypass) the per-case audit tail carries the merge-review category. RED
+#   now: the merge-review arm is unwritten, so the merge falls through to the
+#   incumbent merge-attestation arm (block cases + fail-closed: rc=2 but
+#   category=merge-attestation ≠ merge-review; allow/bypass cases: the incumbent
+#   presence-blocks with rc=2 ≠ 0) — either way the merge-review key never matches.
+s137_rv_case() {
+  local name="$1" expect="$2" shimdir="$3" statedir="$4" cwd="${5:-$TMP/fake}"
+  local canon out rc before after rvtail
+  canon=$(cd "$cwd" && pwd -P)
+  # The override relocates the scope registry too — register the cwd in it or
   # in_scope fails and the hook exits early (RED/GREEN for the wrong reason).
-  printf '%s\n' "$FAKE_CANON" > "$statedir/registry.txt"
-  (
-    cd "$TMP/fake" || exit 1
+  printf '%s\n' "$canon" > "$statedir/registry.txt"
+  # Guard the `< file` redirect with [ -f ] — bash opens the redirect BEFORE
+  # applying 2>/dev/null, so an absent audit.jsonl would leak a spurious "No
+  # such file" line (smoke.sh L40-43). Absent sink snapshots as 0.
+  before=0; [ -f "$statedir/audit/audit.jsonl" ] && before=$(wc -l < "$statedir/audit/audit.jsonl" | tr -d ' ')
+  out=$(
+    cd "$cwd" || exit 1
     # shellcheck disable=SC2069  # intentional: capture stderr, discard stdout
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
-      "$(printf '%s' "$cmd" | jq -Rs .)" \
+      "$(printf '%s' 'gh pr merge 55 --merge' | jq -Rs .)" \
       | PATH="$S137_SHIM:$PATH" \
-        GH_SHIM_STATE="$S137_STATE" \
+        GH_SHIM_STATE="$shimdir" \
         GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         GHJIG_STATE_DIR_OVERRIDE="$statedir" \
         bash "$HOOK" 2>&1 >/dev/null
   )
+  rc=$?
+  after=0; [ -f "$statedir/audit/audit.jsonl" ] && after=$(wc -l < "$statedir/audit/audit.jsonl" | tr -d ' ')
+  rvtail=""
+  [ "$(( after - before ))" -gt 0 ] && rvtail=$(tail -"$(( after - before ))" "$statedir/audit/audit.jsonl" 2>/dev/null)
+  case "$expect" in
+    block)
+      if [ "$rc" = 2 ] && printf '%s' "$rvtail" | grep -q '"category":"merge-review","decision":"deny"'; then
+        ok "137r: merge-review BLOCKS — $name (#586)"
+      else
+        ng "137r: merge-review should BLOCK — $name (rc=$rc; arm absent ⇒ merge-attestation blocks under the wrong category ⇒ RED) tail=$rvtail out=$out (#586)"
+      fi ;;
+    allow)
+      if [ "$rc" = 0 ]; then
+        ok "137r: merge-review ALLOWS — $name (#586)"
+      else
+        ng "137r: merge-review should ALLOW — $name (rc=$rc; arm absent ⇒ incumbent presence-blocks ⇒ RED) tail=$rvtail out=$out (#586)"
+      fi ;;
+    bypass)
+      if [ "$rc" = 0 ] && printf '%s' "$rvtail" | grep -q '"category":"merge-review","decision":"bypass"'; then
+        ok "137r: merge-review BYPASS allows + loud audit — $name (#586)"
+      else
+        ng "137r: merge-review bypass should allow + emit a loud merge-review bypass audit (rc=$rc; arm absent ⇒ RED) tail=$rvtail out=$out (#586)"
+      fi ;;
+  esac
 }
 
-# 137m-a: PRESENCE — PR# resolves from argv, no attest file, gh forced DOWN →
-# BLOCK with no gh call (the load-bearing zero-network fail-closed property that
-# stops the never-ran-/ship fast-track even when gh is unavailable). Names /ship.
-S137_MA_PRES="$S137_DIR/ma-presence"
-mkdir -p "$S137_MA_PRES/audit" "$S137_MA_PRES/attest"   # deliberately NO attest/pr-55
-touch "$S137_STATE/gh_down"
-ma_a_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_PRES")
-ma_a_rc=$?
-rm -f "$S137_STATE/gh_down"
-if [ "$ma_a_rc" = 2 ] \
-   && printf '%s' "$ma_a_out" | grep -q 'merge-attestation' \
-   && printf '%s' "$ma_a_out" | grep -q '/ship'; then
-  ok "137m: merge-attestation presence blocks fail-closed (gh DOWN, no attest file) — names /ship (#544)"
-else
-  ng "137m: presence sub-check should BLOCK zero-network with gh down (rc=$ma_a_rc; arm absent ⇒ allow ⇒ RED) out=$ma_a_out (#544)"
-fi
+# 137r-a: BLOCK — no review at all (the review was skipped / never filed).
+S137_RV_NONE_SH="$S137_DIR/rv-none-shim"; s137_rv_shim "$S137_RV_NONE_SH"
+printf '[]\n' > "$S137_RV_NONE_SH/reviews.json"
+S137_RV_NONE_ST="$S137_DIR/rv-none-state"; mkdir -p "$S137_RV_NONE_ST/audit"
+s137_rv_case "no review filed" block "$S137_RV_NONE_SH" "$S137_RV_NONE_ST"
 
-# 137m-b: STALENESS — attest head != current gh headRefOid → BLOCK (review ran
-# at a stale head, #543).
-S137_MA_STALE="$S137_DIR/ma-stale"
-mkdir -p "$S137_MA_STALE/audit" "$S137_MA_STALE/attest"
-printf 'head=stale-sha-000\n' > "$S137_MA_STALE/attest/pr-55"
-printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
-ma_b_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_STALE")
-ma_b_rc=$?
-if [ "$ma_b_rc" = 2 ] && printf '%s' "$ma_b_out" | grep -q 'merge-attestation'; then
-  ok "137m: merge-attestation blocks a stale-head attestation (attest head != gh headRefOid) (#544)"
-else
-  ng "137m: stale-head merge should BLOCK (rc=$ma_b_rc; arm absent ⇒ allow ⇒ RED) out=$ma_b_out (#544)"
-fi
+# 137r-b: BLOCK — only a STALE review (APPROVED but commit_id != current head).
+S137_RV_STALE_SH="$S137_DIR/rv-stale-shim"; s137_rv_shim "$S137_RV_STALE_SH"
+printf '[{"state":"APPROVED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"lgtm"}]\n' \
+  "$S137_RV_OLD" > "$S137_RV_STALE_SH/reviews.json"
+S137_RV_STALE_ST="$S137_DIR/rv-stale-state"; mkdir -p "$S137_RV_STALE_ST/audit"
+s137_rv_case "only a stale APPROVED at a superseded head" block "$S137_RV_STALE_SH" "$S137_RV_STALE_ST"
 
-# 137m-c (control — steady GREEN): attest head == current gh headRefOid → ALLOW.
-S137_MA_OK="$S137_DIR/ma-ok"
-mkdir -p "$S137_MA_OK/audit" "$S137_MA_OK/attest"
-printf 'head=current-sha-999\n' > "$S137_MA_OK/attest/pr-55"
-printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
-ma_c_out=$(s137_ma_run "gh pr merge 55 --merge" "$S137_MA_OK")
-ma_c_rc=$?
-if [ "$ma_c_rc" = 0 ]; then
-  ok "137m: merge-attestation allows when attest head == gh headRefOid (control) (#544)"
-else
-  ng "137m: fresh matching attestation should ALLOW (rc=$ma_c_rc) out=$ma_c_out (#544)"
-fi
+# 137r-c: BLOCK — an outstanding CHANGES_REQUESTED at the current head.
+S137_RV_CR_SH="$S137_DIR/rv-cr-shim"; s137_rv_shim "$S137_RV_CR_SH"
+printf '[{"state":"CHANGES_REQUESTED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"needs work"}]\n' \
+  "$S137_RV_HEAD" > "$S137_RV_CR_SH/reviews.json"
+S137_RV_CR_ST="$S137_DIR/rv-cr-state"; mkdir -p "$S137_RV_CR_ST/audit"
+s137_rv_case "outstanding CHANGES_REQUESTED at head" block "$S137_RV_CR_SH" "$S137_RV_CR_ST"
 
-# 137m-d: STALENESS gh-unresolvable (file present, gh DOWN — staleness sub-check
-# ONLY) → fail-open ALLOW + a loud `merge-attestation fail-open-skip` warn. RED
-# now: the arm is absent ⇒ that warn is never emitted.
-S137_MA_UNR="$S137_DIR/ma-unresolvable"
-mkdir -p "$S137_MA_UNR/audit" "$S137_MA_UNR/attest"
-printf 'head=whatever-sha\n' > "$S137_MA_UNR/attest/pr-55"
-touch "$S137_STATE/gh_down"
-mau_before=$(wc -l < "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-s137_ma_run "gh pr merge 55 --merge" "$S137_MA_UNR" >/dev/null 2>&1
-mau_rc=$?
-rm -f "$S137_STATE/gh_down"
-mau_after=$(wc -l < "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-mau_tail=""
-[ "$(( mau_after - mau_before ))" -gt 0 ] && mau_tail=$(tail -"$(( mau_after - mau_before ))" "$S137_MA_UNR/audit/audit.jsonl" 2>/dev/null)
-if [ "$mau_rc" = 0 ] \
-   && printf '%s' "$mau_tail" | grep -q '"category":"merge-attestation"' \
-   && printf '%s' "$mau_tail" | grep -q 'fail-open-skip'; then
-  ok "137m: staleness gh-unresolvable → fail-open allow + loud merge-attestation fail-open-skip warn (#544)"
-else
-  ng "137m: staleness-unresolvable should emit fail-open-skip warn (rc=$mau_rc; arm absent ⇒ no warn ⇒ RED) tail=$mau_tail (#544)"
-fi
+# 137r-d: BLOCK — the B1 aggregation regression case. A native APPROVED@head
+# (bob) alongside alice's CHANGES_REQUESTED@head FOLLOWED BY her COMMENTED@head.
+# The correct aggregation FILTERS COMMENTED out before per-author-latest, so
+# alice's surviving latest stays CHANGES_REQUESTED and the veto BLOCKS. A naive
+# "latest row per author" would read alice's latest as COMMENTED, drop the veto,
+# and spuriously ALLOW on bob's APPROVED — the exact bug this case pins.
+S137_RV_REG_SH="$S137_DIR/rv-regression-shim"; s137_rv_shim "$S137_RV_REG_SH"
+printf '[{"state":"APPROVED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"bob"},"user":{"login":"bob"},"body":"ok"},{"state":"CHANGES_REQUESTED","commit_id":"%s","submitted_at":"2026-01-02T00:00:00Z","author":{"login":"alice"},"user":{"login":"alice"},"body":"changes please"},{"state":"COMMENTED","commit_id":"%s","submitted_at":"2026-01-03T00:00:00Z","author":{"login":"alice"},"user":{"login":"alice"},"body":"just a passing note"}]\n' \
+  "$S137_RV_HEAD" "$S137_RV_HEAD" "$S137_RV_HEAD" > "$S137_RV_REG_SH/reviews.json"
+S137_RV_REG_ST="$S137_DIR/rv-regression-state"; mkdir -p "$S137_RV_REG_ST/audit"
+s137_rv_case "CHANGES_REQUESTED@head then COMMENTED@head, same author — veto survives (B1)" block "$S137_RV_REG_SH" "$S137_RV_REG_ST"
 
-# 137m-e: helper-absent (§34 stripped-tree) — move ac_closeout_gate.sh (which
-# hosts the merge-attestation functions, §6.1 fail-policy table) aside; the arm
-# fails OPEN (allow) with a category=merge-attestation `helper-missing` warn.
-# Trap-protected restore. RED now: no merge-attestation helper-missing record
-# is emitted (the arm that safe_sources under that category does not exist).
-S137_HELPER="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
-S137_HELPER_BAK="$S137_DIR/ac_closeout_gate.sh.bak"
-s137_helper_restore() { [ -f "$S137_HELPER_BAK" ] && [ ! -f "$S137_HELPER" ] && mv "$S137_HELPER_BAK" "$S137_HELPER"; }
-trap 's137_helper_restore' EXIT INT TERM
-if [ -f "$S137_HELPER" ]; then
-  S137_MA_HM="$S137_DIR/ma-helpermissing"
-  mkdir -p "$S137_MA_HM/audit" "$S137_MA_HM/attest"
-  mv "$S137_HELPER" "$S137_HELPER_BAK"
-  hm_before=$(wc -l < "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-  s137_ma_run "gh pr merge 55 --merge" "$S137_MA_HM" >/dev/null 2>&1
-  hm_rc=$?
-  hm_after=$(wc -l < "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-  s137_helper_restore
-  trap - EXIT INT TERM
-  hm_tail=""
-  [ "$(( hm_after - hm_before ))" -gt 0 ] && hm_tail=$(tail -"$(( hm_after - hm_before ))" "$S137_MA_HM/audit/audit.jsonl" 2>/dev/null)
-  if [ "$hm_rc" = 0 ] \
-     && printf '%s' "$hm_tail" | grep -q '"category":"merge-attestation"' \
-     && printf '%s' "$hm_tail" | grep -q '"decision":"helper-missing"'; then
-    ok "137m: merge-attestation fails OPEN (helper-missing warn) when ac_closeout_gate.sh absent (#544)"
-  else
-    ng "137m: helper-absent should emit merge-attestation helper-missing (rc=$hm_rc; arm absent ⇒ no such warn ⇒ RED) tail=$hm_tail (#544)"
-  fi
-else
-  ng "137m: ac_closeout_gate.sh not present in repo (#544)"
-fi
+# 137r-e: ALLOW (native) — an APPROVED review at the current head, no outstanding
+# CHANGES_REQUESTED.
+S137_RV_APP_SH="$S137_DIR/rv-approved-shim"; s137_rv_shim "$S137_RV_APP_SH"
+printf '[{"state":"APPROVED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"approved"}]\n' \
+  "$S137_RV_HEAD" > "$S137_RV_APP_SH/reviews.json"
+S137_RV_APP_ST="$S137_DIR/rv-approved-state"; mkdir -p "$S137_RV_APP_ST/audit"
+s137_rv_case "native APPROVED at head, no outstanding CHANGES_REQUESTED" allow "$S137_RV_APP_SH" "$S137_RV_APP_ST"
 
-# 137m-f: SKIP_HOOKS=merge-attestation escape — with no attest file + gh DOWN
-# (would presence-block), the skip allows + audit-logs the escape. RED now: the
-# arm is absent ⇒ `should_skip merge-attestation` is never called ⇒ no record.
-S137_MA_SKIP="$S137_DIR/ma-skip"
-mkdir -p "$S137_MA_SKIP/audit" "$S137_MA_SKIP/attest"   # no attest/pr-55
-touch "$S137_STATE/gh_down"
-msk_before=$(wc -l < "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-s137_ma_run "SKIP_HOOKS=merge-attestation SKIP_REASON='sanctioned' gh pr merge 55 --merge" "$S137_MA_SKIP" >/dev/null 2>&1
-msk_rc=$?
-rm -f "$S137_STATE/gh_down"
-msk_after=$(wc -l < "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null | tr -d ' ' || echo 0)
-msk_tail=""
-[ "$(( msk_after - msk_before ))" -gt 0 ] && msk_tail=$(tail -"$(( msk_after - msk_before ))" "$S137_MA_SKIP/audit/audit.jsonl" 2>/dev/null)
-if [ "$msk_rc" = 0 ] \
-   && printf '%s' "$msk_tail" | grep -q '"category":"merge-attestation"' \
-   && printf '%s' "$msk_tail" | grep -q '"decision":"skip"'; then
-  ok "137m: SKIP_HOOKS=merge-attestation allows + audits the escape (#544)"
-else
-  ng "137m: merge-attestation escape should allow + audit skip (rc=$msk_rc; arm absent ⇒ no escape record ⇒ RED) tail=$msk_tail (#544)"
-fi
+# 137r-f: ALLOW (self-marker) — a COMMENTED review at head carrying EXACTLY ONE
+# verdict=approve marker whose review author == PR author == merger (a
+# self-shipped PR). Identity/head come from the review OBJECT; only `verdict`
+# from the marker text.
+S137_RV_SELF_SH="$S137_DIR/rv-selfmarker-shim"; s137_rv_shim "$S137_RV_SELF_SH"
+printf 'me\n' > "$S137_RV_SELF_SH/pr_author"
+printf 'me\n' > "$S137_RV_SELF_SH/api_user"
+printf '[{"state":"COMMENTED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"me"},"user":{"login":"me"},"body":"<!-- file-review verdict=approve head=%s reviewer=code-reviewer -->"}]\n' \
+  "$S137_RV_HEAD" "$S137_RV_HEAD" > "$S137_RV_SELF_SH/reviews.json"
+S137_RV_SELF_ST="$S137_DIR/rv-selfmarker-state"; mkdir -p "$S137_RV_SELF_ST/audit"
+s137_rv_case "self verdict=approve marker@head, author==PR-author==merger" allow "$S137_RV_SELF_SH" "$S137_RV_SELF_ST"
 
-# §137-inv (structural, mirrors §39b): each new arm must exist in pre_tool_use.sh
-# as an INDEPENDENT matcher reaching its own decided state — i.e. carry both a
+# 137r-g: BLOCK — conflicting/multiple markers in one review (a verdict=approve
+# AND a verdict=block marker) → ambiguous, fail-closed.
+S137_RV_CONF_SH="$S137_DIR/rv-conflict-shim"; s137_rv_shim "$S137_RV_CONF_SH"
+printf 'me\n' > "$S137_RV_CONF_SH/pr_author"
+printf 'me\n' > "$S137_RV_CONF_SH/api_user"
+printf '[{"state":"COMMENTED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"me"},"user":{"login":"me"},"body":"<!-- file-review verdict=approve head=%s reviewer=code-reviewer --> and also <!-- file-review verdict=block head=%s reviewer=code-reviewer -->"}]\n' \
+  "$S137_RV_HEAD" "$S137_RV_HEAD" "$S137_RV_HEAD" > "$S137_RV_CONF_SH/reviews.json"
+S137_RV_CONF_ST="$S137_DIR/rv-conflict-state"; mkdir -p "$S137_RV_CONF_ST/audit"
+s137_rv_case "conflicting/multiple markers in one review" block "$S137_RV_CONF_SH" "$S137_RV_CONF_ST"
+
+# 137r-h: BYPASS — resolve_review_gate reads `.claude/state/review-gate=bypass`
+# (cwd-relative, read exactly as resolve_mode reads .claude/state/mode, §5.7.1):
+# the gate is SKIPPED (merge allowed with no head-pinned review) but every bypass
+# merge is LOUDLY audit-logged (`audit_log warn merge-review bypass`). Runs in a
+# dedicated cwd carrying that toggle; reviews.json is empty to prove the bypass
+# does not consult the gate at all.
+S137_RV_BYP_CWD="$S137_DIR/rv-bypass-cwd"
+mkdir -p "$S137_RV_BYP_CWD/.claude/state"
+( cd "$S137_RV_BYP_CWD" && git init -q && git config user.email t@t && git config user.name t \
+    && git config commit.gpgsign false && git checkout -q -b smoke/feat/1-bypass \
+    && git commit --allow-empty -q -m init ) 2>/dev/null || true
+printf 'bypass\n' > "$S137_RV_BYP_CWD/.claude/state/review-gate"
+S137_RV_BYP_SH="$S137_DIR/rv-bypass-shim"; s137_rv_shim "$S137_RV_BYP_SH"
+printf '[]\n' > "$S137_RV_BYP_SH/reviews.json"
+S137_RV_BYP_ST="$S137_DIR/rv-bypass-state"; mkdir -p "$S137_RV_BYP_ST/audit"
+s137_rv_case "review-gate=bypass → allow + loud bypass audit" bypass "$S137_RV_BYP_SH" "$S137_RV_BYP_ST" "$S137_RV_BYP_CWD"
+
+# 137r-i: FAIL-CLOSED — gh forced DOWN (every lookup errors) → BLOCK. The
+# deliberate divergence from the retired attestation staleness leg (which
+# fail-OPEN-allowed on gh down): the safe direction for a merge integrity gate is
+# to REQUIRE a review, never to skip it (§5.7.1).
+S137_RV_DOWN_SH="$S137_DIR/rv-down-shim"; s137_rv_shim "$S137_RV_DOWN_SH"
+printf '[]\n' > "$S137_RV_DOWN_SH/reviews.json"
+touch "$S137_RV_DOWN_SH/gh_down"
+S137_RV_DOWN_ST="$S137_DIR/rv-down-state"; mkdir -p "$S137_RV_DOWN_ST/audit"
+s137_rv_case "gh down / lookup failure → fail-closed block" block "$S137_RV_DOWN_SH" "$S137_RV_DOWN_ST"
+
+# §137-inv (structural, mirrors §39b): each arm must exist in pre_tool_use.sh as
+# an INDEPENDENT matcher reaching its own decided state — i.e. carry both a
 # `should_skip <cat>` entry and a `pass_through_trace <cat>` terminal tail (the
 # SPEC §6.1 mark_allow/block/pass_through_trace decided-state contract, parity
-# with the ac-closeout + merge-strategy arms). RED now: neither symbol is present
-# for either category because the arms have not been written.
-for inv_cat in push-parity merge-attestation; do
+# with the ac-closeout + merge-strategy arms). push-parity is already shipped
+# (GREEN); merge-review is RED now — neither symbol is present for it because the
+# arm has not been written (the incumbent still carries merge-attestation).
+for inv_cat in push-parity merge-review; do
   if grep -q "should_skip $inv_cat" "$HOOK" \
      && grep -q "pass_through_trace $inv_cat" "$HOOK"; then
-    ok "137-inv: '$inv_cat' arm present with should_skip + pass_through_trace decided tail (#544)"
+    ok "137-inv: '$inv_cat' arm present with should_skip + pass_through_trace decided tail (#544, #586)"
   else
-    ng "137-inv: '$inv_cat' arm missing should_skip/pass_through_trace symbol (arm absent ⇒ RED) (#544)"
+    ng "137-inv: '$inv_cat' arm missing should_skip/pass_through_trace symbol (arm absent ⇒ RED) (#544, #586)"
   fi
 done
 
-# §137-inv (runtime compose, mirrors §39d): a benign in-sync merge with a valid
-# attestation ALLOWS and the two new arms decide SILENTLY — no pass-through warn
+# §137-inv (runtime compose, mirrors §39d): a benign in-sync merge with a passing
+# head-pinned review ALLOWS and both arms decide SILENTLY — no pass-through warn
 # for either category (each mark_allow's, no fall-through), composing with
 # ac-closeout + merge-strategy on the same `gh pr merge` with no double-decide.
+# Seeded to allow under BOTH the incumbent (attest file present + head match) and
+# the future merge-review arm (a native APPROVED@head review), so it stays GREEN
+# across the Phase-C swap without touching the global attest seed.
 S137_INV_STATE="$S137_DIR/inv"
 mkdir -p "$S137_INV_STATE/audit" "$S137_INV_STATE/attest"
 printf 'head=current-sha-999\n' > "$S137_INV_STATE/attest/pr-55"
 printf 'current-sha-999\n' > "$S137_STATE/head_ref_oid"
+printf '[{"state":"APPROVED","commit_id":"current-sha-999","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"reviewer"},"user":{"login":"reviewer"},"body":"approved"}]\n' > "$S137_STATE/reviews.json"
+printf 'pr-author-bot\n' > "$S137_STATE/pr_author"
+printf 'merger-bot\n'    > "$S137_STATE/api_user"
+printf 'octo/repo\n'     > "$S137_STATE/name_with_owner"
 s137_inv_repo=$(s137_build_repo in-sync)
 s137_inv_canon=$(cd "$s137_inv_repo" && pwd -P)
 printf '%s\n' "$s137_inv_canon" > "$S137_INV_STATE/registry.txt"  # in_scope under the override
@@ -14907,10 +14975,10 @@ inv_tail=""
 rm -rf "$(dirname "$s137_inv_repo")"
 if [ "$inv_rc" = 0 ] \
    && ! printf '%s' "$inv_tail" | grep -q '"category":"push-parity","decision":"pass-through"' \
-   && ! printf '%s' "$inv_tail" | grep -q '"category":"merge-attestation","decision":"pass-through"'; then
-  ok "137-inv: benign in-sync attested merge allows; new arms decide silently (no fall-through) (#544)"
+   && ! printf '%s' "$inv_tail" | grep -q '"category":"merge-review","decision":"pass-through"'; then
+  ok "137-inv: benign in-sync reviewed merge allows; arms decide silently (no fall-through) (#544, #586)"
 else
-  ng "137-inv: benign merge must allow with no pass-through for the new arms (rc=$inv_rc) tail=$inv_tail (#544)"
+  ng "137-inv: benign merge must allow with no pass-through for the merge arms (rc=$inv_rc) tail=$inv_tail (#544, #586)"
 fi
 
 rm -rf "$S137_DIR"
