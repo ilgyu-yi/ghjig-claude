@@ -15564,11 +15564,12 @@ fi
 # review-gate=required; under bypass /ship must WITHHOLD the covered form so the
 # classifier re-engages (Directive #584 Constraint 1: no naked self-merge hole).
 #
-# Phase status: the SPEC clause landed in Phase A (144k/144l GREEN now). Phase C has
-# NOT added the permissions.allow key to settings.json (144a/144b/144f intended-RED)
-# nor the step-10 review-gate coupling to ship.md (144h/144i/144j intended-RED). The
-# narrowness/dogfood guards (144c/144d/144e/144g) are GREEN now by absence and must
-# STAY green after Phase C — they lock the "opens nothing else" contract.
+# Phase status: the SPEC clause landed in Phase A (144k/144l GREEN now). Phase C of
+# #591 propagates the exact matcher into settings.injected.json (144e intended-RED now
+# — the entry is absent until Phase C adds it). The #587 settings.json + ship.md
+# entries already landed (144a/144b/144f, 144h/144i/144j GREEN now). The
+# narrowness/drift guards (144c/144d/144g) stay green — they lock the "opens nothing
+# else" contract.
 S144_SET="$SHELL_ROOT/.claude/settings.json"
 S144_INJ="$SHELL_ROOT/.claude/settings.injected.json"
 S144_SHIP="$SHELL_ROOT/.claude/commands/ship.md"
@@ -15627,13 +15628,22 @@ else
   ng "144d: a permissions.deny entry matches gh-pr-merge (or settings.json is not valid JSON) (deny-matches=$s144_deny) (#587)"
 fi
 
-# §144e (dogfood-only invariant, GREEN now / MUST STAY green): the permissions.allow
-# hole is NOT injected to targets — settings.injected.json carries no gh-pr-merge entry
-# (cross-target propagation is a deferred fast-follow, SPEC §5.7.1 dogfood scope).
-if [ -f "$S144_INJ" ] && ! grep -qF 'gh pr merge' "$S144_INJ" 2>/dev/null; then
-  ok "144e: settings.injected.json carries no gh-pr-merge permissions entry — dogfood-only, not injected (#587)"
+# §144e (LOAD-BEARING RED — cross-target propagation, presence + narrowness fused):
+# #591 inverts the former dogfood-only invariant — the permissions.allow exception IS
+# now propagated to injected targets. settings.injected.json must carry the SAME exact
+# narrow matcher and, with the SAME both-directions discipline as §144b, NO broad shape:
+# any broad form (Bash(gh pr merge:*), Bash(gh pr merge *), bare Bash(gh pr merge)) hits
+# the `Bash(gh pr merge` prefix but not the exact literal, so any!=exact fails.
+if [ -f "$S144_INJ" ]; then
+  s144e_any=$(grep -cF 'Bash(gh pr merge' "$S144_INJ" 2>/dev/null || true)
+  s144e_exact=$(grep -cF "Bash($S144_CANON)" "$S144_INJ" 2>/dev/null || true)
 else
-  ng "144e: settings.injected.json must not contain a gh-pr-merge permissions entry (dogfood-only) (#587)"
+  s144e_any=-1; s144e_exact=-1
+fi
+if [ "$s144e_exact" -ge 1 ] && [ "$s144e_any" = "$s144e_exact" ]; then
+  ok "144e: settings.injected.json carries the exact narrow matcher Bash($S144_CANON) and NO broad gh-pr-merge allow — propagated to targets (any=$s144e_any exact=$s144e_exact) (#591)"
+else
+  ng "144e: settings.injected.json must carry exactly the narrow matcher Bash($S144_CANON) and NO broad gh-pr-merge allow — cross-target propagation (any=$s144e_any exact=$s144e_exact) (#591)"
 fi
 
 # §144f (CRITICAL — LOAD-BEARING RED): byte-for-byte coupling. The settings.json matcher
