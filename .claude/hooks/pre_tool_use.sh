@@ -477,69 +477,75 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace push-parity "$cmd"
     fi
 
-    # merge-attestation (#246, #543) — block a `gh pr merge` whose review was
-    # SKIPPED or done at a STALE head. Two sub-checks, ORDERED:
-    #   (a) PRESENCE (zero-network, fail-CLOSED): PR# resolves but no
-    #       $(ghjig_state_dir)/attest/pr-<N> file exists → the review never ran
-    #       (/ship writes the file post-pass). This is a filesystem fact, so it
-    #       BLOCKS even when gh is DOWN — presence is NEVER gated on a gh call.
-    #   (b) STALENESS: the file exists but the attested head != the current PR
-    #       head (`gh pr view --json headRefOid`) → the review ran at a stale
-    #       artifact (#543). gh-unresolvable in THIS sub-check only (file present,
-    #       gh down) → fail-open allow + a loud `fail-open-skip` warn.
-    # helper-miss → fail-open allow (helper-missing warn, matcher-scoped). Empty
-    # state-dir → attestation-absent, terminal. Independent matcher. SPEC §6.1
-    # 'merge-attestation' row, §5.7.
+    # merge-review (#586, #585, #543 — REPLACES the retired merge-attestation
+    # file arm, #246/#544) — block a `gh pr merge` lacking a passing GitHub
+    # review PINNED TO THE CURRENT HEAD. Governed by the review-gate toggle
+    # (§5.7.1): `bypass` → allow + a LOUD `audit_log warn merge-review bypass`;
+    # `required` (default) → review_gate_accepts decides (native APPROVED@head,
+    # or a self verdict=approve marker@head where author==PR-author==merger).
+    # FAIL-CLOSED (block) on any lookup failure — unresolvable PR/head, gh
+    # error/timeout/down, malformed JSON, safe_source helper miss — the
+    # deliberate divergence from the retired arm's fail-open staleness leg (the
+    # safe direction for a merge integrity gate is to REQUIRE a review, §5.7.1).
+    # Independent matcher (own `should_skip` category); same entry anchor +
+    # is_pr_merge_command refine + extract_pr_from_merge_cmd PR resolution as the
+    # sibling gh-pr-merge arms. SPEC §6.1 'merge-review' row, §5.7.1 toggle.
     if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge([[:space:]]|$)'; then
       decided=
-      if should_skip merge-attestation; then
+      if should_skip merge-review; then
         decided=1
-      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-attestation; then
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" merge-review; then
         if command -v is_pr_merge_command >/dev/null 2>&1 && ! is_pr_merge_command "$raw_cmd"; then
-          mark_allow merge-attestation
+          mark_allow merge-review
           decided=1
         else
-          ma_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
-          if [ -z "$ma_pr" ] && command -v gh >/dev/null 2>&1; then
-            ma_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+          # Resolve the review-gate toggle (resolve_review_gate lives in
+          # ship_mode.sh; safe_source it. A helper miss fails CLOSED for THIS
+          # arm — keep the default `required`, never open the gate silently).
+          mr_gate=required
+          if safe_source "$SHELL_ROOT/.claude/hooks/helpers/ship_mode.sh" merge-review \
+             && command -v resolve_review_gate >/dev/null 2>&1; then
+            mr_gate=$(resolve_review_gate)
           fi
-          ma_esd=$(ghjig_state_dir 2>/dev/null || true)
-          if [ -z "$ma_pr" ]; then
-            # PR unresolvable → cannot key an attestation; fail-open allow (loud).
-            audit_log warn merge-attestation fail-open-skip "PR number unresolvable from cmd or current branch; merge allowed (fail-open, §6.1)"
+          if [ "$mr_gate" = bypass ]; then
+            # Bypass: skip the gate, but LOUDLY audit every bypass merge (§5.7.1)
+            # so a standing bypass never goes unobserved. No gh calls.
+            audit_log warn merge-review bypass "review-gate=bypass — merge admitted with no head-pinned review (§5.7.1)"
+            mark_allow merge-review
             decided=1
-          elif [ -z "$ma_esd" ] || [ ! -f "$ma_esd/attest/pr-$ma_pr" ]; then
-            # (a) PRESENCE — zero-network, fail-CLOSED even with gh down. No
-            # per-project state dir counts as attestation-absent (terminal).
-            block merge-attestation "review not attested for PR #${ma_pr} — run /ship (it writes the attestation after the blind-compare passes). Or SKIP_HOOKS=merge-attestation SKIP_REASON='<why>' for a sanctioned exception."
           else
-            # (b) STALENESS — attested head must equal the current PR head.
-            ma_head=
-            if command -v _ac_run_gh >/dev/null 2>&1; then
-              ma_head=$(_ac_run_gh pr view "$ma_pr" --json headRefOid -q .headRefOid 2>/dev/null || true)
+            mr_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+            if [ -z "$mr_pr" ] && command -v gh >/dev/null 2>&1; then
+              mr_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
             fi
-            if [ -z "$ma_head" ]; then
-              # gh unresolvable in the STALENESS sub-check only → fail-open allow (loud).
-              audit_log warn merge-attestation fail-open-skip "PR #${ma_pr} head unresolvable (gh down/timeout); attestation present but staleness unverifiable; merge allowed (fail-open, §6.1)"
-              decided=1
-            elif command -v attestation_matches >/dev/null 2>&1 && attestation_matches "$ma_pr" "$ma_head"; then
-              mark_allow merge-attestation
+            mr_head=
+            if [ -n "$mr_pr" ] && command -v _ac_run_gh >/dev/null 2>&1; then
+              mr_head=$(_ac_run_gh pr view "$mr_pr" --json headRefOid -q .headRefOid 2>/dev/null || true)
+            fi
+            if [ -z "$mr_pr" ] || [ -z "$mr_head" ]; then
+              # PR / head unresolvable (gh error/timeout/down, or no PR) → the
+              # gate fails CLOSED (block), never fail-open (§5.7.1).
+              block merge-review "merge-review: could not resolve the PR number and current head for this merge (gh error/timeout, or no PR resolvable) — the gate fails closed. Confirm the PR exists and gh is reachable, then re-run. Or SKIP_HOOKS=merge-review SKIP_REASON='<why>' for a sanctioned exception."
+            elif command -v review_gate_accepts >/dev/null 2>&1 && review_gate_accepts "$mr_pr" "$mr_head"; then
+              mark_allow merge-review
               decided=1
             else
-              block merge-attestation "review for PR #${ma_pr} was attested at a STALE head (the PR head has since advanced) — re-run /ship to re-review at the current head. Or SKIP_HOOKS=merge-attestation SKIP_REASON='<why>' for a sanctioned exception."
+              block merge-review "no passing GitHub review pinned to PR #${mr_pr}'s current head — a skipped review, a stale-head review, an outstanding CHANGES_REQUESTED, or a marker verdict=block blocks this merge (SPEC §6.1). Post a head-pinned review via /file-review, then re-run. Or set .claude/state/review-gate=bypass (loudly audited, §5.7.1), or SKIP_HOOKS=merge-review SKIP_REASON='<why>'."
             fi
           fi
         fi
       else
-        # safe_source emitted the merge-attestation helper-missing warn already.
-        decided=1
+        # safe_source could not load the gate helper — the merge-review arm is
+        # the deliberate exception to the sibling arms' fail-OPEN posture: it
+        # fails CLOSED (block) on a helper miss too (SPEC §5.7.1, §1732).
+        block merge-review "merge-review: gate helper (ac_closeout_gate.sh) unavailable — the gate fails closed (SPEC §5.7.1). Or SKIP_HOOKS=merge-review SKIP_REASON='<why>' for a sanctioned exception."
       fi
-      [ -z "$decided" ] && pass_through_trace merge-attestation "$cmd"
+      [ -z "$decided" ] && pass_through_trace merge-review "$cmd"
     fi
 
     # merge-completeness (#548) — INDEPENDENT advisory arm, WARN-ONLY, sequenced
-    # immediately after merge-attestation on the SAME `gh pr merge` entry grep. The
-    # positive-completeness face of the #544 attestation block: on a `feat`/`fix` PR
+    # immediately after merge-review on the SAME `gh pr merge` entry grep. The
+    # positive-completeness face of the #544 merge gate: on a `feat`/`fix` PR
     # whose merge diff touches ZERO source files (non-empty file list, every path
     # test/doc per the reused `.shellsecretignore` classifier) it emits an
     # `audit_log warn merge-completeness` record + a one-line stderr notice and

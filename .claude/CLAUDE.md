@@ -77,7 +77,7 @@ Pointer index — full contracts in SPEC §6.1 (PreToolUse matcher table + `safe
 - **secret** — secret patterns in the staged diff blocked, with a `.shellsecretignore` path allow-list (SPEC §6.1).
 - **ac-closeout** — `gh pr merge` blocked when a linked issue has unchecked AC items and no `## AC closeout` marker comment yet (SPEC §6.1).
 - **merge-strategy** — `gh pr merge` to the default branch blocked unless the strategy is `--merge` (SPEC §6.1, §5.7.1).
-- **push-parity / merge-attestation** — un-skippable `gh pr merge` gate: blocks merging with unpushed commits (#244), a skipped review (no `attest/pr-<N>`, zero-network fail-closed) or a stale-head review (#246/#543). `/ship` writes the attestation post-pass; `SKIP_HOOKS`-escapable (SPEC §6.1, §5.7).
+- **push-parity / merge-review** — `gh pr merge` gate: blocks unpushed commits (#244); `merge-review` (#586, ex-`merge-attestation`) blocks merging without a **passing GitHub review at the current head**, per `.claude/state/review-gate` (`required`/`bypass`); `SKIP_HOOKS`-escapable (SPEC §6.1, §5.7.1).
 - **sensitive-file** — Edit/Write on `.env`/`.env.*`/`*.pem`/`*.pem.*`/`credentials*`/`id_rsa*`/`id_ed25519*` blocked (case-insensitive basename), under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except the two carve-outs `$GHJIG_ROOT/` and `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag in any surface form and out-of-registry args blocked; no carve-out (SPEC §6.1).
