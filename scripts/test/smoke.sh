@@ -15769,6 +15769,49 @@ else
   ng "142c: python.md missing the advisory-never-block wording (advisory or never+block) (#581)"
 fi
 
+# ---------- §145: issue-title principle content-lock (#583) ----------
+# Mirrors §142 (the python.md drift-guard): a content-lock that is GREEN on arrival, not
+# a red-first test. Phase A of #583 already committed the SPEC §9.2 "Title principle"
+# paragraph (the issue title is a plain problem statement, NOT the `<type>(#N):`
+# commit/PR-subject form; a guiding norm, not a hard gate). AC4 asks for a drift-guard so
+# a later edit that dilutes or drops the principle fails CI. Each arm is `[ -f ]`-guarded
+# so an absent SPEC / template fails CLEANLY as ng (loud), not a hard error.
+S145_SPEC="$SHELL_ROOT/SPEC.md"
+S145_ISSUE_TPL="$SHELL_ROOT/.claude/templates/issue.md"
+
+# §145a: SPEC §9.2 carries the title-principle tokens verbatim — the distinctive header
+# phrase (Title principle), the clarity principle (plain problem statement), and the
+# anti-commit-form note (used for issue titles — the §9.2-distinctive negation of the
+# `<type>(#N):` form). All three must be byte-present or the principle has drifted.
+if [ -f "$S145_SPEC" ] \
+   && grep -qF 'Title principle' "$S145_SPEC" 2>/dev/null \
+   && grep -qF 'plain problem statement' "$S145_SPEC" 2>/dev/null \
+   && grep -qF 'used for issue titles' "$S145_SPEC" 2>/dev/null; then
+  ok "145a: SPEC §9.2 carries the title principle (Title principle + plain problem statement + used for issue titles) (#583)"
+else
+  ng "145a: SPEC §9.2 missing a title-principle token (Title principle / plain problem statement / used for issue titles) (#583)"
+fi
+
+# §145b (ANTI-VACUITY / norm-not-gate lock): the principle is stated as a guiding norm,
+# NOT a hard lint/gate. Require the exact norm-not-format wording so an edit that
+# silently promotes the principle into a gate (or collapses the nuance) fails.
+if [ -f "$S145_SPEC" ] \
+   && grep -qF 'guiding norm, not a rigid format' "$S145_SPEC" 2>/dev/null; then
+  ok "145b: SPEC §9.2 keeps the norm-not-gate framing (guiding norm, not a rigid format) (#583)"
+else
+  ng "145b: SPEC §9.2 lost the norm-not-gate framing (guiding norm, not a rigid format) (#583)"
+fi
+
+# §145c (thin-pointer lock): the issue.md template carries the one-line title hint that
+# points back to SPEC §9.2 — the plain-problem-statement cue at author time.
+if [ -f "$S145_ISSUE_TPL" ] \
+   && grep -qF 'Title: a plain problem statement' "$S145_ISSUE_TPL" 2>/dev/null \
+   && grep -qF 'SPEC §9.2' "$S145_ISSUE_TPL" 2>/dev/null; then
+  ok "145c: issue.md template carries the title hint pointer to SPEC §9.2 (#583)"
+else
+  ng "145c: issue.md template missing the title hint pointer (Title: a plain problem statement / SPEC §9.2) (#583)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
