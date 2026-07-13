@@ -508,11 +508,48 @@ case "$tool" in
             mr_gate=$(resolve_review_gate)
           fi
           if [ "$mr_gate" = bypass ]; then
-            # Bypass: skip the gate, but LOUDLY audit every bypass merge (§5.7.1)
-            # so a standing bypass never goes unobserved. No gh calls.
-            audit_log warn merge-review bypass "review-gate=bypass — merge admitted with no head-pinned review (§5.7.1)"
-            mark_allow merge-review
-            decided=1
+            # Bypass backstop (#592): the static permissions.allow entry is no
+            # longer the SOLE guard for the covered ship form. Under bypass the
+            # gate self-skips (LOUD audit, no gh calls) for every form EXCEPT the
+            # exact covered ship form (`gh pr merge --auto --merge --delete-branch`)
+            # driven as an AGENT SELF-MERGE (PR author == merger) — that one still
+            # BLOCKS, and a covered form whose author/merger lookup is
+            # INDETERMINATE (gh error/timeout/down) fails CLOSED (mirrors the
+            # required arm's §5.7.1 posture). Human covered-form merges and every
+            # non-covered form stay allowed + loudly audited.
+            if ! command -v is_covered_ship_merge_form >/dev/null 2>&1; then
+              # Backstop form-classifier helper missing → cannot rule out a covered
+              # agent self-merge → fail CLOSED, symmetric with the merge_is_self-miss
+              # leg below (a whole-file safe_source miss already blocks upstream; this
+              # guards the stale-but-sourceable-file edge, #592).
+              block merge-review "merge-review: the bypass covered-form backstop helper (is_covered_ship_merge_form) is unavailable — failing closed under review-gate=bypass, cannot rule out a covered agent self-merge (#592). SKIP_HOOKS=merge-review SKIP_REASON='<why>' for a sanctioned exception."
+            elif is_covered_ship_merge_form "$cmd"; then
+              mr_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
+              if [ -z "$mr_pr" ] && command -v gh >/dev/null 2>&1; then
+                mr_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
+              fi
+              if command -v merge_is_self >/dev/null 2>&1; then
+                merge_is_self "$mr_pr"; mr_self_rc=$?
+              else
+                mr_self_rc=2   # helper miss → indeterminate → fail closed
+              fi
+              if [ "$mr_self_rc" = 1 ]; then
+                # author != merger → a human ship of the covered form → allow.
+                audit_log warn merge-review bypass "review-gate=bypass — covered ship form admitted as a human merge (author != merger); no head-pinned review (§5.7.1, #592)"
+                mark_allow merge-review
+                decided=1
+              else
+                # self-merge (0) OR indeterminate lookup (2) → BLOCK even under
+                # bypass. Single deny record (block emits it); no extra audit_log.
+                block merge-review "merge-review: the covered ship form (\`gh pr merge --auto --merge --delete-branch\`) as an agent self-merge is blocked even under review-gate=bypass (#592) — the static allow is not the sole guard: PR author == merger, or the author/merger lookup failed and the gate fails closed. Have a human merge, post a head-pinned review via /file-review, or SKIP_HOOKS=merge-review SKIP_REASON='<why>' for a sanctioned exception."
+              fi
+            else
+              # Non-covered form under bypass: skip the gate, but LOUDLY audit every
+              # bypass merge (§5.7.1) so a standing bypass never goes unobserved.
+              audit_log warn merge-review bypass "review-gate=bypass — merge admitted with no head-pinned review (§5.7.1)"
+              mark_allow merge-review
+              decided=1
+            fi
           else
             mr_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
             if [ -z "$mr_pr" ] && command -v gh >/dev/null 2>&1; then
