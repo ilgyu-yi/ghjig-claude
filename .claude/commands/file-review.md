@@ -3,7 +3,7 @@ description: Run code-reviewer on a PR and post its verdict as a first-class, co
 argument-hint: "<pr>"
 ---
 
-Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commit_id`-pinned to the reviewed head. `/file-review <pr>` is a **general capability** (any PR, any time) *and* the **producer** the #586 merge-review gate will later consume. It is **producer-only**: it adds, changes, or removes **no** merge gate, and it does not touch `/ship`, `autoMode.allow`, or SPEC §5.7.1 (those are #586 / #587, out of scope). See SPEC §5.29 for the contract.
+Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commit_id`-pinned to the reviewed head. `/file-review <pr>` is a **general capability** (any PR, any time) *and* the **producer** the #586 merge-review gate will later consume. It is **producer-only**: it adds, changes, or removes **no** merge gate, and it does not touch `/ship`, `permissions.allow`, or SPEC §5.7.1 (those are #586 / #587, out of scope). See SPEC §5.29 for the contract.
 
 ## Procedure
 
@@ -76,7 +76,7 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 - Hand-writing a marker `verdict=` value — `verdict=approve` comes **only** from a real `code-reviewer` `ship`, never authored by hand.
 - Submitting via `gh pr review` (it cannot pin a `commit_id`) — always the `commit_id`-pinned REST `pulls/<n>/reviews` call.
 - Passing the reviewer / PR text as an inline body argument — the body always travels via a written, sanitized temp file (`--field body=@<tempfile>`); untrusted text is never interpolated into a `gh` argument, and every `@mention` is neutralized.
-- Adding, changing, or removing any merge gate, or touching `/ship` / `autoMode.allow` / SPEC §5.7.1 — `/file-review` is **producer-only** (#586 / #587 own those).
+- Adding, changing, or removing any merge gate, or touching `/ship` / `permissions.allow` / SPEC §5.7.1 — `/file-review` is **producer-only** (#586 / #587 own those).
 - Posting a `block` / `REQUEST_CHANGES` on a head that could not be blind-compared to the private PR head — that arm posts nothing and audits `invalid`.
 
 ## Work language
