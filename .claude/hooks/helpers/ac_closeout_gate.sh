@@ -74,6 +74,44 @@ _ac_run_gh() {
   fi
 }
 
+# is_covered_ship_merge_form <cmd> — returns 0 iff the argv AFTER `gh pr merge`
+# is EXACTLY the covered ship form `--auto --merge --delete-branch`
+# (settings.json permissions.allow entry, #592). Uses the same sed-strip idiom as
+# extract_pr_from_merge_cmd (tolerating a leading gh global-flag run), then
+# whitespace-collapses and trims the remainder before an exact string compare.
+# Non-zero for any deviation: an extra flag, a reordered flag run, a positional PR
+# number, a wrong strategy (`--squash`/`--rebase`), or the bare form. This is the
+# form half of the bypass backstop (the self-merge half is merge_is_self).
+is_covered_ship_merge_form() {
+  local cmd="$1" rest
+  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+merge//p')
+  rest=$(printf '%s' "$rest" | tr -s '[:space:]' ' ')
+  rest="${rest# }"; rest="${rest% }"
+  [ "$rest" = '--auto --merge --delete-branch' ]
+}
+
+# merge_is_self <pr> — is this merge an AGENT SELF-MERGE (the PR author is also the
+# merger)? Mirrors review_gate_accepts' author/merger resolution: the PR author via
+# `gh pr view <pr> --json author`, the merger via `gh api user`, both timeout-bounded
+# through _ac_run_gh. Returns:
+#   0 — author == merger (self-merge)
+#   1 — author != merger (a human/other merger)
+#   2 — INDETERMINATE: empty PR, gh absent, or any gh lookup failure (error/
+#       timeout/down/empty) — the caller fails CLOSED on 2 (§5.7.1, #592).
+merge_is_self() {
+  local pr="$1" rc pr_author merger
+  [ -n "$pr" ] || return 2
+  command -v gh >/dev/null 2>&1 || return 2
+  pr_author=$(_ac_run_gh pr view "$pr" --json author -q .author.login 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 2
+  [ -n "$pr_author" ] || return 2
+  merger=$(_ac_run_gh api user -q .login 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 2
+  [ -n "$merger" ] || return 2
+  [ "$pr_author" = "$merger" ] && return 0
+  return 1
+}
+
 # parse_gh_merge_argv <cmd> — gh-flag-aware parse of a `gh pr merge` command for
 # the merge-strategy matcher (#290). Echoes "<strategy>\t<pr>":
 #   strategy ∈ merge|squash|rebase|bare — the explicit strategy FLAG token
