@@ -14794,18 +14794,18 @@ s137_rv_shim() {
   printf 'pr-author-bot\n'      > "$d/pr_author"
   printf 'merger-bot\n'         > "$d/api_user"
   printf 'octo/repo\n'          > "$d/name_with_owner"
+  printf '55\n'                 > "$d/pr_number"   # `gh pr view --json number` fallback (covered form has no positional PR)
   : > "$d/pr_issues"            # empty ⇒ ac-closeout allows
 }
 
-# s137_rv_case <name> <expect> <shimdir> <statedir> [<cwd>]
-#   Drives `gh pr merge 55 --merge` through the hook; asserts rc + (for
-#   block/bypass) the per-case audit tail carries the merge-review category. RED
-#   now: the merge-review arm is unwritten, so the merge falls through to the
-#   incumbent merge-attestation arm (block cases + fail-closed: rc=2 but
-#   category=merge-attestation ≠ merge-review; allow/bypass cases: the incumbent
-#   presence-blocks with rc=2 ≠ 0) — either way the merge-review key never matches.
+# s137_rv_case <name> <expect> <shimdir> <statedir> [<cwd>] [<cmd>]
+#   Drives <cmd> (default `gh pr merge 55 --merge`) through the hook; asserts rc +
+#   (for block/bypass) the per-case audit tail carries the merge-review category.
+#   The optional 6th <cmd> param lets the #592 bypass-backstop cases drive the
+#   covered ship form (`gh pr merge --auto --merge --delete-branch`, no positional
+#   PR — resolves via the shim's `--json number` fallback, seeded by s137_rv_shim).
 s137_rv_case() {
-  local name="$1" expect="$2" shimdir="$3" statedir="$4" cwd="${5:-$TMP/fake}"
+  local name="$1" expect="$2" shimdir="$3" statedir="$4" cwd="${5:-$TMP/fake}" cmd="${6:-gh pr merge 55 --merge}"
   local canon out rc before after rvtail
   canon=$(cd "$cwd" && pwd -P)
   # The override relocates the scope registry too — register the cwd in it or
@@ -14819,7 +14819,7 @@ s137_rv_case() {
     cd "$cwd" || exit 1
     # shellcheck disable=SC2069  # intentional: capture stderr, discard stdout
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
-      "$(printf '%s' 'gh pr merge 55 --merge' | jq -Rs .)" \
+      "$(printf '%s' "$cmd" | jq -Rs .)" \
       | PATH="$S137_SHIM:$PATH" \
         GH_SHIM_STATE="$shimdir" \
         GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
@@ -14940,6 +14940,69 @@ printf '[]\n' > "$S137_RV_DOWN_SH/reviews.json"
 touch "$S137_RV_DOWN_SH/gh_down"
 S137_RV_DOWN_ST="$S137_DIR/rv-down-state"; mkdir -p "$S137_RV_DOWN_ST/audit"
 s137_rv_case "gh down / lookup failure → fail-closed block" block "$S137_RV_DOWN_SH" "$S137_RV_DOWN_ST"
+
+# ---- §137r bypass-backstop (#592): the bypass arm is NOT an unconditional skip ----
+# Under review-gate=bypass the gate self-skips, EXCEPT it still BLOCKS the exact
+# covered ship form (`gh pr merge --auto --merge --delete-branch`, settings.json:4)
+# when it is an AGENT SELF-MERGE (PR author == merger). The covered form carries no
+# positional PR, so the PR resolves via the shim's `gh pr view --json number`
+# fallback (pr_number seeded by s137_rv_shim). All four run in the bypass cwd built
+# for 137r-h (carries .claude/state/review-gate=bypass), each with its own state dir.
+#
+# 137r-j / 137r-m are RED NOW: Phase C (the backstop) is unwritten, so the bypass
+# arm allows UNCONDITIONALLY — rc=0 + a merge-review/bypass audit — which is neither
+# the rc=2 nor the merge-review/deny the block expectation demands. 137r-k / 137r-l
+# are steady-green guards: they must ALLOW (bypass) both before AND after Phase C,
+# proving the backstop narrows bypass to covered-form self-merges ONLY (human
+# covered-form merges and non-covered self-merges stay allowed).
+S137_RV_COVERED='gh pr merge --auto --merge --delete-branch'
+
+# 137r-j: BLOCK — covered form + SELF-merge (PR author == merger) under bypass. The
+# static permissions.allow entry alone is no longer the sole guard (#592): the hook
+# fails the agent self-merge closed even with the gate bypassed. RED now (bypass
+# allows unconditionally ⇒ rc=0/decision=bypass ≠ rc=2/decision=deny).
+S137_RV_JSH="$S137_DIR/rv-byp-self-shim"; s137_rv_shim "$S137_RV_JSH"
+printf '[]\n' > "$S137_RV_JSH/reviews.json"
+printf 'me\n' > "$S137_RV_JSH/pr_author"   # author == merger ⇒ self-merge
+printf 'me\n' > "$S137_RV_JSH/api_user"
+S137_RV_JST="$S137_DIR/rv-byp-self-state"; mkdir -p "$S137_RV_JST/audit"
+s137_rv_case "bypass + covered form + self-merge → backstop BLOCKS (#592)" block \
+  "$S137_RV_JSH" "$S137_RV_JST" "$S137_RV_BYP_CWD" "$S137_RV_COVERED"
+
+# 137r-m: BLOCK (fail-closed) — covered form + gh DOWN under bypass. The self-merge
+# author/merger lookup errors ⇒ indeterminate ⇒ the backstop fails CLOSED (mirrors
+# the required arm's §5.7.1 posture: a merge-integrity gate never fail-opens on an
+# outage). RED now (bypass short-circuits before any gh call ⇒ rc=0/bypass).
+S137_RV_MSH="$S137_DIR/rv-byp-down-shim"; s137_rv_shim "$S137_RV_MSH"
+printf '[]\n' > "$S137_RV_MSH/reviews.json"
+printf 'me\n' > "$S137_RV_MSH/pr_author"
+printf 'me\n' > "$S137_RV_MSH/api_user"
+touch "$S137_RV_MSH/gh_down"
+S137_RV_MST="$S137_DIR/rv-byp-down-state"; mkdir -p "$S137_RV_MST/audit"
+s137_rv_case "bypass + covered form + gh down → backstop fail-closed BLOCKS (#592)" block \
+  "$S137_RV_MSH" "$S137_RV_MST" "$S137_RV_BYP_CWD" "$S137_RV_COVERED"
+
+# 137r-k (steady-green guard): covered form + HUMAN merge (PR author != merger) under
+# bypass → ALLOW + loud bypass audit. The backstop needs BOTH covered-form AND
+# self-merge; a human ship of the covered form stays bypass-allowed. GREEN before
+# (bypass unconditional) AND after (author != merger ⇒ not a self-merge) Phase C.
+S137_RV_KSH="$S137_DIR/rv-byp-human-shim"; s137_rv_shim "$S137_RV_KSH"
+printf '[]\n' > "$S137_RV_KSH/reviews.json"   # default pr-author-bot != merger-bot ⇒ human
+S137_RV_KST="$S137_DIR/rv-byp-human-state"; mkdir -p "$S137_RV_KST/audit"
+s137_rv_case "bypass + covered form + human merge → stays allowed (bypass) (#592)" bypass \
+  "$S137_RV_KSH" "$S137_RV_KST" "$S137_RV_BYP_CWD" "$S137_RV_COVERED"
+
+# 137r-l (steady-green guard): NON-covered form (`gh pr merge 55 --merge`) + self-merge
+# under bypass → ALLOW + loud bypass audit. The backstop guards only the covered ship
+# form; a non-covered self-merge is not this hook's concern (the classifier re-engages
+# on it elsewhere). GREEN before AND after Phase C (form is not the covered shape).
+S137_RV_LSH="$S137_DIR/rv-byp-noncov-shim"; s137_rv_shim "$S137_RV_LSH"
+printf '[]\n' > "$S137_RV_LSH/reviews.json"
+printf 'me\n' > "$S137_RV_LSH/pr_author"   # self-merge, but NOT the covered form
+printf 'me\n' > "$S137_RV_LSH/api_user"
+S137_RV_LST="$S137_DIR/rv-byp-noncov-state"; mkdir -p "$S137_RV_LST/audit"
+s137_rv_case "bypass + non-covered form + self-merge → stays allowed (bypass) (#592)" bypass \
+  "$S137_RV_LSH" "$S137_RV_LST" "$S137_RV_BYP_CWD"
 
 # §137-inv (structural, mirrors §39b): each arm must exist in pre_tool_use.sh as
 # an INDEPENDENT matcher reaching its own decided state — i.e. carry both a
@@ -15820,6 +15883,80 @@ if [ -f "$S145_ISSUE_TPL" ] \
   ok "145c: issue.md template carries the title hint pointer to SPEC §9.2 (#583)"
 else
   ng "145c: issue.md template missing the title hint pointer (Title: a plain problem statement / SPEC §9.2) (#583)"
+fi
+
+# ---------- §146: is_covered_ship_merge_form helper unit + presence (#592) ----------
+# The #592 bypass backstop blocks IFF BOTH the command is the exact covered ship
+# form AND it is a self-merge. is_covered_ship_merge_form is the form half: it
+# returns 0 for EXACTLY `gh pr merge --auto --merge --delete-branch` (the
+# settings.json:4 static-allow entry, tolerating a leading gh global-flag run) and
+# non-zero for anything else. Sourced from ac_closeout_gate.sh the same way the
+# hook safe_sources it. RED now: Phase C has not added the function.
+#
+# ANTI-VACUITY: every assertion runs the helper via s146_rc, which prints 127 when
+# the function is ABSENT. The positive requires rc=0 (absent ⇒ 127 ⇒ ng/RED). The
+# negatives require a PRESENT-and-non-zero rc (rc != 0 AND rc != 127) — an absent
+# function reports 127 and fails the guard, so a negative can NEVER vacuously green
+# on the missing helper. All six are RED now and turn GREEN only when the helper
+# exists AND classifies each form correctly.
+S146_GATE="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
+
+# s146_rc <cmd> — source the gate in a subshell and print is_covered_ship_merge_form's
+# exit code, or 127 if the function is undefined (Phase C absent).
+s146_rc() {
+  (
+    # shellcheck source=/dev/null
+    . "$S146_GATE" 2>/dev/null
+    command -v is_covered_ship_merge_form >/dev/null 2>&1 || { printf 127; exit; }
+    is_covered_ship_merge_form "$1" >/dev/null 2>&1
+    printf '%s' "$?"
+  )
+}
+
+# §146a (presence): the function is defined after sourcing ac_closeout_gate.sh.
+if [ "$(s146_rc 'gh pr merge --auto --merge --delete-branch')" != 127 ]; then
+  ok "146a: is_covered_ship_merge_form defined in ac_closeout_gate.sh (#592)"
+else
+  ng "146a: is_covered_ship_merge_form undefined — Phase C absent (#592)"
+fi
+
+# §146b (positive): the EXACT covered form → 0.
+if [ "$(s146_rc 'gh pr merge --auto --merge --delete-branch')" = 0 ]; then
+  ok "146b: is_covered_ship_merge_form returns 0 for the exact covered ship form (#592)"
+else
+  ng "146b: is_covered_ship_merge_form must return 0 for 'gh pr merge --auto --merge --delete-branch' (#592)"
+fi
+
+# §146c (negative — extra flag): a superset with an extra flag → non-zero.
+s146c=$(s146_rc 'gh pr merge --auto --merge --delete-branch --draft')
+if [ "$s146c" != 0 ] && [ "$s146c" != 127 ]; then
+  ok "146c: is_covered_ship_merge_form rejects an extra flag (--draft) (#592)"
+else
+  ng "146c: is_covered_ship_merge_form must reject the covered form + an extra flag (rc=$s146c) (#592)"
+fi
+
+# §146d (negative — reordered): the same flags in a different order → non-zero.
+s146d=$(s146_rc 'gh pr merge --merge --auto --delete-branch')
+if [ "$s146d" != 0 ] && [ "$s146d" != 127 ]; then
+  ok "146d: is_covered_ship_merge_form rejects a reordered flag run (#592)"
+else
+  ng "146d: is_covered_ship_merge_form must reject '--merge --auto --delete-branch' (reordered) (rc=$s146d) (#592)"
+fi
+
+# §146e (negative — positional PR): an explicit PR number → non-zero.
+s146e=$(s146_rc 'gh pr merge 55 --auto --merge --delete-branch')
+if [ "$s146e" != 0 ] && [ "$s146e" != 127 ]; then
+  ok "146e: is_covered_ship_merge_form rejects a positional PR number (#592)"
+else
+  ng "146e: is_covered_ship_merge_form must reject 'gh pr merge 55 --auto --merge --delete-branch' (rc=$s146e) (#592)"
+fi
+
+# §146f (negative — wrong strategy): --squash instead of --merge → non-zero.
+s146f=$(s146_rc 'gh pr merge --auto --squash --delete-branch')
+if [ "$s146f" != 0 ] && [ "$s146f" != 127 ]; then
+  ok "146f: is_covered_ship_merge_form rejects a wrong strategy (--squash) (#592)"
+else
+  ng "146f: is_covered_ship_merge_form must reject '--auto --squash --delete-branch' (wrong strategy) (rc=$s146f) (#592)"
 fi
 
 # ---------- results ----------
