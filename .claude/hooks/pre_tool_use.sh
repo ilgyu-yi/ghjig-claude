@@ -517,8 +517,13 @@ case "$tool" in
             # INDETERMINATE (gh error/timeout/down) fails CLOSED (mirrors the
             # required arm's §5.7.1 posture). Human covered-form merges and every
             # non-covered form stay allowed + loudly audited.
-            if command -v is_covered_ship_merge_form >/dev/null 2>&1 \
-               && is_covered_ship_merge_form "$cmd"; then
+            if ! command -v is_covered_ship_merge_form >/dev/null 2>&1; then
+              # Backstop form-classifier helper missing → cannot rule out a covered
+              # agent self-merge → fail CLOSED, symmetric with the merge_is_self-miss
+              # leg below (a whole-file safe_source miss already blocks upstream; this
+              # guards the stale-but-sourceable-file edge, #592).
+              block merge-review "merge-review: the bypass covered-form backstop helper (is_covered_ship_merge_form) is unavailable — failing closed under review-gate=bypass, cannot rule out a covered agent self-merge (#592). SKIP_HOOKS=merge-review SKIP_REASON='<why>' for a sanctioned exception."
+            elif is_covered_ship_merge_form "$cmd"; then
               mr_pr=$(extract_pr_from_merge_cmd "$cmd" || true)
               if [ -z "$mr_pr" ] && command -v gh >/dev/null 2>&1; then
                 mr_pr=$(gh pr view --json number -q .number 2>/dev/null || true)
