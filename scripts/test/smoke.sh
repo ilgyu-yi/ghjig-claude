@@ -15555,6 +15555,163 @@ else
   ng "143j: SPEC §5.29 missing the file-review marker token (#585)"
 fi
 
+# ---------- §144: auto-mode-classifier permissions.allow exception + /ship coupling (#587) ----------
+# SPEC §5.7.1 "Composition with the auto-mode classifier" + .claude/settings.json
+# permissions.allow + .claude/commands/ship.md step 10. #587 defers the auto-mode
+# classifier for EXACTLY the /ship clean-merge form via a narrow, order-sensitive
+# permissions.allow matcher — no trailing wildcard — so the classifier hands that one
+# command to the shell's own merge-review gate (#586). The deferral is sound ONLY while
+# review-gate=required; under bypass /ship must WITHHOLD the covered form so the
+# classifier re-engages (Directive #584 Constraint 1: no naked self-merge hole).
+#
+# Phase status: the SPEC clause landed in Phase A (144k/144l GREEN now). Phase C has
+# NOT added the permissions.allow key to settings.json (144a/144b/144f intended-RED)
+# nor the step-10 review-gate coupling to ship.md (144h/144i/144j intended-RED). The
+# narrowness/dogfood guards (144c/144d/144e/144g) are GREEN now by absence and must
+# STAY green after Phase C — they lock the "opens nothing else" contract.
+S144_SET="$SHELL_ROOT/.claude/settings.json"
+S144_INJ="$SHELL_ROOT/.claude/settings.injected.json"
+S144_SHIP="$SHELL_ROOT/.claude/commands/ship.md"
+S144_SPEC="$SHELL_ROOT/SPEC.md"
+# The one canonical merge literal, defined ONCE — both the settings.json matcher inner
+# command and the ship.md step-10 emitted string must equal it byte-for-byte (§144f).
+S144_CANON='gh pr merge --auto --merge --delete-branch'
+# Step-10 block, scoped from the `10.` marker to `10.5.` — so tokens that already live
+# in step 7.8 (/file-review, bypass) do NOT leak into the step-10 content-locks.
+S144_STEP10=$(sed -n '/^10\. If mode is/,/^10\.5\./p' "$S144_SHIP" 2>/dev/null || true)
+
+# §144a (LOAD-BEARING RED): settings.json carries the EXACT matcher, spelled byte-for-byte.
+if [ -f "$S144_SET" ] && grep -qF "Bash($S144_CANON)" "$S144_SET" 2>/dev/null; then
+  ok "144a: settings.json permissions.allow carries the exact matcher Bash($S144_CANON) (#587)"
+else
+  ng "144a: settings.json missing the exact permissions.allow matcher Bash($S144_CANON) (#587)"
+fi
+
+# §144b (LOAD-BEARING RED — presence + narrowness fused): the ONLY gh-pr-merge allow
+# rule is that exact narrow form. Any broad shape (Bash(gh pr merge:*), Bash(gh pr
+# merge *), bare Bash(gh pr merge)) matches the `Bash(gh pr merge` prefix but NOT the
+# exact literal, so any!=exact fails — a non-vacuous both-directions lock.
+if [ -f "$S144_SET" ]; then
+  s144_any=$(grep -cF 'Bash(gh pr merge' "$S144_SET" 2>/dev/null || true)
+  s144_exact=$(grep -cF "Bash($S144_CANON)" "$S144_SET" 2>/dev/null || true)
+else
+  s144_any=-1; s144_exact=-1
+fi
+if [ "$s144_exact" -ge 1 ] && [ "$s144_any" = "$s144_exact" ]; then
+  ok "144b: the only gh-pr-merge allow rule is the exact narrow form — no broad/bare allow (any=$s144_any exact=$s144_exact) (#587)"
+else
+  ng "144b: settings.json must carry exactly the narrow matcher and NO broad gh-pr-merge allow (any=$s144_any exact=$s144_exact) (#587)"
+fi
+
+# §144c (narrowness guard, GREEN now / stays green): autoMode.classifyAllShell is NOT
+# forced true — that would route ALL shell through the classifier and defeat the narrow
+# allow. Guarded on file presence so an absent file fails as ng, not vacuously.
+if [ -f "$S144_SET" ] && ! grep -qE '"classifyAllShell"[[:space:]]*:[[:space:]]*true' "$S144_SET" 2>/dev/null; then
+  ok "144c: settings.json does not set autoMode.classifyAllShell=true (#587)"
+else
+  ng "144c: settings.json must not set autoMode.classifyAllShell=true (#587)"
+fi
+
+# §144d (narrowness guard, GREEN now / stays green): no permissions.deny entry matches
+# gh-pr-merge — a deny would override the allow (deny > allow) and re-block the merge.
+# jq-scoped to the deny array so a `gh` mention elsewhere cannot false-trip; jq also
+# validates that settings.json is well-formed JSON.
+if [ -f "$S144_SET" ]; then
+  s144_deny=$(jq -r '[.permissions.deny // [] | .[] | select(test("gh pr merge"))] | length' "$S144_SET" 2>/dev/null || echo err)
+else
+  s144_deny=err
+fi
+if [ "$s144_deny" = "0" ]; then
+  ok "144d: no permissions.deny entry overrides the gh-pr-merge allow (deny-matches=$s144_deny) (#587)"
+else
+  ng "144d: a permissions.deny entry matches gh-pr-merge (or settings.json is not valid JSON) (deny-matches=$s144_deny) (#587)"
+fi
+
+# §144e (dogfood-only invariant, GREEN now / MUST STAY green): the permissions.allow
+# hole is NOT injected to targets — settings.injected.json carries no gh-pr-merge entry
+# (cross-target propagation is a deferred fast-follow, SPEC §5.7.1 dogfood scope).
+if [ -f "$S144_INJ" ] && ! grep -qF 'gh pr merge' "$S144_INJ" 2>/dev/null; then
+  ok "144e: settings.injected.json carries no gh-pr-merge permissions entry — dogfood-only, not injected (#587)"
+else
+  ng "144e: settings.injected.json must not contain a gh-pr-merge permissions entry (dogfood-only) (#587)"
+fi
+
+# §144f (CRITICAL — LOAD-BEARING RED): byte-for-byte coupling. The settings.json matcher
+# inner command and the ship.md step-10 emitted string must BOTH equal the single
+# canonical literal. A silent drift on either side → the emitted command misses the
+# matcher → the classifier re-engages → a permanent unattended park. Naming which side
+# is present pinpoints a future drift.
+s144_set_has=0; s144_ship_has=0
+[ -f "$S144_SET" ] && grep -qF "Bash($S144_CANON)" "$S144_SET" 2>/dev/null && s144_set_has=1
+[ -f "$S144_SHIP" ] && grep -qF "$S144_CANON" "$S144_SHIP" 2>/dev/null && s144_ship_has=1
+if [ "$s144_set_has" = 1 ] && [ "$s144_ship_has" = 1 ]; then
+  ok "144f: /ship merge string is byte-identical to the matcher inner command '$S144_CANON' (set=$s144_set_has ship=$s144_ship_has) (#587)"
+else
+  ng "144f: byte-for-byte coupling broken — matcher-side=$s144_set_has ship-side=$s144_ship_has, both must carry '$S144_CANON' (#587)"
+fi
+
+# §144g (drift guard, GREEN now / stays green): the step-10 clean arm carries NO
+# positional-PR / --repo / -R gh-pr-merge variant — any of those misses the exact
+# matcher (fail-safe = classifier re-engages, never over-allow). Guarded on a non-empty
+# step-10 block so a mis-scoped extraction fails as ng, not vacuously.
+if [ -n "$S144_STEP10" ] \
+   && ! printf '%s\n' "$S144_STEP10" | grep -qE 'gh pr merge[[:space:]]+[0-9]' \
+   && ! printf '%s\n' "$S144_STEP10" | grep -qF 'gh pr merge --repo' \
+   && ! printf '%s\n' "$S144_STEP10" | grep -qF 'gh pr merge -R'; then
+  ok "144g: /ship step-10 uses no positional-PR/--repo gh-pr-merge variant that would miss the matcher (#587)"
+else
+  ng "144g: /ship step-10 must not carry a positional-PR/--repo gh-pr-merge variant (or step-10 block not found) (#587)"
+fi
+
+# §144h (LOAD-BEARING RED): the step-10 required arm posts the head-pinned review via
+# /file-review and gates the merge on the exact hook predicate review_gate_accepts.
+# Scoped to the step-10 block so the /file-review mention in step 7.8 does not satisfy it.
+if [ -n "$S144_STEP10" ] \
+   && printf '%s\n' "$S144_STEP10" | grep -qF '/file-review' \
+   && printf '%s\n' "$S144_STEP10" | grep -qF 'review_gate_accepts'; then
+  ok "144h: /ship step-10 required arm posts via /file-review and gates on review_gate_accepts (#587)"
+else
+  ng "144h: /ship step-10 required arm missing /file-review post + review_gate_accepts gate (#587)"
+fi
+
+# §144i (LOAD-BEARING RED): the required arm branches deterministically on the gate
+# result — 0 → merge (the covered form), 1 → PARK with reason merge-review-unsatisfied
+# (the plan-mandated distinctive reason token, handling verdict=block and posts-nothing
+# uniformly; MEMORY never-forge-merge-gate-evidence).
+if [ -n "$S144_STEP10" ] \
+   && printf '%s\n' "$S144_STEP10" | grep -qF 'review_gate_accepts' \
+   && printf '%s\n' "$S144_STEP10" | grep -qiF 'merge-review-unsatisfied'; then
+  ok "144i: /ship step-10 required arm parks (merge-review-unsatisfied) when review_gate_accepts rejects (#587)"
+else
+  ng "144i: /ship step-10 required arm missing the review_gate_accepts reject → park (merge-review-unsatisfied) branch (#587)"
+fi
+
+# §144j (LOAD-BEARING RED — bypass coupling, invariant 4): under review-gate=bypass the
+# step-10 arm READS the toggle (resolve_review_gate) and WITHHOLDS the covered form so
+# the classifier re-engages → park. Locks `resolve_review_gate` + `re-engage`.
+if [ -n "$S144_STEP10" ] \
+   && printf '%s\n' "$S144_STEP10" | grep -qF 'resolve_review_gate' \
+   && printf '%s\n' "$S144_STEP10" | grep -qiF 're-engage'; then
+  ok "144j: /ship step-10 bypass arm reads resolve_review_gate and withholds the covered form → classifier re-engages → park (#587)"
+else
+  ng "144j: /ship step-10 bypass arm missing resolve_review_gate + classifier-re-engage coupling (#587)"
+fi
+
+# §144k (Doc-confirming, expected GREEN): SPEC §5.7.1 clause header present.
+if [ -f "$S144_SPEC" ] && grep -qF 'Composition with the auto-mode classifier' "$S144_SPEC" 2>/dev/null; then
+  ok "144k: SPEC §5.7.1 'Composition with the auto-mode classifier' clause present (#587)"
+else
+  ng "144k: SPEC §5.7.1 auto-mode-classifier clause missing (#587)"
+fi
+
+# §144l (Doc-confirming, expected GREEN): the load-bearing bypass-coupling paragraph is
+# present — the honest-scope invariant that bypass is not a naked merge hole.
+if [ -f "$S144_SPEC" ] && grep -qF 'Bypass coupling' "$S144_SPEC" 2>/dev/null; then
+  ok "144l: SPEC §5.7.1 bypass-coupling paragraph present (#587)"
+else
+  ng "144l: SPEC §5.7.1 bypass-coupling paragraph missing (#587)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
