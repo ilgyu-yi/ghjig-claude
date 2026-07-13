@@ -1,3 +1,4 @@
+<!-- Title: a plain problem statement — not a `<type>(#N):` commit/PR subject (SPEC §9.2). -->
 ## What
 <What's broken / what do we need?>
 
