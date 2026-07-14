@@ -9947,12 +9947,19 @@ fi
 # the env var is what keeps enforcement armed through an in-place rename of it.
 S82_OWN="$SHELL_ROOT/.claude/settings.json"
 s82e_n=$(grep -cE '\$\{?CLAUDE_PROJECT_DIR\}?/\.claude/hooks/' "$S82_OWN" 2>/dev/null || true)
+# The ghjig-root/_SHELL_ROOT bans are about the HOOK hot path only: no hook command
+# routes through the symlink hop or an env var. A permissions.allow entry MAY reference
+# `.claude/ghjig-root/` — the shared-code uniform path used to allow-list a shell-owned
+# script that must resolve identically in the dogfood shell and every target (#598, the
+# ghjig_file_review_post.sh wrapper; same convention ship.md uses for ac_closeout.sh). So
+# scope the "no symlink hop" ban to the hook-routing form (`ghjig-root/.claude/hooks`),
+# not a blanket file-wide grep.
 if [ "$s82e_n" = "5" ] \
-   && ! grep -q 'ghjig-root' "$S82_OWN" \
+   && ! grep -q 'ghjig-root/\.claude/hooks' "$S82_OWN" \
    && ! grep -q '_SHELL_ROOT' "$S82_OWN"; then
-  ok "82e: shell's own settings.json routes all 5 hook commands via \${CLAUDE_PROJECT_DIR} directly — no env var, no symlink hop (R1, #533)"
+  ok "82e: shell's own settings.json routes all 5 hook commands via \${CLAUDE_PROJECT_DIR} directly — no env var, no hook symlink hop (R1, #533)"
 else
-  ng "82e: shell's own settings.json must route 5 hook commands via \${CLAUDE_PROJECT_DIR} directly (got $s82e_n), no ghjig-root, no *_SHELL_ROOT (R1, #533)"
+  ng "82e: shell's own settings.json must route 5 hook commands via \${CLAUDE_PROJECT_DIR} directly (got $s82e_n), no ghjig-root hook hop, no *_SHELL_ROOT (R1, #533)"
 fi
 
 # ---------- 83. per-project audit + cache isolation (EI-2a, #314, Directive #311) ----------

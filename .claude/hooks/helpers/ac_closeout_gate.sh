@@ -432,6 +432,18 @@ review_gate_accepts() {
 
   # (b) self-marker — a COMMENTED review at head, author == PR-author == merger,
   # carrying EXACTLY ONE verdict=approve marker (multiple/conflicting → block).
+  # Additionally gated on the per-target self-review policy (#598): a self-marker
+  # is accepted ONLY when resolve_self_review_policy yields `allow`. Under `deny`
+  # (the target default) the self-marker does NOT satisfy the gate — only a native
+  # second-party APPROVED (shape (a), already checked above) does. Fail CLOSED to
+  # `deny` if the resolver is unavailable (a helper miss must never silently accept
+  # a self-approval), mirroring the resolve_review_gate fail-closed posture.
+  local self_policy=deny
+  if command -v resolve_self_review_policy >/dev/null 2>&1; then
+    self_policy=$(resolve_self_review_policy 2>/dev/null || printf 'deny')
+  fi
+  [ "$self_policy" = allow ] || return 1
+
   local pr_author merger
   pr_author=$(_ac_run_gh pr view "$pr" --json author -q .author.login 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 1
