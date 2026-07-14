@@ -235,10 +235,34 @@ main() {
   cap_kb=14680064
   max_rss_kb=0
 
+  # Files exempt from the static-analysis pass: too large for shellcheck's
+  # whole-file analysis to fit in the ubuntu-latest CI runner RAM (#600). (Comment
+  # deliberately does not begin with the "# shellcheck" token — that prefix is a
+  # directive and would SC1073 when lint.sh lints itself.)
+  # scripts/test/smoke.sh (~16k
+  # lines) peaks ~20 GiB RSS under shellcheck — over the ~16 GB runner → an
+  # illegible OOM-kill ("The operation was canceled"), the same cliff the peak-RSS
+  # comment above describes. The cheap syntactic `bash -n` still runs on it; only
+  # the memory-heavy shellcheck pass is skipped. Root fix (split smoke.sh so each
+  # part is shellcheck-able again, then remove this exemption): #600.
+  sc_exempt() {
+    # find enumerates from the repo root, so smoke.sh arrives as
+    # scripts/test/smoke.sh — `*/test/smoke.sh` covers it without a redundant
+    # second alternative (SC2221).
+    case "$1" in
+      */test/smoke.sh) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
   local timelog rss
   for f in "${files[@]}"; do
     echo "→ bash -n $f" >&2
     bash -n "$f"
+    if sc_exempt "$f"; then
+      echo "→ shellcheck $f — SKIPPED (too large for CI-runner RAM; bash -n only; #600)" >&2
+      continue
+    fi
     echo "→ shellcheck $f" >&2
     if [ "$use_time" -eq 1 ]; then
       timelog="$(mktemp)"
