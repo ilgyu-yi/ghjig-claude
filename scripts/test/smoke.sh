@@ -16142,6 +16142,43 @@ else
   fi
 fi
 
+# ---------- §149: smoke.sh split + shellcheck re-coverage (#600) ----------
+# smoke.sh grew until its OWN shellcheck peak (~20 GiB RSS at ~16k lines) OOM-killed
+# the ubuntu CI runner; #599 mitigated by exempting smoke.sh from shellcheck (bash -n
+# only). #600 splits the suite into a thin orchestrator + sourced scripts/test/smoke.d/
+# section files (one process → byte-identical pass/fail semantics) so each shellcheck
+# unit fits the runner, removes the #599 exemption, and adds a deterministic per-file
+# line-count cliff guard (line_cap) to lint.sh. These structural locks are RED until
+# the Code phase lands the split; they travel into a smoke.d/ section on carve.
+S149_LINT="$SHELL_ROOT/scripts/lint.sh"
+S149_SMOKED="$SHELL_ROOT/scripts/test/smoke.d"
+
+# §149a (LOAD-BEARING RED): the split landed — smoke.d/ holds >=2 sourced section files.
+s149_n=0
+[ -d "$S149_SMOKED" ] && s149_n=$(find "$S149_SMOKED" -maxdepth 1 -type f -name '*.sh' 2>/dev/null | grep -c .)
+if [ "$s149_n" -ge 2 ]; then
+  ok "149a: scripts/test/smoke.d/ holds >=2 sourced section files (count=$s149_n) (#600)"
+else
+  ng "149a: smoke.d/ must hold >=2 section files after the split (count=$s149_n) (#600)"
+fi
+
+# §149b (LOAD-BEARING RED): lint.sh no longer exempts smoke.sh from shellcheck — the
+# #599 sc_exempt arm is gone, so every (now-bounded) file is statically analyzed again.
+if [ -f "$S149_LINT" ] && ! grep -q 'sc_exempt' "$S149_LINT" 2>/dev/null; then
+  ok "149b: lint.sh no longer carries the #599 smoke.sh shellcheck exemption — full re-coverage (#600)"
+else
+  ng "149b: lint.sh still carries the #599 sc_exempt smoke.sh exemption — must be removed post-split (#600)"
+fi
+
+# §149c (LOAD-BEARING RED): lint.sh carries a deterministic per-file line-count cliff
+# guard (token `line_cap`) — the un-flakeable hard gate that catches the next file
+# approaching the RSS cliff before an OOM (the RSS flag stays non-fatal, §11).
+if [ -f "$S149_LINT" ] && grep -q 'line_cap' "$S149_LINT" 2>/dev/null; then
+  ok "149c: lint.sh carries a per-file line-count cliff guard (line_cap) (#600)"
+else
+  ng "149c: lint.sh must add a deterministic per-file line-count cliff guard (line_cap) (#600)"
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
