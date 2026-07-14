@@ -14902,7 +14902,18 @@ printf 'me\n' > "$S137_RV_SELF_SH/api_user"
 printf '[{"state":"COMMENTED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"me"},"user":{"login":"me"},"body":"<!-- file-review verdict=approve head=%s reviewer=code-reviewer -->"}]\n' \
   "$S137_RV_HEAD" "$S137_RV_HEAD" > "$S137_RV_SELF_SH/reviews.json"
 S137_RV_SELF_ST="$S137_DIR/rv-selfmarker-state"; mkdir -p "$S137_RV_SELF_ST/audit"
-s137_rv_case "self verdict=approve marker@head, author==PR-author==merger" allow "$S137_RV_SELF_SH" "$S137_RV_SELF_ST"
+# #598: the self-marker branch now ALSO requires resolve_self_review_policy==allow
+# (default deny, fail-closed). So this ALLOW case must run in a cwd carrying
+# `.claude/state/self-review=allow` — else the new policy default (deny) would
+# BLOCK the self-marker and this case would flip red. git-init'd (no upstream ⇒
+# push-parity allows) exactly like the 137r-h bypass cwd.
+S137_RV_SELF_CWD="$S137_DIR/rv-selfmarker-cwd"
+mkdir -p "$S137_RV_SELF_CWD/.claude/state"
+( cd "$S137_RV_SELF_CWD" && git init -q && git config user.email t@t && git config user.name t \
+    && git config commit.gpgsign false && git checkout -q -b smoke/feat/1-selfmarker \
+    && git commit --allow-empty -q -m init ) 2>/dev/null || true
+printf 'allow\n' > "$S137_RV_SELF_CWD/.claude/state/self-review"
+s137_rv_case "self verdict=approve marker@head, author==PR-author==merger, self-review=allow" allow "$S137_RV_SELF_SH" "$S137_RV_SELF_ST" "$S137_RV_SELF_CWD"
 
 # 137r-g: BLOCK — conflicting/multiple markers in one review (a verdict=approve
 # AND a verdict=block marker) → ambiguous, fail-closed.
@@ -15058,6 +15069,135 @@ if [ "$inv_rc" = 0 ] \
   ok "137-inv: benign in-sync reviewed merge allows; arms decide silently (no fall-through) (#544, #586)"
 else
   ng "137-inv: benign merge must allow with no pass-through for the merge arms (rc=$inv_rc) tail=$inv_tail (#544, #586)"
+fi
+
+# ---------- §148: self-review producer classifier exception + per-target policy (#598) ----------
+# SPEC §5.7.1 second auto-mode-classifier exception. /ship self-posts its head-pinned review
+# via /file-review; on an agent-authored PR that self-approve POST was blocked by the auto-mode
+# classifier, stranding the sanctioned unattended self-merge (Directive #584/#587). Fix: a
+# fixed-form wildcard-free wrapper (scripts/ghjig_file_review_post.sh) allow-listed as
+# Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh) — parity with the merge entry —
+# PLUS a per-target policy (.claude/state/self-review, resolve_self_review_policy, default deny/
+# fail-closed) that the merge-review self-marker branch (§6.1) consults. This block sits BEFORE
+# the §137 cleanup so §148f can reuse the live gh shim + s137_rv_* harness.
+S148_WRAP_CANON='.claude/ghjig-root/scripts/ghjig_file_review_post.sh'
+S148_WRAP_FILE="$SHELL_ROOT/scripts/ghjig_file_review_post.sh"
+S148_SET="$SHELL_ROOT/.claude/settings.json"
+S148_INJ="$SHELL_ROOT/.claude/settings.injected.json"
+S148_FR="$SHELL_ROOT/.claude/commands/file-review.md"
+S148_SHIPMODE="$SHELL_ROOT/.claude/hooks/helpers/ship_mode.sh"
+
+# §148a (LOAD-BEARING RED): settings.json carries the exact wildcard-free wrapper entry.
+if [ -f "$S148_SET" ] && grep -qF "Bash($S148_WRAP_CANON)" "$S148_SET" 2>/dev/null; then
+  ok "148a: settings.json carries exact wrapper allow entry Bash($S148_WRAP_CANON) (#598)"
+else
+  ng "148a: settings.json missing exact wrapper allow entry Bash($S148_WRAP_CANON) (#598)"
+fi
+
+# §148b (LOAD-BEARING RED — presence + narrowness fused): the ONLY ghjig_file_review_post.sh
+# allow rule is the exact form (a `…post.sh:*` wildcard would hit the substring but not the
+# exact literal → any!=exact fails), AND there is NO raw `gh api …pulls…reviews` allow (which
+# would open APPROVE/REQUEST_CHANGES on any PR — past self-COMMENT-only).
+if [ -f "$S148_SET" ]; then
+  s148_any=$(grep -cF 'ghjig_file_review_post.sh' "$S148_SET" 2>/dev/null || true)
+  s148_exact=$(grep -cF "Bash($S148_WRAP_CANON)" "$S148_SET" 2>/dev/null || true)
+  s148_rawapi=$(grep -cE 'gh api[^"]*pulls[^"]*reviews' "$S148_SET" 2>/dev/null || true)
+else
+  s148_any=-1; s148_exact=-1; s148_rawapi=-1
+fi
+if [ "$s148_exact" -ge 1 ] && [ "$s148_any" = "$s148_exact" ] && [ "$s148_rawapi" = 0 ]; then
+  ok "148b: only the exact narrow wrapper allow — no wildcard, no raw gh-api-reviews allow (any=$s148_any exact=$s148_exact rawapi=$s148_rawapi) (#598)"
+else
+  ng "148b: settings.json must carry only the exact narrow wrapper entry and no broad/raw-api allow (any=$s148_any exact=$s148_exact rawapi=$s148_rawapi) (#598)"
+fi
+
+# §148c (LOAD-BEARING RED — cross-target): settings.injected.json carries the identical exact
+# narrow entry with the same both-directions + no-raw-api discipline (#591 propagation model).
+if [ -f "$S148_INJ" ]; then
+  s148c_any=$(grep -cF 'ghjig_file_review_post.sh' "$S148_INJ" 2>/dev/null || true)
+  s148c_exact=$(grep -cF "Bash($S148_WRAP_CANON)" "$S148_INJ" 2>/dev/null || true)
+  s148c_rawapi=$(grep -cE 'gh api[^"]*pulls[^"]*reviews' "$S148_INJ" 2>/dev/null || true)
+else
+  s148c_any=-1; s148c_exact=-1; s148c_rawapi=-1
+fi
+if [ "$s148c_exact" -ge 1 ] && [ "$s148c_any" = "$s148c_exact" ] && [ "$s148c_rawapi" = 0 ]; then
+  ok "148c: settings.injected.json carries the exact narrow wrapper entry — propagated to targets (any=$s148c_any exact=$s148c_exact rawapi=$s148c_rawapi) (#598)"
+else
+  ng "148c: settings.injected.json must carry the exact narrow wrapper entry (cross-target) (any=$s148c_any exact=$s148c_exact rawapi=$s148c_rawapi) (#598)"
+fi
+
+# §148d (LOAD-BEARING RED): the wrapper exists, is executable, hardcodes event=COMMENT (NEVER
+# APPROVE/REQUEST_CHANGES), and carries an own-PR author guard.
+if [ -f "$S148_WRAP_FILE" ] && [ -x "$S148_WRAP_FILE" ] \
+   && grep -qF 'event=COMMENT' "$S148_WRAP_FILE" 2>/dev/null \
+   && ! grep -qE 'event=(APPROVE|REQUEST_CHANGES)' "$S148_WRAP_FILE" 2>/dev/null \
+   && grep -qiE 'author' "$S148_WRAP_FILE" 2>/dev/null; then
+  ok "148d: wrapper exists/executable, event=COMMENT only, own-PR author guard present (#598)"
+else
+  ng "148d: wrapper must exist+executable+event=COMMENT-only (never APPROVE/REQUEST_CHANGES)+own-PR author guard (#598)"
+fi
+
+# §148e (LOAD-BEARING RED): resolve_self_review_policy — default deny (fail-closed), state
+# allow/deny honored, $GHJIG_SELF_REVIEW env override, garbage→deny. Sourced + called in
+# throwaway cwds so the .claude/state/self-review read is cwd-relative (like review-gate).
+s148_pol() { ( cd "$1" && . "$S148_SHIPMODE" 2>/dev/null && resolve_self_review_policy 2>/dev/null ); }
+S148_POLDIR=$(mktemp -d)
+mkdir -p "$S148_POLDIR/none" "$S148_POLDIR/allow/.claude/state" "$S148_POLDIR/deny/.claude/state" "$S148_POLDIR/garbage/.claude/state"
+printf 'allow\n' > "$S148_POLDIR/allow/.claude/state/self-review"
+printf 'deny\n'  > "$S148_POLDIR/deny/.claude/state/self-review"
+printf 'wat?!\n' > "$S148_POLDIR/garbage/.claude/state/self-review"
+s148_default=$(s148_pol "$S148_POLDIR/none")
+s148_allow=$(s148_pol "$S148_POLDIR/allow")
+s148_deny=$(s148_pol "$S148_POLDIR/deny")
+s148_garbage=$(s148_pol "$S148_POLDIR/garbage")
+s148_env=$( cd "$S148_POLDIR/deny" && GHJIG_SELF_REVIEW=allow bash -c ". \"$S148_SHIPMODE\" 2>/dev/null && resolve_self_review_policy" 2>/dev/null )
+rm -rf "$S148_POLDIR"
+if [ "$s148_default" = deny ] && [ "$s148_allow" = allow ] && [ "$s148_deny" = deny ] \
+   && [ "$s148_garbage" = deny ] && [ "$s148_env" = allow ]; then
+  ok "148e: resolve_self_review_policy default=deny, state honored, garbage→deny, env overrides (default=$s148_default allow=$s148_allow deny=$s148_deny garbage=$s148_garbage env=$s148_env) (#598)"
+else
+  ng "148e: resolve_self_review_policy must default deny + honor state/env + fail-closed on garbage (default=$s148_default allow=$s148_allow deny=$s148_deny garbage=$s148_garbage env=$s148_env) (#598)"
+fi
+
+# §148f (LOAD-BEARING RED — behavioral): the merge-review self-marker branch honors the policy.
+# Same self-marker shim as 137r-f (author==PR-author==merger COMMENT verdict=approve @head),
+# driven through the hook in two cwds: self-review=deny → BLOCK (self-marker NOT accepted; only
+# a native second-party APPROVE would satisfy the gate), self-review=allow → ALLOW. Reuses the
+# still-live s137 gh shim + s137_rv_* harness.
+s148_mk_selfshim() {
+  local d="$1"; s137_rv_shim "$d"
+  printf 'me\n' > "$d/pr_author"; printf 'me\n' > "$d/api_user"
+  printf '[{"state":"COMMENTED","commit_id":"%s","submitted_at":"2026-01-01T00:00:00Z","author":{"login":"me"},"user":{"login":"me"},"body":"<!-- file-review verdict=approve head=%s reviewer=code-reviewer -->"}]\n' \
+    "$S137_RV_HEAD" "$S137_RV_HEAD" > "$d/reviews.json"
+}
+s148_mk_cwd() {
+  local c="$1" pol="$2"
+  mkdir -p "$c/.claude/state"
+  ( cd "$c" && git init -q && git config user.email t@t && git config user.name t \
+      && git config commit.gpgsign false && git checkout -q -b smoke/feat/1-selfpol \
+      && git commit --allow-empty -q -m init ) 2>/dev/null || true
+  printf '%s\n' "$pol" > "$c/.claude/state/self-review"
+}
+S148F_DENY_SH="$S137_DIR/rv-selfpol-deny-shim"; s148_mk_selfshim "$S148F_DENY_SH"
+S148F_DENY_ST="$S137_DIR/rv-selfpol-deny-state"; mkdir -p "$S148F_DENY_ST/audit"
+S148F_DENY_CWD="$S137_DIR/rv-selfpol-deny-cwd"; s148_mk_cwd "$S148F_DENY_CWD" deny
+s137_rv_case "self-marker@head but self-review=deny → not accepted" block "$S148F_DENY_SH" "$S148F_DENY_ST" "$S148F_DENY_CWD"
+S148F_ALLOW_SH="$S137_DIR/rv-selfpol-allow-shim"; s148_mk_selfshim "$S148F_ALLOW_SH"
+S148F_ALLOW_ST="$S137_DIR/rv-selfpol-allow-state"; mkdir -p "$S148F_ALLOW_ST/audit"
+S148F_ALLOW_CWD="$S137_DIR/rv-selfpol-allow-cwd"; s148_mk_cwd "$S148F_ALLOW_CWD" allow
+s137_rv_case "self-marker@head with self-review=allow → accepted" allow "$S148F_ALLOW_SH" "$S148F_ALLOW_ST" "$S148F_ALLOW_CWD"
+
+# §148g (CRITICAL — LOAD-BEARING RED): byte-for-byte drift lock. The settings.json wrapper
+# allow inner command AND the file-review.md invocation must both carry the exact wrapper path
+# — a silent drift → the emitted command misses the matcher → classifier re-engages → silent
+# unattended park (the same failure class this fix closes; mirrors §144f).
+s148_set_has=0; s148_fr_has=0
+[ -f "$S148_SET" ] && grep -qF "Bash($S148_WRAP_CANON)" "$S148_SET" 2>/dev/null && s148_set_has=1
+[ -f "$S148_FR" ] && grep -qF "$S148_WRAP_CANON" "$S148_FR" 2>/dev/null && s148_fr_has=1
+if [ "$s148_set_has" = 1 ] && [ "$s148_fr_has" = 1 ]; then
+  ok "148g: wrapper path is byte-identical in settings.json and file-review.md (set=$s148_set_has fr=$s148_fr_has) (#598)"
+else
+  ng "148g: byte-for-byte drift — settings-side=$s148_set_has file-review-side=$s148_fr_has, both must carry '$S148_WRAP_CANON' (#598)"
 fi
 
 rm -rf "$S137_DIR"
