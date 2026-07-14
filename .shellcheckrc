@@ -7,6 +7,9 @@
 # at runtime end-to-end.
 disable=SC1090
 
-# Don't follow external sources at all — keep the lint surface to the files
-# explicitly invoked. (Default is false; spelled out for clarity.)
-external-sources=false
+# Follow external sources so a section file under scripts/test/smoke.d/ can
+# resolve the shared globals defined in its sibling _preamble.sh via a
+# `# shellcheck source=_preamble.sh` directive (#600). source-path=SCRIPTDIR
+# resolves that relative path against the file being linted.
+external-sources=true
+source-path=SCRIPTDIR

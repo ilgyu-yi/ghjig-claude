@@ -191,7 +191,7 @@ ensure_pinned_shellcheck() {
 # 3+4. Enumerate + lint per file, with the Linux peak-RSS flag.
 # ---------------------------------------------------------------------------
 main() {
-  local shellcheck_bin f files use_time time_bin max_rss_kb cap_kb
+  local shellcheck_bin f files use_time time_bin max_rss_kb cap_kb line_cap lines
   shellcheck_bin="$(ensure_pinned_shellcheck)"
   echo "→ using shellcheck: $shellcheck_bin" >&2
   "$shellcheck_bin" --version | head -3 >&2 || true
@@ -222,46 +222,41 @@ main() {
 
   # Memory cap — a LEGIBLE flag, not a hard `ulimit -v` (which caps virtual
   # address space, not RSS, and false-reds legitimate Haskell/GHC runs).
-  #   - The dominant file is the ~14.3k-line scripts/test/smoke.sh; measured
-  #     per-file peak ~12.3 GB RSS on darwin.aarch64 (cross-platform upper
-  #     reference — the flag itself only runs on Linux).
+  #   - #600 split the formerly ~16k-line scripts/test/smoke.sh into a thin
+  #     orchestrator + numbered scripts/test/smoke.d/ section files (each capped
+  #     well below the RSS cliff), so no single shellcheck unit now approaches
+  #     the runner's RAM. The monolith had peaked ~20 GiB RSS and OOM-killed the
+  #     ~16 GB ubuntu runner; the per-file peak is now a few hundred MB.
   #   - The pre-#539 COMBINED pass held every file's AST at once and peaked
   #     ~18 GB, OOM-killing the ~16 GB ubuntu runner as an illegible
   #     "runner received a shutdown signal".
   #   - Cap = 14 GiB (14680064 KB), ~87.5% of the 16 GB ubuntu-latest runner:
-  #     above the observed ~12.3 GB legitimate per-file peak (so a real run
-  #     NEVER trips it) yet below the ~18 GB combined-pass regression (so the
-  #     split being removed, or a file ballooning, trips it with a named cap).
+  #     above any legitimate per-file peak (so a real run NEVER trips it) yet
+  #     below the ~18 GB combined-pass regression (so the split being removed, or
+  #     a file ballooning, trips it with a named cap).
   cap_kb=14680064
   max_rss_kb=0
 
-  # Files exempt from the static-analysis pass: too large for shellcheck's
-  # whole-file analysis to fit in the ubuntu-latest CI runner RAM (#600). (Comment
-  # deliberately does not begin with the "# shellcheck" token — that prefix is a
-  # directive and would SC1073 when lint.sh lints itself.)
-  # scripts/test/smoke.sh (~16k
-  # lines) peaks ~20 GiB RSS under shellcheck — over the ~16 GB runner → an
-  # illegible OOM-kill ("The operation was canceled"), the same cliff the peak-RSS
-  # comment above describes. The cheap syntactic `bash -n` still runs on it; only
-  # the memory-heavy shellcheck pass is skipped. Root fix (split smoke.sh so each
-  # part is shellcheck-able again, then remove this exemption): #600.
-  sc_exempt() {
-    # find enumerates from the repo root, so smoke.sh arrives as
-    # scripts/test/smoke.sh — `*/test/smoke.sh` covers it without a redundant
-    # second alternative (SC2221).
-    case "$1" in
-      */test/smoke.sh) return 0 ;;
-      *) return 1 ;;
-    esac
-  }
+  # Deterministic per-file line-count cliff guard (#600). The RSS flag below is
+  # both Linux-only and non-fatal (so it never false-reds a clean run), which
+  # leaves the "a single file crept back toward the shellcheck-OOM cliff" case
+  # ungated on macOS and in CI. A line count is a cheap, platform-independent,
+  # un-flakeable proxy: hard-fail if ANY enumerated file exceeds line_cap so the
+  # next smoke.d/ section (or any script) that balloons is caught long before it
+  # can OOM the runner, and the smoke.sh split cannot silently regress into one
+  # oversized file again.
+  line_cap=6000
 
   local timelog rss
   for f in "${files[@]}"; do
     echo "→ bash -n $f" >&2
     bash -n "$f"
-    if sc_exempt "$f"; then
-      echo "→ shellcheck $f — SKIPPED (too large for CI-runner RAM; bash -n only; #600)" >&2
-      continue
+    lines="$(wc -l < "$f" | tr -d ' ')"
+    if [ "${lines:-0}" -gt "$line_cap" ]; then
+      echo "ERROR: $f has ${lines} lines, over the ${line_cap}-line cap (#600)." >&2
+      echo "  Large files push shellcheck toward the CI-runner OOM cliff; split it" >&2
+      echo "  (e.g. into scripts/test/smoke.d/ section files) before it regresses CI." >&2
+      exit 1
     fi
     echo "→ shellcheck $f" >&2
     if [ "$use_time" -eq 1 ]; then
