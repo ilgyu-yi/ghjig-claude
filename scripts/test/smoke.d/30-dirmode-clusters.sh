@@ -1955,11 +1955,13 @@ fi
 
 # 56f: no live triage-reviewer references remain in source/docs. Excluded:
 # append-only .claude/state + .claude/audit (history); CHANGELOG.md (immutable
-# shipped-release history, like the directive-reviewer rename); and this smoke
-# file itself (its deprecation assertions necessarily name the retired agent).
+# shipped-release history, like the directive-reviewer rename); and the smoke
+# suite itself — smoke.sh AND its smoke.d/ section files (#600) — whose
+# deprecation assertions necessarily name the retired agent.
 s56f_hits=$(cd "$SHELL_ROOT" && git grep -l 'triage-reviewer' -- . \
   ':(exclude).claude/state' ':(exclude).claude/audit' \
-  ':(exclude)CHANGELOG.md' ':(exclude)scripts/test/smoke.sh' 2>/dev/null)
+  ':(exclude)CHANGELOG.md' ':(exclude)scripts/test/smoke.sh' \
+  ':(exclude)scripts/test/smoke.d' 2>/dev/null)
 if [ -z "$s56f_hits" ]; then
   ok "56f: no live triage-reviewer references remain in source/docs (#173)"
 else
