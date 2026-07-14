@@ -111,8 +111,8 @@ if [ -n "$DRY_RUN" ]; then
   ensure_label "P1"              "D93F0B" "Priority 1 — next"
   ensure_label "P2"              "FBCA04" "Priority 2 — soon"
   ensure_label "P3"              "0E8A16" "Priority 3 — eventually"
-  ensure_label "initiative:challenged"          "0052CC" "Execution challenged the parent Initiative; orchestrator re-evaluation requested (projected from /initiative-feedback by CI, #359)"
-  ensure_label "initiative:completion-requested" "0052CC" "Execution signals the parent Initiative's termination may be met; orchestrator assessment requested (projected from /initiative-feedback by CI, #359)"
+  ensure_label "initiative:challenged"          "0052CC" "Execution challenged parent Initiative; orchestrator re-evaluation requested (#359)"
+  ensure_label "initiative:completion-requested" "0052CC" "Execution signals parent Initiative may be complete; orchestrator assessment requested (#359)"
 else
   bash "$GHJIG_ROOT/scripts/ensure_v3_labels.sh" 2>&1 | sed 's/^/  /'
 fi
