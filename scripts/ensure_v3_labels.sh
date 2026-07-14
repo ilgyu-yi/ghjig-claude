@@ -32,8 +32,15 @@ set -euo pipefail
 
 ensure_label() {
   local name="$1" color="$2" desc="$3"
-  gh label create "$name" --color "$color" --description "$desc" --force >/dev/null
-  echo "  label '$name' ensured"
+  # Fail-soft: a single label's creation failure (e.g. a 422 on a description
+  # that slipped past the ≤100-char smoke gate) must NOT abort the whole run
+  # under `set -e` and leave the substrate half-installed (#596). The `if`
+  # consumes the non-zero exit so pipefail can't propagate it.
+  if gh label create "$name" --color "$color" --description "$desc" --force >/dev/null 2>&1; then
+    echo "  label '$name' ensured"
+  else
+    printf '  warn: label %s create failed (non-fatal; continuing)\n' "$name" >&2
+  fi
 }
 
 echo "ensure_v3_labels: creating v3 reframe labels (idempotent)..."
@@ -49,7 +56,7 @@ ensure_label "P0"              "B60205" "Priority 0 — drop everything"
 ensure_label "P1"              "D93F0B" "Priority 1 — next"
 ensure_label "P2"              "FBCA04" "Priority 2 — soon"
 ensure_label "P3"              "0E8A16" "Priority 3 — eventually"
-ensure_label "initiative:challenged"          "0052CC" "Execution challenged the parent Initiative; orchestrator re-evaluation requested (projected from /initiative-feedback by CI, #359)"
-ensure_label "initiative:completion-requested" "0052CC" "Execution signals the parent Initiative's termination may be met; orchestrator assessment requested (projected from /initiative-feedback by CI, #359)"
+ensure_label "initiative:challenged"          "0052CC" "Execution challenged parent Initiative; orchestrator re-evaluation requested (#359)"
+ensure_label "initiative:completion-requested" "0052CC" "Execution signals parent Initiative may be complete; orchestrator assessment requested (#359)"
 
 echo "ensure_v3_labels: done."

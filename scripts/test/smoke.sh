@@ -15959,6 +15959,42 @@ else
   ng "146f: is_covered_ship_merge_form must reject '--auto --squash --delete-branch' (wrong strategy) (rc=$s146f) (#592)"
 fi
 
+# ---------- §147 label description ≤100 chars (#596) ----------
+# GitHub caps label descriptions at 100 chars; an over-length --description
+# makes `gh label create` return HTTP 422, which under `set -euo pipefail`
+# aborts ensure_v3_labels.sh mid-run and leaves the dir-mode substrate
+# half-installed (the subsequent inline directive/initiative labels in
+# onboard_target.sh never get created). Assert every description the script
+# authors is ≤100 chars. Count-guard (anti-vacuity, top-of-file norm): fail
+# loud if the parse finds too few ensure_label lines — a vacuous green here
+# would read as coverage while guarding nothing.
+S147_SRC="$SHELL_ROOT/scripts/ensure_v3_labels.sh"
+if [ ! -f "$S147_SRC" ]; then
+  ng "147: MISSING ensure_v3_labels.sh — cannot check label description lengths (#596)"
+else
+  s147_over=""
+  s147_n=0
+  while IFS= read -r line; do
+    case "$line" in
+      ensure_label\ \"*) ;;
+      *) continue ;;
+    esac
+    name=$(printf '%s\n' "$line" | sed -E 's/.*ensure_label "([^"]+)".*/\1/')
+    desc=$(printf '%s\n' "$line" | sed -E 's/.*"[0-9A-Fa-f]{6}" +"(.*)"[[:space:]]*$/\1/')
+    s147_n=$((s147_n+1))
+    if [ "${#desc}" -gt 100 ]; then
+      s147_over="$s147_over $name(${#desc})"
+    fi
+  done < "$S147_SRC"
+  if [ "$s147_n" -lt 10 ]; then
+    ng "147: parsed only $s147_n ensure_label lines (<10) — parser drift, not a real pass (#596)"
+  elif [ -n "$s147_over" ]; then
+    ng "147: label descriptions exceed GitHub's 100-char limit:$s147_over (#596)"
+  else
+    ok "147: all $s147_n ensure_v3_labels.sh label descriptions ≤100 chars (#596)"
+  fi
+fi
+
 # ---------- results ----------
 echo
 echo "smoke: pass=$PASS fail=$FAIL"
