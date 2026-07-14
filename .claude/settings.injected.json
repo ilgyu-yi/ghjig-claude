@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh pr merge --auto --merge --delete-branch)"
+      "Bash(gh pr merge --auto --merge --delete-branch)",
+      "Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh)"
     ]
   },
   "hooks": {

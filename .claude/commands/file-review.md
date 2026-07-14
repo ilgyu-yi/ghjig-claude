@@ -51,10 +51,15 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
      --field body=@<tempfile>
    ```
 
-   - **Another author's PR:** `event=APPROVE` (approve) / `event=REQUEST_CHANGES` (block).
+   - **Another author's PR:** `event=APPROVE` (approve) / `event=REQUEST_CHANGES` (block) — the direct `gh api` call above.
    - **Own PR:** `event=COMMENT` (GitHub 422s a self approve/request-changes); the body carries the marker.
+     - **Own PR that is the CURRENT branch's PR (the `/ship` self-merge case) → route through the wrapper (#598):** the raw `gh api …/reviews` self-approve POST is blocked by the auto-mode classifier as self-approval (SPEC §5.7.1). Submit the `COMMENT` via the fixed-form, `permissions.allow`-covered wrapper instead, feeding the sanitized body on **stdin** (never an inline argument):
+       ```bash
+       printf '%s' "$REVIEW_BODY" | .claude/ghjig-root/scripts/ghjig_file_review_post.sh
+       ```
+       The wrapper resolves the current-branch PR + head itself, **fails closed unless the acting identity == the PR author**, and hardcodes `event=COMMENT` — so it needs no positional args and its allow entry is the exact wildcard-free `Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh)`. Use the direct `gh api` REST call above **only** for another author's PR, or a manual self-review of a **non-current** PR (not the classifier-blocked own-current-PR shape).
 
-   `gh pr review` is **deliberately not used** — it cannot pin a `commit_id`, so a push concurrent with the review would rebind the verdict to an unreviewed head (the §4.5 head-pin failure). Binding `commit_id` to the blind-confirmed head means a racing push leaves the review pinned to a now-stale commit, which #586 correctly reads as not-current. Do **not** submit via an inline body argument — the body always travels via `--field body=@<tempfile>`.
+   `gh pr review` is **deliberately not used** — it cannot pin a `commit_id`, so a push concurrent with the review would rebind the verdict to an unreviewed head (the §4.5 head-pin failure). Binding `commit_id` to the blind-confirmed head means a racing push leaves the review pinned to a now-stale commit, which #586 correctly reads as not-current. Do **not** submit via an inline body argument — the body always travels via `--field body=@<tempfile>` (direct call) or **stdin** (wrapper).
 
 8. **Audit** — source the hook runtime (`. ".claude/ghjig-root/.claude/hooks/hookrt.sh"`) then record under the **`file-review`** category (event-info; free-form reason text):
    - posted: `audit_log info file-review posted "pr=#<N> verdict=<approve|block> commit_id=$HEAD_SHA ownership=<self|other> event=<APPROVE|REQUEST_CHANGES|COMMENT>"`

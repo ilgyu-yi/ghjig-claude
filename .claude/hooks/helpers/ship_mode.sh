@@ -60,6 +60,34 @@ resolve_review_gate() {
   esac
 }
 
+# resolve_self_review_policy — Stdout: `allow` or `deny`.
+# Governs whether the §6.1 `merge-review` gate accepts a SELF `verdict=approve`
+# marker (shape (b)) as satisfying the head-pinned-review requirement (#598).
+# Resolution order (identical shape to resolve_review_gate):
+#   1. $GHJIG_SELF_REVIEW (env)
+#   2. .claude/state/self-review (cwd-relative, `head -c 64 | tr -d '[:space:]'`)
+#   3. default `deny`
+# Unknown / empty / whitespace-only / malformed values fail CLOSED to `deny` —
+# a garbled value must never silently accept an agent self-approval. The static
+# `permissions.allow` wrapper entry (§5.7.1) is injected into every target, so it
+# defers the classifier everywhere; this per-project state is what actually
+# decides whether the deferred self-review counts, keeping self-merge OFF by
+# default in EVERY context (the state file is gitignored per §3.2.2 — an operator
+# opts a project in by creating `.claude/state/self-review=allow` locally; no clone
+# inherits it). Like mode/review-gate/work-lang, settings.json is intentionally NOT a layer.
+resolve_self_review_policy() {
+  local raw=""
+  if [ -n "${GHJIG_SELF_REVIEW:-}" ]; then
+    raw="$GHJIG_SELF_REVIEW"
+  elif [ -f .claude/state/self-review ]; then
+    raw=$(head -c 64 .claude/state/self-review 2>/dev/null | tr -d '[:space:]')
+  fi
+  case "$raw" in
+    allow|deny) printf '%s\n' "$raw";;
+    *)          printf '%s\n' "deny";;
+  esac
+}
+
 # ship_classify_blocker — JSON on stdin → `clean` | `soft` | `hard` on stdout.
 # Input shape: subset of `gh pr view --json mergeable,mergeStateStatus,statusCheckRollup,reviewDecision,reviewRequests`.
 ship_classify_blocker() {
