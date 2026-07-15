@@ -91,6 +91,27 @@ ghjig_state_dir() {
   printf ''
 }
 
+# ghjig_state_dir_cli — the single shared per-project state-dir resolver for the
+# CLI/Bash-tool context (#602). A hook always has CLAUDE_PROJECT_DIR set, but a
+# Claude Code Bash-tool subprocess (the /file-review stage writer + the retargeted
+# review-post wrapper) often runs with it UNSET, so ghjig_state_dir alone would
+# yield empty. When the override seam or CLAUDE_PROJECT_DIR is present, defer to
+# ghjig_state_dir (identical resolution). Otherwise derive CLAUDE_PROJECT_DIR from
+# the git top-level — mirroring ghjig_skip.sh — so a writer and a reader run from
+# the same repo agree on the path; last resort is the aligned shell-root fallback.
+# The stage writer and the review-post wrapper BOTH call this one definition; it
+# is defined here exactly once and re-defined by neither endpoint.
+ghjig_state_dir_cli() {
+  if [ -n "${GHJIG_STATE_DIR_OVERRIDE:-}" ] || [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    ghjig_state_dir; return 0
+  fi
+  local top; top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
+  if [ -n "$top" ]; then
+    CLAUDE_PROJECT_DIR="$top" ghjig_state_dir; return 0
+  fi
+  printf '%s' "${SHELL_ROOT:-${GHJIG_ROOT:-}}/.claude/ghjig-state"
+}
+
 # ghjig_registry_file [project_dir] — per-project scope-guard registry path
 # (#316, Directive #311). One definition, two execution contexts:
 #   - With an explicit <project_dir> (launcher / CLI — bin/ghjig,
