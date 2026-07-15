@@ -1200,8 +1200,14 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace branch "$cmd"
     fi
 
-    # --no-verify
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b.*\-\-no-verify\b"; then
+    # --no-verify (#605: strip heredoc DATA before scanning, mirroring the
+    # commit-umbrella entry below (:strip_command_data … heredoc) and the #403
+    # rationale — so a command whose heredoc body merely mentions
+    # "commit … --no-verify" does not false-trip this arm. This was the residual
+    # raw-$cmd data-as-token gap after #366/#403/#446 fixed the sibling arms.
+    # (The adjacent --amend arm below still scans raw $cmd — same class, tracked
+    # separately; out of #605's scope.)
+    if printf '%s' "$(strip_command_data "$raw_cmd" heredoc)" | grep -qE "${GIT_PREFIX}commit\b.*\-\-no-verify\b"; then
       decided=
       should_skip no-verify && decided=1 || block no-verify "--no-verify blocked"
       [ -z "$decided" ] && pass_through_trace no-verify "$cmd"

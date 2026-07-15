@@ -1830,6 +1830,66 @@ EOF
   rm -rf "$S108_DIR"
 fi
 
+# ---------- §150 (#605): --no-verify arm does not false-positive on heredoc DATA ----------
+# Sibling to §108 (#403): the --no-verify matcher arm (pre_tool_use.sh:1204) scans the
+# RAW $cmd for `git ... commit ... --no-verify`, unlike every neighbouring arm (the clean
+# :198, merge :333, and the adjacent commit-umbrella :1250) which first pass raw_cmd
+# through strip_command_data. So a NON-git command whose heredoc DATA body merely mentions
+# the tokens `git commit ... --no-verify` on one line false-trips the `--no-verify blocked`
+# block. The Code fix gates the entry on strip_command_data "$raw_cmd" heredoc (heredoc
+# mode — matching the sibling arms; under-block-safe because a real "$(git commit --no-verify)"
+# substitution is left intact). 150a: heredoc-body false-positive must be ALLOWED (RED
+# pre-fix). 150b: no-under-block guard — a real trailing `--no-verify` flag still blocks.
+if ! command -v jq >/dev/null 2>&1; then
+  ng "150a: jq missing — cannot drive the --no-verify DATA test (#605)"
+  ng "150b: jq missing (#605)"
+else
+  S150_DIR=$(mktemp -d)
+  S150_TARGET="$S150_DIR/target"
+  mkdir -p "$S150_TARGET"
+  S150_TARGET=$(cd "$S150_TARGET" && pwd -P)
+  # Feature (non-protected) branch: --no-verify is branch-independent, and a feature
+  # branch keeps the protected-branch commit umbrella out of the picture entirely.
+  (cd "$S150_TARGET" && (git init -q -b feat/x 2>/dev/null || { git init -q && git checkout -q -b feat/x; })
+   git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+  printf '%s\n' "$S150_TARGET" >> "$SMOKE_REG"
+
+  s150_bash_run() {
+    local cmd="$1"
+    ( cd "$S150_TARGET" || exit 1
+      jq -nc --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' \
+        | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+    return $?
+  }
+
+  # 150a: a gh-issue-create whose --body carries the `git commit ... --no-verify` tokens
+  #       on one HEREDOC body line → must be ALLOWED (rc=0). The real #605 false-positive.
+  #       RED pre-fix (the raw scan matches the data line and blocks with rc=2).
+  sq="'"
+  s150_data_cmd="gh issue create --title x --body \"\$(cat <<${sq}EOF${sq}
+to skip the pre-commit gate you can run git commit --no-verify by hand
+EOF
+)\""
+  s150_bash_run "$s150_data_cmd"; s150a_rc=$?
+  if [ "$s150a_rc" = 0 ]; then
+    ok "150a: --no-verify arm ignores the tokens inside a heredoc --body (no false-positive) (#605)"
+  else
+    ng "150a: --no-verify arm false-positives on 'git commit ... --no-verify' in a heredoc --body (rc=$s150a_rc, want 0) (#605)"
+  fi
+
+  # 150b (no under-block): a REAL `git commit` with a trailing `--no-verify` flag still
+  #       blocks (rc=2). Passes now and must keep passing after the heredoc-strip fix
+  #       (strip_command_data heredoc leaves a flag-bearing invocation with no heredoc intact).
+  s150_real_cmd="git commit -m 'fix(#605): real subject' --no-verify"
+  s150_bash_run "$s150_real_cmd"; s150b_rc=$?
+  if [ "$s150b_rc" = 2 ]; then
+    ok "150b: a real 'git commit --no-verify' still blocks (no under-block) (#605)"
+  else
+    ng "150b: real 'git commit --no-verify' not blocked (rc=$s150b_rc, want 2) (#605)"
+  fi
+  rm -rf "$S150_DIR"
+fi
+
 # ---------- §109 (#404): is_trusted_filer resolves trust portably across gh --json support ----------
 # Reproduce-first: on a gh version that REJECTS `gh issue view --json authorAssociation`
 # (Unknown JSON field) but serves `gh api .../issues/N -q .author_association`, the helper
