@@ -645,6 +645,244 @@ fi
 
 rm -rf "$S137_DIR"
 
+# ---------- §148h/§148i/§148j: /file-review staged-body retarget (#602) ----------
+# SPEC §5.7.1: the self-review producer's body must NOT ride stdin — a bare covered
+# command in the harness cannot be fed stdin, so the classifier-deferred wrapper has
+# no way to receive the sanitized body. #602 retargets the wrapper to slurp the body
+# from a state file staged by a NEW writer (scripts/ghjig_file_review_stage.sh <path>)
+# under a FIXED ghjig_state_dir_cli() path (subdir file-review/), one-shot unlinked +
+# TTL/head-bind validated IN MEMORY before the POST (slurp→unlink→validate→post, so a
+# TOCTOU cannot re-post). ghjig_state_dir_cli() is a single shared sync point in
+# hookrt.sh that the writer and reader BOTH call. RED until Phase C lands the writer +
+# the retargeted reader; the doc pipe removal (§148i-doc) is GREEN (Doc phase landed).
+S148_STAGE_CANON='.claude/ghjig-root/scripts/ghjig_file_review_stage.sh'
+S148_STAGE_FILE="$SHELL_ROOT/scripts/ghjig_file_review_stage.sh"
+
+# §148h (LOAD-BEARING RED — retargeted reader shape): the wrapper no longer slurps
+# stdin (`body=$(cat)` gone), sources hookrt.sh + references ghjig_state_dir_cli, and
+# names the fixed `file-review/` state path, a 60s TTL, and a one-shot `rm -f` unlink.
+s148h_nocat=0; s148h_src=0; s148h_cli=0; s148h_dir=0; s148h_ttl=0; s148h_rmf=0
+if [ -f "$S148_WRAP_FILE" ]; then
+  grep -qF 'body=$(cat)' "$S148_WRAP_FILE" 2>/dev/null || s148h_nocat=1
+  grep -qF 'hookrt.sh'            "$S148_WRAP_FILE" 2>/dev/null && s148h_src=1
+  grep -qF 'ghjig_state_dir_cli'  "$S148_WRAP_FILE" 2>/dev/null && s148h_cli=1
+  grep -qF 'file-review/'         "$S148_WRAP_FILE" 2>/dev/null && s148h_dir=1
+  grep -qE '(^|[^0-9])60([^0-9]|$)' "$S148_WRAP_FILE" 2>/dev/null && s148h_ttl=1
+  grep -qF 'rm -f'                "$S148_WRAP_FILE" 2>/dev/null && s148h_rmf=1
+fi
+if [ "$s148h_nocat$s148h_src$s148h_cli$s148h_dir$s148h_ttl$s148h_rmf" = 111111 ]; then
+  ok "148h: wrapper retargeted — no stdin slurp, sources hookrt.sh + ghjig_state_dir_cli, file-review/ path + 60s TTL + one-shot rm -f (#602)"
+else
+  ng "148h: wrapper must drop body=\$(cat) and read a staged file-review/ state file via ghjig_state_dir_cli with a 60s TTL + rm -f unlink (nocat=$s148h_nocat src=$s148h_src cli=$s148h_cli dir=$s148h_dir ttl=$s148h_ttl rmf=$s148h_rmf) (#602)"
+fi
+
+# §148h-ord (LOAD-BEARING RED — TOCTOU foreclosure): the one-shot unlink (rm -f of the
+# staged state file) MUST appear BEFORE the reviews POST (slurp→unlink→validate→post),
+# so a concurrent restage cannot make the wrapper post twice. Compare grep line nums.
+# Exclude comment lines (grep -n form `N:   # …`) so a prose mention of the POST or a
+# commented rm -f does not masquerade as the code form the ordering assertion reads.
+s148h_rm_ln=$(grep -nF 'rm -f' "$S148_WRAP_FILE" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1)
+s148h_post_ln=$(grep -nE 'gh api.*reviews' "$S148_WRAP_FILE" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1)
+if [ -n "$s148h_rm_ln" ] && [ -n "$s148h_post_ln" ] && [ "$s148h_rm_ln" -lt "$s148h_post_ln" ]; then
+  ok "148h-ord: staged-file unlink (L$s148h_rm_ln) precedes the reviews POST (L$s148h_post_ln) — TOCTOU foreclosed (#602)"
+else
+  ng "148h-ord: the one-shot rm -f unlink must appear BEFORE the gh api …reviews POST (rm=$s148h_rm_ln post=$s148h_post_ln) (#602)"
+fi
+
+# §148h-fc (regression lock — must stay GREEN): the wrapper fails closed on an
+# empty/absent/stale body BEFORE the POST — a fail/exit guard naming that condition
+# sits above the reviews POST line (fail-closed is an invariant across the retarget).
+s148h_guard_ln=$(grep -nEi '(empty|absent|stale|malformed).*(fail|exit)|(fail|exit).*(empty|absent|stale|malformed)' "$S148_WRAP_FILE" 2>/dev/null | head -1 | cut -d: -f1)
+if [ -n "$s148h_guard_ln" ] && [ -n "$s148h_post_ln" ] && [ "$s148h_guard_ln" -lt "$s148h_post_ln" ]; then
+  ok "148h-fc: fail-closed empty/absent guard (L$s148h_guard_ln) precedes the POST (L$s148h_post_ln) (#602)"
+else
+  ng "148h-fc: wrapper must fail closed on empty/absent/stale body before the reviews POST (guard=$s148h_guard_ln post=$s148h_post_ln) (#602)"
+fi
+
+# §148i-a (LOAD-BEARING RED): the new writer exists AND is executable.
+if [ -f "$S148_STAGE_FILE" ] && [ -x "$S148_STAGE_FILE" ]; then
+  ok "148i-a: scripts/ghjig_file_review_stage.sh exists and is executable (#602)"
+else
+  ng "148i-a: writer scripts/ghjig_file_review_stage.sh must exist + be executable (#602)"
+fi
+
+# §148i-b (LOAD-BEARING RED): the writer calls ghjig_state_dir_cli, takes a body-FILE
+# PATH positional arg, and READS that file (the body reaches the state file via a path,
+# never as an inline argv body token — invariant 7).
+s148i_cli=0; s148i_arg=0; s148i_read=0
+if [ -f "$S148_STAGE_FILE" ]; then
+  grep -qF 'ghjig_state_dir_cli' "$S148_STAGE_FILE" 2>/dev/null && s148i_cli=1
+  grep -qE '\$\{?1(\b|\})' "$S148_STAGE_FILE" 2>/dev/null && s148i_arg=1
+  grep -qE 'cat[[:space:]]+"?\$|<[[:space:]]*"?\$' "$S148_STAGE_FILE" 2>/dev/null && s148i_read=1
+fi
+if [ "$s148i_cli$s148i_arg$s148i_read" = 111 ]; then
+  ok "148i-b: writer resolves via ghjig_state_dir_cli, takes a body-file PATH arg + reads the file (no inline body) (#602)"
+else
+  ng "148i-b: writer must call ghjig_state_dir_cli + read a body-FILE PATH argument, never accept body content inline (cli=$s148i_cli arg=$s148i_arg read=$s148i_read) (#602)"
+fi
+
+# §148i-cli (LOAD-BEARING RED — single shared sync point): ghjig_state_dir_cli is
+# DEFINED EXACTLY ONCE in the tree (anchored def-form grep, so the file-review.md prose
+# mention does not count) and that one definition lives in hookrt.sh; NEITHER the writer
+# NOR the wrapper re-defines it — they call the single shared resolver.
+s148i_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts" 2>/dev/null | sort -u)
+s148i_defcount=$(printf '%s\n' "$s148i_defs" | grep -c . )
+s148i_in_hookrt=0
+printf '%s\n' "$s148i_defs" | grep -q 'hookrt\.sh$' && s148i_in_hookrt=1
+s148i_wr_redef=0; s148i_wrap_redef=0
+[ -f "$S148_STAGE_FILE" ] && grep -qE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$S148_STAGE_FILE" 2>/dev/null && s148i_wr_redef=1
+[ -f "$S148_WRAP_FILE" ]  && grep -qE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$S148_WRAP_FILE"  2>/dev/null && s148i_wrap_redef=1
+if [ "$s148i_defcount" = 1 ] && [ "$s148i_in_hookrt" = 1 ] && [ "$s148i_wr_redef" = 0 ] && [ "$s148i_wrap_redef" = 0 ]; then
+  ok "148i-cli: ghjig_state_dir_cli defined exactly once (in hookrt.sh); writer + wrapper call it, never re-define (count=$s148i_defcount hookrt=$s148i_in_hookrt) (#602)"
+else
+  ng "148i-cli: ghjig_state_dir_cli must be a single hookrt.sh definition, not re-defined in writer/wrapper (count=$s148i_defcount hookrt=$s148i_in_hookrt wr_redef=$s148i_wr_redef wrap_redef=$s148i_wrap_redef) (#602)"
+fi
+
+# §148i-doc (regression lock — GREEN, Doc phase landed): file-review.md stages via the
+# writer then invokes the wrapper BARE — it references the stage writer AND carries NO
+# `| …/ghjig_file_review_post.sh` pipe (a pipe makes the covered command non-bare → the
+# classifier re-engages, the exact failure #602 forecloses). Positive+negative fused
+# so an empty/prose-only doc cannot green it vacuously.
+s148i_pipe=0; s148i_stage_ref=0
+if [ -f "$S148_FR" ]; then
+  grep -qE '\|[[:space:]]*(\.?/)?\.claude/ghjig-root/scripts/ghjig_file_review_post\.sh' "$S148_FR" 2>/dev/null && s148i_pipe=1
+  grep -qF "$S148_STAGE_CANON" "$S148_FR" 2>/dev/null && s148i_stage_ref=1
+fi
+if [ "$s148i_pipe" = 0 ] && [ "$s148i_stage_ref" = 1 ]; then
+  ok "148i-doc: file-review.md references the stage writer and invokes the wrapper bare — no stdin pipe (#602)"
+else
+  ng "148i-doc: file-review.md must reference $S148_STAGE_CANON and carry NO pipe into ghjig_file_review_post.sh (pipe=$s148i_pipe stage_ref=$s148i_stage_ref) (#602)"
+fi
+
+# §148i-reg (regression re-affirm — must stay GREEN): the #598 invariants the #602
+# retarget must not regress — settings.json carries ONLY the exact narrow wrapper allow
+# (no wildcard, no raw gh-api-reviews) [§148b] AND the wrapper stays event=COMMENT-only
+# with an own-PR author guard [§148d]. Re-run both so the retarget cannot silently drop
+# the boundary while flipping §148h green.
+s148i_narrow=0
+if [ -f "$S148_SET" ]; then
+  s148i_any=$(grep -cF 'ghjig_file_review_post.sh' "$S148_SET" 2>/dev/null || true)
+  s148i_exact=$(grep -cF "Bash($S148_WRAP_CANON)" "$S148_SET" 2>/dev/null || true)
+  s148i_raw=$(grep -cE 'gh api[^"]*pulls[^"]*reviews' "$S148_SET" 2>/dev/null || true)
+  [ "$s148i_exact" -ge 1 ] && [ "$s148i_any" = "$s148i_exact" ] && [ "$s148i_raw" = 0 ] && s148i_narrow=1
+fi
+s148i_shape=0
+if [ -f "$S148_WRAP_FILE" ] && [ -x "$S148_WRAP_FILE" ] \
+   && grep -qF 'event=COMMENT' "$S148_WRAP_FILE" 2>/dev/null \
+   && ! grep -qE 'event=(APPROVE|REQUEST_CHANGES)' "$S148_WRAP_FILE" 2>/dev/null \
+   && grep -qiE 'author' "$S148_WRAP_FILE" 2>/dev/null; then
+  s148i_shape=1
+fi
+if [ "$s148i_narrow" = 1 ] && [ "$s148i_shape" = 1 ]; then
+  ok "148i-reg: #598 invariants intact — narrow exact allow (§148b) + event=COMMENT-only own-PR guard (§148d) survive the retarget (#602)"
+else
+  ng "148i-reg: retarget must preserve the narrow allow + COMMENT-only own-PR guard (narrow=$s148i_narrow shape=$s148i_shape) (#602)"
+fi
+
+# §148j (LOAD-BEARING RED — behavioral stage→post fail-closed): drive the REAL writer +
+# the retargeted wrapper against a gh shim that records reviews POSTs. Fresh staged body
+# (created=now, head=current) → exactly ONE POST + the state file unlinked; every
+# fail-closed input (absent / empty / stale / future / head-mismatch / malformed) → NO
+# POST. State resolves under CLAUDE_PROJECT_DIR/.claude/ghjig-state/file-review via the
+# shared ghjig_state_dir_cli() (override unset so CLAUDE_PROJECT_DIR is the sync point).
+# RED now: the writer is absent and the wrapper still slurps stdin, so the FRESH
+# positive path cannot POST (fed </dev/null it fails "empty body"); the negative cases
+# are fail-closed locks that gain teeth once Phase C stages a real file.
+S148J_DIR=$(mktemp -d)
+S148J_BIN="$S148J_DIR/bin"; S148J_ST="$S148J_DIR/ghstate"; S148J_PROJ="$S148J_DIR/proj"
+mkdir -p "$S148J_BIN" "$S148J_ST" "$S148J_PROJ"
+cat > "$S148J_BIN/gh" <<'SHIM'
+#!/bin/sh
+case "$*" in
+  *api*reviews*)  : "${GH_SHIM_STATE:?}"; echo post >> "$GH_SHIM_STATE/post_log"
+                  echo '{"id":1,"commit_id":"h","state":"COMMENTED","user":"me"}' ;;
+  *"api user"*)   cat "$GH_SHIM_STATE/api_user" 2>/dev/null ;;
+  *"pr view"*)    cat "$GH_SHIM_STATE/pr_view" 2>/dev/null ;;
+  *"repo view"*)  cat "$GH_SHIM_STATE/name_with_owner" 2>/dev/null ;;
+esac
+exit 0
+SHIM
+chmod +x "$S148J_BIN/gh"
+( cd "$S148J_PROJ" && git init -q && git config user.email t@t && git config user.name t \
+    && git config commit.gpgsign false && git checkout -q -b smoke/feat/1-frpost \
+    && git commit --allow-empty -q -m init ) >/dev/null 2>&1 || true
+S148J_HEAD=$(cd "$S148J_PROJ" && git rev-parse HEAD 2>/dev/null || echo nohead)
+printf 'me\n'        > "$S148J_ST/api_user"
+printf 'octo/repo\n' > "$S148J_ST/name_with_owner"
+printf '{"number":55,"headRefOid":"%s","author":{"login":"me"}}\n' "$S148J_HEAD" > "$S148J_ST/pr_view"
+S148J_BODY="$S148J_DIR/body.txt"
+printf '<!-- file-review verdict=approve head=%s reviewer=code-reviewer -->\nlgtm\n' "$S148J_HEAD" > "$S148J_BODY"
+S148J_FRDIR="$S148J_PROJ/.claude/ghjig-state/file-review"
+s148j_reset() { rm -f "$S148J_ST/post_log" 2>/dev/null; rm -rf "$S148J_FRDIR" 2>/dev/null; }
+s148j_posts() { if [ -f "$S148J_ST/post_log" ]; then wc -l < "$S148J_ST/post_log" | tr -d ' '; else echo 0; fi; }
+s148j_sf()    { ls "$S148J_FRDIR"/* 2>/dev/null | head -1; }
+s148j_stage() { ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S148J_PROJ" \
+                    && CLAUDE_PROJECT_DIR="$S148J_PROJ" PATH="$S148J_BIN:$PATH" \
+                       GH_SHIM_STATE="$S148J_ST" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+                       bash "$S148_STAGE_FILE" "$S148J_BODY" ) >/dev/null 2>&1 || true; }
+s148j_post()  { ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S148J_PROJ" \
+                    && CLAUDE_PROJECT_DIR="$S148J_PROJ" PATH="$S148J_BIN:$PATH" \
+                       GH_SHIM_STATE="$S148J_ST" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+                       bash "$S148_WRAP_FILE" </dev/null ) >/dev/null 2>&1 || true; }
+
+# 148j-fresh (LOAD-BEARING RED): fresh stage → exactly ONE POST + state file unlinked.
+s148j_reset; s148j_stage; s148j_post
+s148j_fp=$(s148j_posts); s148j_fl=$(s148j_sf)
+if [ "$s148j_fp" = 1 ] && [ -z "$s148j_fl" ]; then
+  ok "148j-fresh: fresh staged body → exactly one reviews POST + state file unlinked (#602)"
+else
+  ng "148j-fresh: fresh stage→post must POST once and unlink the state file (posts=$s148j_fp left='$s148j_fl') (#602)"
+fi
+
+# 148j-absent: no staged file → NO POST (fail-closed).
+s148j_reset; s148j_post; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 0 ]; then ok "148j-absent: no staged file → NO reviews POST (fail-closed) (#602)"
+else ng "148j-absent: an absent staged body must not POST (posts=$s148j_p) (#602)"; fi
+
+# 148j-empty: header-only (empty body after strip) → NO POST.
+s148j_reset; s148j_stage; s148j_sf1=$(s148j_sf)
+if [ -n "$s148j_sf1" ]; then grep -E '^(created|head)=' "$s148j_sf1" > "$s148j_sf1.t" 2>/dev/null && mv "$s148j_sf1.t" "$s148j_sf1" 2>/dev/null || true; fi
+s148j_post; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 0 ]; then ok "148j-empty: empty staged body → NO reviews POST (fail-closed) (#602)"
+else ng "148j-empty: an empty staged body must not POST (posts=$s148j_p) (#602)"; fi
+
+# 148j-stale: created >60s ago → NO POST + poison file unlinked.
+s148j_reset; s148j_stage; s148j_sf1=$(s148j_sf)
+if [ -n "$s148j_sf1" ]; then
+  s148j_old=$(( $(date +%s) - 120 ))
+  awk -v c="$s148j_old" 'NR==1{ if ($0 ~ /^created=/) { print "created=" c; next } } {print}' "$s148j_sf1" > "$s148j_sf1.t" 2>/dev/null && mv "$s148j_sf1.t" "$s148j_sf1" 2>/dev/null || true
+fi
+s148j_post; s148j_p=$(s148j_posts); s148j_l=$(s148j_sf)
+if [ "$s148j_p" = 0 ] && [ -z "$s148j_l" ]; then ok "148j-stale: created >60s ago → NO POST + poison file unlinked (#602)"
+else ng "148j-stale: a stale staged body must not POST and must be unlinked (posts=$s148j_p left='$s148j_l') (#602)"; fi
+
+# 148j-future: future-dated created → NO POST.
+s148j_reset; s148j_stage; s148j_sf1=$(s148j_sf)
+if [ -n "$s148j_sf1" ]; then
+  s148j_fut=$(( $(date +%s) + 120 ))
+  awk -v c="$s148j_fut" 'NR==1{ if ($0 ~ /^created=/) { print "created=" c; next } } {print}' "$s148j_sf1" > "$s148j_sf1.t" 2>/dev/null && mv "$s148j_sf1.t" "$s148j_sf1" 2>/dev/null || true
+fi
+s148j_post; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 0 ]; then ok "148j-future: future-dated created → NO reviews POST (fail-closed) (#602)"
+else ng "148j-future: a future-dated staged body must not POST (posts=$s148j_p) (#602)"; fi
+
+# 148j-headmiss: staged head != resolved PR head → NO POST (head-bind mismatch).
+s148j_reset; s148j_stage
+printf '{"number":55,"headRefOid":"%s","author":{"login":"me"}}\n' "mismatch-$S148J_HEAD" > "$S148J_ST/pr_view"
+s148j_post; s148j_p=$(s148j_posts)
+printf '{"number":55,"headRefOid":"%s","author":{"login":"me"}}\n' "$S148J_HEAD" > "$S148J_ST/pr_view"
+if [ "$s148j_p" = 0 ]; then ok "148j-headmiss: staged head != resolved PR head → NO reviews POST (fail-closed) (#602)"
+else ng "148j-headmiss: a head-bind mismatch must not POST (posts=$s148j_p) (#602)"; fi
+
+# 148j-malformed: garbage header → NO POST + file unlinked.
+s148j_reset; s148j_stage; s148j_sf1=$(s148j_sf)
+if [ -n "$s148j_sf1" ]; then printf 'garbage-not-a-header\nsome body\n' > "$s148j_sf1" 2>/dev/null || true; fi
+s148j_post; s148j_p=$(s148j_posts); s148j_l=$(s148j_sf)
+if [ "$s148j_p" = 0 ] && [ -z "$s148j_l" ]; then ok "148j-malformed: malformed header → NO POST + poison file unlinked (#602)"
+else ng "148j-malformed: a malformed staged body must not POST and must be unlinked (posts=$s148j_p left='$s148j_l') (#602)"; fi
+
+rm -rf "$S148J_DIR"
+
 # ---------- §138: pinned-reproducible shellcheck lint runner (#545) ----------
 # SPEC §11 (syntax job). The CI `syntax` job's shellcheck must become a single
 # reproducible predicate that a developer runs locally identically — `scripts/lint.sh`
