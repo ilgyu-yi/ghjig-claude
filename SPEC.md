@@ -1237,7 +1237,7 @@ Running the seed commit in a **real terminal** (no hook in the path, the commit 
    - `ISSUE_TEMPLATE/` absent → suggest shell template.
    - `PULL_REQUEST_TEMPLATE.md` absent → suggest shell template.
    - `CODEOWNERS` absent → recommend.
-5. **Branch protection check** — `gh api repos/{owner}/{repo}/branches/main/protection`. Report missing items (PR required, review required, status checks required, force push blocked). Setup requires admin, so just print commands.
+5. **Branch protection check** — `gh api repos/{owner}/{repo}/branches/<default>/protection`, **host-pinned** `--hostname` to the repo host (derived from `gh repo view --json url` — a host-less `gh api` reads gh's default host, github.com, so on a GHES target it 404s / mis-reports the enterprise repo's protection; #614, same mechanism as the review-path fix #610). Report missing items (PR required, review required, status checks required, force push blocked). Setup requires admin, so just print commands.
 6. **CI presence** — check `.github/workflows/`. Absent → recommend appropriate workflows.
 7. **Local git-hook tier** (§6.7) — install and verify the committed `.githooks/` enforcement tier by running `scripts/install_git_hooks.sh`, which sets the **repo-local** `core.hooksPath` (never `--global`/`--system`, §3.4), then `--check` to confirm activation. Because the change is repo-local and reversible (`git config --unset core.hooksPath`), this is the one activation `/onboard` performs rather than only recommends — it respects the §3.4 user-global boundary. The per-clone bootstrap gap (a clone that never ran the installer) is re-surfaced each session by the SessionStart drift arm (§6.7).
 
