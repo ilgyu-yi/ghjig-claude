@@ -1890,6 +1890,76 @@ EOF
   rm -rf "$S150_DIR"
 fi
 
+# ---------- §151 (#607): --amend arm does not false-positive on heredoc DATA ----------
+# Twin of §150 (#605): the --amend matcher arm (pre_tool_use.sh:1217) scanned the RAW $cmd
+# for `git ... commit ... --amend`, unlike every neighbouring arm (the clean :198, merge :333,
+# the adjacent --no-verify arm fixed in #605, and the commit-umbrella :1256) which first pass
+# raw_cmd through strip_command_data. So a NON-git command whose heredoc DATA body merely
+# mentions the tokens `git commit ... --amend` on one line false-trips the `--amend of an
+# already-pushed commit blocked` block. The Code fix gates the entry on strip_command_data
+# "$raw_cmd" heredoc (heredoc mode — matching the sibling arms; under-block-safe because a real
+# "$(git commit --amend)" substitution is left intact). 151a: heredoc-body false-positive must
+# be ALLOWED (RED pre-fix). 151b: no-under-block guard — a genuine `git commit --amend` of an
+# already-pushed commit still blocks.
+#
+# The amend block is conditional on the commit being pushed (HEAD an ancestor of @{upstream}),
+# so unlike §150 this fixture is a bare "remote" + clone: after the initial push, the working
+# clone's HEAD == origin/feat/x, which satisfies the ancestor check. That makes 151a a genuine
+# RED (the raw scan matches the DATA line AND the pushed condition holds → block) and lets 151b
+# exercise the real-amend block on the same fixture.
+if ! command -v jq >/dev/null 2>&1; then
+  ng "151a: jq missing — cannot drive the --amend DATA test (#607)"
+  ng "151b: jq missing (#607)"
+else
+  S151_DIR=$(mktemp -d)
+  S151_REMOTE="$S151_DIR/remote.git"
+  S151_TARGET="$S151_DIR/target"
+  git init -q --bare "$S151_REMOTE" >/dev/null 2>&1
+  git clone -q "$S151_REMOTE" "$S151_TARGET" >/dev/null 2>&1
+  S151_TARGET=$(cd "$S151_TARGET" && pwd -P)
+  (cd "$S151_TARGET" || exit 1
+   git checkout -q -b feat/x 2>/dev/null || git checkout -q feat/x
+   git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
+   git push -q -u origin feat/x) >/dev/null 2>&1
+  printf '%s\n' "$S151_TARGET" >> "$SMOKE_REG"
+
+  s151_bash_run() {
+    local cmd="$1"
+    ( cd "$S151_TARGET" || exit 1
+      jq -nc --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' \
+        | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+    return $?
+  }
+
+  # 151a: a gh-issue-create whose --body carries the `git commit ... --amend` tokens on one
+  #       HEREDOC body line, run on the already-pushed feature branch → must be ALLOWED (rc=0).
+  #       The real #607 false-positive. RED pre-fix (the raw scan matches the DATA line, the
+  #       pushed condition holds, so it blocks with rc=2).
+  sq="'"
+  s151_data_cmd="gh issue create --title x --body \"\$(cat <<${sq}EOF${sq}
+to reword the last commit you can run git commit --amend by hand
+EOF
+)\""
+  s151_bash_run "$s151_data_cmd"; s151a_rc=$?
+  if [ "$s151a_rc" = 0 ]; then
+    ok "151a: --amend arm ignores the tokens inside a heredoc --body (no false-positive) (#607)"
+  else
+    ng "151a: --amend arm false-positives on 'git commit ... --amend' in a heredoc --body (rc=$s151a_rc, want 0) (#607)"
+  fi
+
+  # 151b (no under-block): a REAL `git commit --amend` of an already-pushed commit still blocks
+  #       (rc=2). Passes now and must keep passing after the heredoc-strip fix (strip_command_data
+  #       heredoc leaves a flag-bearing invocation with no heredoc intact).
+  s151_real_cmd="git commit --amend -m 'fix(#607): reword'"
+  s151_bash_run "$s151_real_cmd"; s151b_rc=$?
+  if [ "$s151b_rc" = 2 ]; then
+    ok "151b: a real 'git commit --amend' of a pushed commit still blocks (no under-block) (#607)"
+  else
+    ng "151b: real 'git commit --amend' of a pushed commit not blocked (rc=$s151b_rc, want 2) (#607)"
+  fi
+  rm -rf "$S151_DIR"
+fi
+
 # ---------- §109 (#404): is_trusted_filer resolves trust portably across gh --json support ----------
 # Reproduce-first: on a gh version that REJECTS `gh issue view --json authorAssociation`
 # (Unknown JSON field) but serves `gh api .../issues/N -q .author_association`, the helper

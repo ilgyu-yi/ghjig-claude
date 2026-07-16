@@ -1205,8 +1205,8 @@ case "$tool" in
     # rationale — so a command whose heredoc body merely mentions
     # "commit … --no-verify" does not false-trip this arm. This was the residual
     # raw-$cmd data-as-token gap after #366/#403/#446 fixed the sibling arms.
-    # (The adjacent --amend arm below still scans raw $cmd — same class, tracked
-    # separately; out of #605's scope.)
+    # (#607 fixed the adjacent --amend arm below the same way — it was the last
+    # residual raw-$cmd arm in this class.)
     if printf '%s' "$(strip_command_data "$raw_cmd" heredoc)" | grep -qE "${GIT_PREFIX}commit\b.*\-\-no-verify\b"; then
       decided=
       should_skip no-verify && decided=1 || block no-verify "--no-verify blocked"
@@ -1214,7 +1214,14 @@ case "$tool" in
     fi
 
     # --amend (only when the commit is already pushed)
-    if printf '%s' "$cmd" | grep -qE "${GIT_PREFIX}commit\b.*\-\-amend\b"; then
+    # #607: strip heredoc DATA before scanning (mirroring the --no-verify arm
+    # above, fixed in #605, and the commit-umbrella entry below) — so a command
+    # whose heredoc/quoted body merely mentions "commit … --amend" does not
+    # false-trip this block. This was the last residual raw-$cmd data-as-token
+    # arm after #366/#403/#446/#605 fixed the siblings. heredoc mode is
+    # under-block-safe (a real "$(git commit --amend)" substitution is left
+    # intact); strip_command_data falls back to raw on failure (fail-closed).
+    if printf '%s' "$(strip_command_data "$raw_cmd" heredoc)" | grep -qE "${GIT_PREFIX}commit\b.*\-\-amend\b"; then
       decided=
       if git rev-parse '@{upstream}' >/dev/null 2>&1; then
         if git merge-base --is-ancestor HEAD '@{upstream}' 2>/dev/null; then
