@@ -276,15 +276,36 @@ awk -v new_section_file="$NEW_SECTION_FILE" '
 mv "$CHANGELOG_NEW" CHANGELOG.md
 rm -f "$NEW_SECTION_FILE"
 
-# Append reference link at footer (best-effort; works if origin is github.com).
-ORIGIN_URL=$(git remote get-url origin 2>/dev/null || echo "")
-OWNER_REPO=""
-if [ -n "$ORIGIN_URL" ]; then
-  # Handles both git@github.com:owner/repo.git and https://github.com/owner/repo.git
-  OWNER_REPO=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+# Append reference link at footer (best-effort). Resolve the host + owner/repo
+# HOST-GENERICALLY (#614) so a GHES origin yields a repo-host link, not a hardcoded
+# github.com one. Prefer gh's normalized url (the #610 idiom); fall back to a
+# host-generic origin parse when gh is unavailable. Fail CLOSED on an unusable host
+# — omit the link rather than emit a wrong-host URL.
+REL_HOST=""
+REL_OWNER_REPO=""
+if command -v gh >/dev/null 2>&1; then
+  REPO_URL=$(gh repo view --json url --jq .url 2>/dev/null || echo "")
+  if [ -n "$REPO_URL" ]; then
+    REL_HOST=${REPO_URL#*://}; REL_HOST=${REL_HOST#*@}; REL_HOST=${REL_HOST%%/*}
+    REL_OWNER_REPO=${REPO_URL#*://}; REL_OWNER_REPO=${REL_OWNER_REPO#*@}
+    REL_OWNER_REPO=${REL_OWNER_REPO#*/}; REL_OWNER_REPO=${REL_OWNER_REPO%.git}
+  fi
 fi
-if [ -n "$OWNER_REPO" ]; then
-  printf '\n[%s]: https://github.com/%s/releases/tag/%s\n' "$X_Y_Z" "$OWNER_REPO" "$TAG" >> CHANGELOG.md
+if [ -z "$REL_HOST" ] || [ -z "$REL_OWNER_REPO" ]; then
+  # Host-generic origin parse (NOT github.com-specific): strip scheme, userinfo,
+  # then the leading host[:/] — handles git@host:owner/repo.git and https://host/owner/repo.git.
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || echo "")
+  if [ -n "$ORIGIN_URL" ]; then
+    REL_HOST=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^[^/]*//##; s#^[^@]*@##; s#[:/].*$##')
+    REL_OWNER_REPO=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^[^/]*//##; s#^[^@]*@##; s#[^/:]+[:/]##; s#\.git$##')
+  fi
+fi
+# Charset/non-empty guard on the derived host (fail closed).
+case "$REL_HOST" in
+  ''|*[!A-Za-z0-9.:-]*) REL_HOST="" ;;
+esac
+if [ -n "$REL_HOST" ] && [ -n "$REL_OWNER_REPO" ]; then
+  printf '\n[%s]: https://%s/%s/releases/tag/%s\n' "$X_Y_Z" "$REL_HOST" "$REL_OWNER_REPO" "$TAG" >> CHANGELOG.md
 fi
 
 # Step 6 — git rm consumed fragments. Guard each rm (#218): the script is
