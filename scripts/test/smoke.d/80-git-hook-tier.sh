@@ -268,4 +268,85 @@ else
     ng "152n: multi-ref push carrying protected main should be blocked (rc=$s152n_rc, want non-zero) — a line-1-only adapter would miss it (#604)"
   fi
   s152_cleanup "$s152n" "$s152n_rem"
+
+  # ---- Installer behavior (AC2: repo-local, idempotent, reversible, refuses
+  #      outside a repo — verified by a test, not just the static 152f grep). The
+  #      installer sets the RELATIVE core.hooksPath=.githooks (the shipped form),
+  #      so these exercise its own round-trip, distinct from the absolute-path
+  #      arming s152_arm uses to drive the adapters above. ----
+  if [ -x "$S152_INST" ]; then
+    # 152o: install (no args) sets a REPO-LOCAL core.hooksPath=.githooks + exit 0.
+    s152o=$(cd "$(mktemp -d)" && pwd -P); s152_setup "$s152o"
+    ( cd "$s152o" && "$S152_INST" ) >/dev/null 2>&1; s152o_rc=$?
+    s152o_val=$(cd "$s152o" && git config --local --get core.hooksPath 2>/dev/null)
+    if [ "$s152o_rc" -eq 0 ] && [ "$s152o_val" = ".githooks" ]; then
+      ok "152o: install_git_hooks.sh sets repo-local core.hooksPath=.githooks (rc=0) (#604)"
+    else
+      ng "152o: installer did not set core.hooksPath=.githooks (rc=$s152o_rc, val='$s152o_val') (#604)"
+    fi
+
+    # 152p: --check exits 0 when ACTIVE, non-zero when INERT.
+    ( cd "$s152o" && "$S152_INST" --check ) >/dev/null 2>&1; s152p_active=$?
+    s152p_fresh=$(cd "$(mktemp -d)" && pwd -P); s152_setup "$s152p_fresh"
+    ( cd "$s152p_fresh" && "$S152_INST" --check ) >/dev/null 2>&1; s152p_inert=$?
+    if [ "$s152p_active" -eq 0 ] && [ "$s152p_inert" -ne 0 ]; then
+      ok "152p: --check exits 0 when active, non-zero when inert (rc active=$s152p_active inert=$s152p_inert) (#604)"
+    else
+      ng "152p: --check active/inert exit codes wrong (active=$s152p_active want 0, inert=$s152p_inert want non-zero) (#604)"
+    fi
+    s152_cleanup "$s152p_fresh"
+
+    # 152q: --uninstall unsets core.hooksPath (reversible).
+    ( cd "$s152o" && "$S152_INST" --uninstall ) >/dev/null 2>&1; s152q_rc=$?
+    s152q_val=$(cd "$s152o" && git config --local --get core.hooksPath 2>/dev/null)
+    if [ "$s152q_rc" -eq 0 ] && [ -z "$s152q_val" ]; then
+      ok "152q: --uninstall unsets core.hooksPath (reversible) (#604)"
+    else
+      ng "152q: --uninstall left core.hooksPath set (rc=$s152q_rc, val='$s152q_val') (#604)"
+    fi
+
+    # 152r: refuses outside a git work tree (exit non-zero, no config written).
+    s152r=$(cd "$(mktemp -d)" && pwd -P)
+    ( cd "$s152r" && "$S152_INST" ) >/dev/null 2>&1; s152r_rc=$?
+    if [ "$s152r_rc" -ne 0 ]; then
+      ok "152r: installer refuses outside a git work tree (rc=$s152r_rc) (#604)"
+    else
+      ng "152r: installer should refuse outside a git work tree (rc=$s152r_rc, want non-zero) (#604)"
+    fi
+    rm -rf "$s152r"
+
+    # 152s: idempotent — a second install re-asserts the same value + exit 0.
+    s152s=$(cd "$(mktemp -d)" && pwd -P); s152_setup "$s152s"
+    ( cd "$s152s" && "$S152_INST" && "$S152_INST" ) >/dev/null 2>&1; s152s_rc=$?
+    s152s_val=$(cd "$s152s" && git config --local --get core.hooksPath 2>/dev/null)
+    # --get returns exactly one value only if the key is not multi-valued (a
+    # non-idempotent installer that ADDED rather than SET would make --get fail).
+    s152s_n=$(cd "$s152s" && git config --local --get-all core.hooksPath 2>/dev/null | grep -c .)
+    if [ "$s152s_rc" -eq 0 ] && [ "$s152s_val" = ".githooks" ] && [ "$s152s_n" = "1" ]; then
+      ok "152s: installer is idempotent — double install keeps a single core.hooksPath=.githooks (#604)"
+    else
+      ng "152s: installer not idempotent (rc=$s152s_rc, val='$s152s_val', count=$s152s_n) (#604)"
+    fi
+    s152_cleanup "$s152s"
+
+    # 152t (boundary, §3.4): install NEVER mutates user-global git config.
+    s152t_glob_before=$(git config --global --get core.hooksPath 2>/dev/null || printf '<unset>')
+    s152t=$(cd "$(mktemp -d)" && pwd -P); s152_setup "$s152t"
+    ( cd "$s152t" && "$S152_INST" ) >/dev/null 2>&1
+    s152t_glob_after=$(git config --global --get core.hooksPath 2>/dev/null || printf '<unset>')
+    if [ "$s152t_glob_before" = "$s152t_glob_after" ]; then
+      ok "152t: install leaves user-global core.hooksPath unchanged ('$s152t_glob_after') — repo-local-only boundary (#604)"
+    else
+      ng "152t: install MUTATED global core.hooksPath ('$s152t_glob_before' -> '$s152t_glob_after') — boundary violation (#604)"
+    fi
+    s152_cleanup "$s152t"
+    s152_cleanup "$s152o"
+  else
+    ng "152o: scripts/install_git_hooks.sh absent/non-executable — installer behavior untested (#604)"
+    ng "152p: installer --check untested (#604)"
+    ng "152q: installer --uninstall untested (#604)"
+    ng "152r: installer refuse-outside-repo untested (#604)"
+    ng "152s: installer idempotence untested (#604)"
+    ng "152t: installer global-config boundary untested (#604)"
+  fi
 fi
