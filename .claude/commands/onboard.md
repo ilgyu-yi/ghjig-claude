@@ -34,5 +34,13 @@ These need authoring judgment and the MISSION scaffold-not-author boundary, so t
    - `.github/PULL_REQUEST_TEMPLATE.md` → `.claude/ghjig-root/.claude/templates/pr_template_for_target.md`
    - `.github/CODEOWNERS` → recommend.
 3. **Branch protection setup.** If `branch-protect` is `fail`, print the setup commands only (setup requires admin) — do not apply them.
+4. **Local git-hook tier activation** (SPEC §6.7, §5.1 step 7). Unlike the recommend-only steps above, this is the **one activation `/onboard` performs** — it is repo-local and reversible, so it respects the §3.4 user-global boundary. Install and verify the committed `.githooks/` enforcement tier:
+
+   ```bash
+   "$GR/scripts/install_git_hooks.sh"          # sets repo-local core.hooksPath=.githooks
+   "$GR/scripts/install_git_hooks.sh" --check  # confirm activation (non-zero = still inert)
+   ```
+
+   Report ✓ when `--check` exits 0, ✗ otherwise. Reversible any time with `git config --unset core.hooksPath` (or `scripts/install_git_hooks.sh --uninstall`). A clone that never runs this stays inert until the SessionStart drift arm re-surfaces it (SPEC §6.7).
 
 Each rendered item gets ✓ or ✗ and a one-line summary. End with a "Recommended next actions" block, leading with SPEC authoring when `ssot:SPEC.md` failed.

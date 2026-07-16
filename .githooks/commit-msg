@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# .githooks/commit-msg — local-tier adapter (SPEC §6.7). Reads line 1 (the first
+# non-blank, non-comment line) of the message file git passes as $1 and calls
+# check_commit_subject on it — it copies NO check logic (single-source, §9). It
+# deliberately does NOT reuse the command-string subject parser: at the git
+# layer there is no command string, only the message file git hands us (§6.7).
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+githook_source conventional_commit.sh commit-format || exit 0
+
+_gh_msgfile="${1:-}"
+[ -n "$_gh_msgfile" ] && [ -f "$_gh_msgfile" ] || exit 0
+
+# First non-blank, non-comment line = the subject.
+_gh_subject=""
+while IFS= read -r _gh_line || [ -n "$_gh_line" ]; do
+  case "$_gh_line" in
+    ''|'#'*) continue ;;
+  esac
+  _gh_subject="$_gh_line"
+  break
+done < "$_gh_msgfile"
+
+# Empty message → let git's own empty-message handling deal with it (fail-open).
+[ -n "$_gh_subject" ] || exit 0
+
+if ! check_commit_subject "$_gh_subject"; then
+  githook_block commit-format "commit-msg: subject is not a Conventional Commit — blocked (SPEC §6.7). Format: <type>(#<N>)[!]: <subject>."
+  exit 1
+fi
+
+exit 0
