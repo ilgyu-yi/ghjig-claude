@@ -291,3 +291,150 @@ if [ -f "$S610_CMD" ] && grep -qF 'gh api user' "$S610_CMD" 2>/dev/null; then
 else
   ng "153-7: file-review.md lost the literal 'gh api user' token — would break the §143e content-lock (#610)"
 fi
+
+# ---------- §154: GHES host resolution — the two NON-review-path host-less sites (#614) ----------
+# SPEC §5.29. #610 pinned every host-LESS `gh api` in the review/merge path; #614
+# closes the SAME GHES gap on the two remaining non-review sites that resolve gh's
+# DEFAULT host (github.com), not the repo's:
+#   scripts/lib/onboard_checks.sh   — the branch-protection `gh api …/protection`
+#   scripts/release_consolidate.sh  — the CHANGELOG footer reference link
+# The Code (host-derivation via `gh repo view --json url`, fail-closed — #610's
+# mechanism) DOES NOT EXIST YET, so the two BEHAVIORAL GHES cases (§154-1/-3) are
+# RED now and go GREEN when the host-pin/derivation lands. The two github.com
+# no-regression cases (§154-2/-4) stay GREEN across the change.
+#
+# The shims model a machine whose repo lives on github.example.com while gh's
+# DEFAULT host is github.com: a `gh api …/protection` (onboard) resolves the repo
+# iff it carries `--hostname github.example.com`; a footer link (release) is
+# host-correct iff built from the repo host, not a hardcoded github.com.
+
+s614_have_tools=1
+command -v git >/dev/null 2>&1 || { ng "154-tools: git required for the #614 GHES host cases (absent) (#614)"; s614_have_tools=0; }
+command -v jq  >/dev/null 2>&1 || { ng "154-tools: jq required for the #614 GHES host cases (absent) (#614)"; s614_have_tools=0; }
+
+if [ "$s614_have_tools" = 1 ]; then
+  S614_DIR=$(mktemp -d)
+  S614_OBIN="$S614_DIR/obin"          # onboard gh shim
+  S614_RBIN="$S614_DIR/rbin"          # release gh shim
+  mkdir -p "$S614_OBIN" "$S614_RBIN"
+
+  S614_ONBOARD="$SHELL_ROOT/scripts/lib/onboard_checks.sh"
+  S614_RELEASE="$SHELL_ROOT/scripts/release_consolidate.sh"
+
+  # ── onboard gh shim ──────────────────────────────────────────────────────────
+  # A `gh api …/protection` succeeds (exit 0 → protected) ONLY when the effective
+  # host (the --hostname value, else gh's default github.com) equals the repo host.
+  # The url arm serves gh's normalized https url the #610 host-derivation chops.
+  cat > "$S614_OBIN/gh" <<'SHIM'
+#!/bin/sh
+: "${GH_SHIM_STATE:?}"
+repo_host=$(cat "$GH_SHIM_STATE/repo_host" 2>/dev/null)
+default_host=github.com
+hostarg=""; prev=""
+for a in "$@"; do
+  case "$a" in --hostname=*) hostarg="${a#--hostname=}" ;; esac
+  [ "$prev" = "--hostname" ] && hostarg="$a"; prev="$a"
+done
+case "$*" in
+  *"repo view"*isFork*)           printf 'false\n' ;;
+  *"repo view"*viewerPermission*) printf 'ADMIN\n' ;;
+  *"repo view"*defaultBranchRef.name*) printf 'main\n' ;;
+  *"repo view"*url*)              printf 'https://%s/o/r\n' "$repo_host" ;;
+  *"repo view"*nameWithOwner*)    printf 'o/r\n' ;;
+  *api*protection*)
+      target="${hostarg:-$default_host}"
+      [ "$target" = "$repo_host" ] && exit 0
+      echo "gh: 404 — repo not on host $target" >&2
+      exit 1 ;;
+esac
+exit 0
+SHIM
+  chmod +x "$S614_OBIN/gh"
+
+  S614_OCWD="$S614_DIR/onboard-cwd"; mkdir -p "$S614_OCWD"
+  S614_ST_GHES="$S614_DIR/o-ghes"; mkdir -p "$S614_ST_GHES"; printf 'github.example.com\n' > "$S614_ST_GHES/repo_host"
+  S614_ST_DOT="$S614_DIR/o-dot";   mkdir -p "$S614_ST_DOT";  printf 'github.com\n'         > "$S614_ST_DOT/repo_host"
+
+  s614_bprotect() {  # $1=state dir -> the `branch-protect` status token
+    ( cd "$S614_OCWD" \
+        && PATH="$S614_OBIN:$PATH" GH_SHIM_STATE="$1" bash "$S614_ONBOARD" 2>/dev/null ) \
+      | awk '$1=="branch-protect"{print $2; exit}'
+  }
+
+  # §154-1 (BEHAVIORAL — LOAD-BEARING RED): the /onboard branch-protection check
+  # must target the REPO host. The repo is on github.example.com; the shim's
+  # `…/protection` succeeds only when the call carries `--hostname github.example.com`.
+  # Pre-Code the host-LESS `gh api …/protection` resolves the default host
+  # (github.com) → the shim 404s → `branch-protect fail`. Post-Code the derived
+  # `--hostname github.example.com` pin → the repo resolves → `branch-protect ok`.
+  s614_1=$(s614_bprotect "$S614_ST_GHES")
+  if [ "$s614_1" = ok ]; then
+    ok "154-1: onboard branch-protection check host-pins to the GHES repo host → reports protected (#614)"
+  else
+    ng "154-1: host-less gh api …/protection hits the default host → GHES repo unreadable → branch-protect '$s614_1' (want ok) (#614)"
+  fi
+
+  # §154-2 (BEHAVIORAL — github.com no-regression): when the repo IS on github.com
+  # (default host == repo host), the bare `gh api …/protection` already targets the
+  # repo host → protected. GREEN both pre- and post-Code (bare ≡ --hostname github.com).
+  s614_2=$(s614_bprotect "$S614_ST_DOT")
+  if [ "$s614_2" = ok ]; then
+    ok "154-2: onboard branch-protection check on a github.com repo still reports protected — no regression (#614)"
+  else
+    ng "154-2: github.com no-regression broke — branch-protect must be ok (got '$s614_2') (#614)"
+  fi
+
+  # ── release gh shim (serves the #610 host-derivation call, if the Code uses it) ─
+  cat > "$S614_RBIN/gh" <<'SHIM'
+#!/bin/sh
+repo_host="${GH_SHIM_REPO_HOST:-github.com}"
+case "$*" in
+  *"repo view"*url*)           printf 'https://%s/o/r\n' "$repo_host" ;;
+  *"repo view"*nameWithOwner*) printf 'o/r\n' ;;
+esac
+exit 0
+SHIM
+  chmod +x "$S614_RBIN/gh"
+
+  # Build a minimal fixture repo and run release_consolidate --dry-run end-to-end,
+  # returning the CHANGELOG footer reference-link line for `origin`=$1, repo_host=$2.
+  s614_release_footer() {  # $1=origin url  $2=repo host -> the appended `[X]: …` line (or empty)
+    ( proj="$S614_DIR/rel-$2"; rm -rf "$proj"; mkdir -p "$proj/changelog_unreleased/added"
+      cd "$proj" || exit 3
+      git init -q; git config user.email t@t; git config user.name t; git config commit.gpgsign false
+      printf '0.1.0-dev\n' > VERSION
+      printf '# Changelog\n\n## [0.0.1] — 2020-01-01\n\n### Added\n\n- seed (#0)\n' > CHANGELOG.md
+      printf -- '- something happened (#1)\n' > changelog_unreleased/added/1.md
+      git add -A >/dev/null 2>&1; git commit -qm init >/dev/null 2>&1
+      git remote add origin "$1"
+      PATH="$S614_RBIN:$PATH" GH_SHIM_REPO_HOST="$2" \
+        bash "$S614_RELEASE" 0.1.0 --dry-run >/dev/null 2>&1
+      grep -F 'releases/tag/v0.1.0' CHANGELOG.md 2>/dev/null | tail -n1 )
+  }
+
+  # §154-3 (BEHAVIORAL — LOAD-BEARING RED): the /release CHANGELOG footer link must
+  # be built from the REPO host. With a GHES origin the appended line must be
+  # `[0.1.0]: https://github.example.com/o/r/releases/tag/v0.1.0`. Pre-Code the
+  # origin-parse `sed` only matches literal `github.com` (absent in a GHES remote)
+  # so it never rewrites the host and the link hardcodes `https://github.com/…` →
+  # a wrong-host (or empty) link, NOT the GHES url. Post-Code the host-generic
+  # derivation emits the github.example.com link.
+  s614_3=$(s614_release_footer 'git@github.example.com:o/r.git' 'github.example.com')
+  if printf '%s' "$s614_3" | grep -qxF '[0.1.0]: https://github.example.com/o/r/releases/tag/v0.1.0'; then
+    ok "154-3: release footer link is built from the GHES repo host → github.example.com release URL (#614)"
+  else
+    ng "154-3: GHES origin → footer link is not the repo-host URL (got: '${s614_3:-<none>}', want github.example.com) (#614)"
+  fi
+
+  # §154-4 (BEHAVIORAL — github.com no-regression): a github.com origin still emits
+  # `[0.1.0]: https://github.com/o/r/releases/tag/v0.1.0` (the host-generic parse
+  # yields the same owner/repo). GREEN both pre- and post-Code.
+  s614_4=$(s614_release_footer 'git@github.com:o/r.git' 'github.com')
+  if printf '%s' "$s614_4" | grep -qxF '[0.1.0]: https://github.com/o/r/releases/tag/v0.1.0'; then
+    ok "154-4: release footer link on a github.com origin still emits the github.com release URL — no regression (#614)"
+  else
+    ng "154-4: github.com no-regression broke — footer link must be the github.com URL (got: '${s614_4:-<none>}') (#614)"
+  fi
+
+  rm -rf "$S614_DIR"
+fi
