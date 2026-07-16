@@ -7,7 +7,7 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 
 ## Procedure
 
-0a. **Validate `<pr>`** — accept only a bare number matching `^[0-9]+$`, **or** a trusted `github.com/<owner>/<repo>/pull/<n>` URL (extract `<n>` from the URL). Any other argument → abort with `"/file-review: <pr> must be a PR number or a github.com pull URL"`, post nothing. The `<pr>` value is untrusted input — it is never interpolated into a shell command before this validation passes.
+0a. **Validate `<pr>`** — accept only a bare number matching `^[0-9]+$`, **or** a **host-agnostic** pull-request URL matching `^https?://[^/]+/[^/]+/[^/]+/pull/([0-9]+)/?$` (extract `<n>` from the capture group — the URL may point at **any** host, GHES included, not only github.com). Any other argument → abort with `"/file-review: <pr> must be a PR number or a pull-request URL"`, post nothing. The `<pr>` value is untrusted input — it is never interpolated into a shell command before this validation passes.
 
 0b. **Repo-scope guard** — resolve the origin repo (`gh repo view --json nameWithOwner --jq .nameWithOwner`) and confirm the PR targets it (compare against the PR's `headRepositoryOwner`/base repo from `gh pr view`). A **cross-repo** target (the PR is not on the origin repo):
    - **attended** → surface the mismatch and confirm with the user before proceeding.
@@ -17,7 +17,14 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 
 1. **Compute the head PRIVATELY** — `HEAD_SHA=$(gh pr view <pr> --json headRefOid --jq .headRefOid)`. **Never pass `HEAD_SHA` to the reviewer** (SPEC §4.5, #544): the reviewer must resolve and report the head independently, else it could echo yours back for a tautological pass. Hold it privately for the blind-compare (step 4) and the `commit_id` pin (step 7).
 
-2. **Resolve ownership** — the acting identity `ME=$(gh api user --jq .login)` and the PR author `AUTHOR=$(gh pr view <pr> --json author --jq .author.login)`. `own := (ME == AUTHOR)`. GitHub 422s a self `APPROVE`/`REQUEST_CHANGES`, so ownership selects the submission event in step 7.
+2. **Resolve ownership** — the acting identity and the PR author `AUTHOR=$(gh pr view <pr> --json author --jq .author.login)`. `own := (ME == AUTHOR)`. **Host-pin the identity lookup:** `gh api` resolves gh's *default* host (github.com), not the repo's host, so on a GHES target a host-less `gh api user` reads the wrong account and `own` mis-computes. Derive the repo host first, then pin it:
+
+   ```bash
+   h=$(gh repo view --json url --jq '.url | sub("^https?://";"") | sub("/.*";"")')
+   ME=$(gh api user --hostname "$h" --jq .login)
+   ```
+
+   **Fail-closed:** if `$h` is empty or fails a non-empty/charset-clean check, **abort** — do **not** fall back to the default host (a wrong-host identity is worse than no identity). GitHub 422s a self `APPROVE`/`REQUEST_CHANGES`, so ownership selects the submission event in step 7.
 
 3. **Invoke `code-reviewer`** (worktree-isolated, SPEC §4.5) on the PR diff + changed-file context + target `MISSION.md` + the referenced issue body + the PR body. If the diff touches a **security surface** (auth/session/input/deps/crypto/IO boundary), also invoke `security-reviewer` (parity with `/review`, §5.6). A `security-reviewer` **block composes**: any security block → overall `verdict=block`, regardless of the code-reviewer grammar.
 
@@ -45,11 +52,14 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 7. **Submit `commit_id`-pinned via REST** — bind the privately-confirmed head as `commit_id` and read the body from the temp file:
 
    ```bash
-   gh api repos/{owner}/{repo}/pulls/<n>/reviews \
+   # $h is the repo host from step 2's `gh repo view --json url` (reuse it, don't re-derive).
+   gh api repos/{owner}/{repo}/pulls/<n>/reviews --hostname "$h" \
      -f commit_id="$HEAD_SHA" \
      -f event=<APPROVE|REQUEST_CHANGES|COMMENT> \
      --field body=@<tempfile>
    ```
+
+   **Host-pin the POST too** (`--hostname "$h"`, same repo host as step 2): a host-less `gh api …/reviews` would post the review to github.com instead of the GHES target, and the #586 merge-review gate — which reads the review from the repo's host — would never see it. Same fail-closed rule: an empty/invalid host aborts, never falls back to the default host.
 
    - **Another author's PR:** `event=APPROVE` (approve) / `event=REQUEST_CHANGES` (block) — the direct `gh api` call above.
    - **Own PR:** `event=COMMENT` (GitHub 422s a self approve/request-changes); the body carries the marker.

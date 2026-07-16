@@ -7,9 +7,9 @@ Parse `$ARGUMENTS`: the issue number plus optional `--base <branch>` (default: t
 
 1. `gh issue view <#> --json title,body,labels` — read the issue. Print it and give the user a brief summary.
 2. **Acceptance criteria check** — if the issue body has no criteria or is vague, ask the user to fix it and stop. **Don't start work with an ambiguous goal.**
-3. **Resolve target base** — resolve the repo's **default branch** `DEFAULT=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)` (fallback `main` if unresolvable; #504), then let `BASE` = `--base` arg (default `$DEFAULT`, NOT a hardcoded `main` — a `master`/`release`-default target must resolve correctly). Then `git fetch origin && git checkout "$BASE" && git pull --ff-only`. If `BASE != $DEFAULT` and the named branch isn't reachable locally or remotely, fail loudly — `/work-on` does NOT auto-create alternate bases. See SPEC §10.5 for the topic-branch pattern.
+3. **Resolve target base** — resolve the repo's **default branch** and **host** in one call `gh repo view --json defaultBranchRef,url` — set `DEFAULT` from `.defaultBranchRef.name` (fallback `main` if unresolvable; #504) and derive the repo host `HOST` from `.url` (strip scheme + path). Reuse `HOST` in step 4; do **not** add a separate host-derivation just for the branch prefix. Then let `BASE` = `--base` arg (default `$DEFAULT`, NOT a hardcoded `main` — a `master`/`release`-default target must resolve correctly). Then `git fetch origin && git checkout "$BASE" && git pull --ff-only`. If `BASE != $DEFAULT` and the named branch isn't reachable locally or remotely, fail loudly — `/work-on` does NOT auto-create alternate bases. See SPEC §10.5 for the topic-branch pattern.
 4. Create branch:
-   - `USER=$(gh api user --jq .login)`
+   - `USER=$(gh api user --hostname "$HOST" --jq .login)` — host-pinned so a GHES target resolves the correct account (a host-less `gh api user` reads gh's default host, github.com). `HOST` piggybacks off step 3's `gh repo view` call; do not re-derive it.
    - `TYPE` = from issue label or user confirmation (one of feat/fix/docs/refactor/perf/test/style/build/ci/chore/revert)
    - `SLUG` = kebab-case abbreviation of issue title
    - `git checkout -b "${USER}/${TYPE}/<#>-${SLUG}"`
