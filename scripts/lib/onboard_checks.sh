@@ -79,14 +79,27 @@ for ssot in MISSION.md SPEC.md; do
 done
 
 # ---- branch protection on the default branch ----
+# `gh api` does NO repo host inference — a host-LESS call resolves gh's DEFAULT
+# host (github.com), so on a GHES target the protection probe hits the wrong host
+# and reports a false `fail`. Derive the repo host from gh's normalized url (the
+# #610 chop, folding `url` into the same `gh repo view` read) and pin it with
+# `--hostname`. Fail CLOSED on an unusable host — NEVER a host-less fallback that
+# could probe github.com and mis-report (#614).
 if gh_usable; then
-  default_branch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null)
+  default_branch=$(gh repo view --json defaultBranchRef,url --jq .defaultBranchRef.name 2>/dev/null)
   [ -z "$default_branch" ] && default_branch=main
-  if gh api "repos/{owner}/{repo}/branches/${default_branch}/protection" >/dev/null 2>&1; then
-    emit branch-protect ok "protected (${default_branch})"
-  else
-    emit branch-protect fail "absent or unreadable on ${default_branch} (may need admin)"
-  fi
+  repo_url=$(gh repo view --json defaultBranchRef,url --jq .url 2>/dev/null)
+  h=${repo_url#*://}; h=${h#*@}; h=${h%%/*}
+  case "$h" in
+    ''|*[!A-Za-z0-9.:-]*)
+      emit branch-protect fail "could not resolve repo host from url (${repo_url}) — authenticate gh to that host" ;;
+    *)
+      if gh api "repos/{owner}/{repo}/branches/${default_branch}/protection" --hostname "$h" >/dev/null 2>&1; then
+        emit branch-protect ok "protected (${default_branch})"
+      else
+        emit branch-protect fail "absent or unreadable on ${default_branch}@${h} (may need admin)"
+      fi ;;
+  esac
 else
   emit branch-protect fail "not queried (--dry-run or gh unavailable)"
 fi

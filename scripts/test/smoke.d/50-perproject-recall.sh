@@ -2314,6 +2314,8 @@ else
 case "$*" in
   *"repo view"*"isFork"*)            cat "$S118_STATE/isfork" 2>/dev/null ;;
   *"repo view"*"viewerPermission"*)  cat "$S118_STATE/permission" 2>/dev/null ;;
+  *"repo view"*defaultBranchRef.name*) printf 'main\n' ;;
+  *"repo view"*"url"*)               printf 'https://github.com/o/r\n' ;;  # #614: host-derivation read
   *"api"*"protection"*)
     if [ -f "$S118_STATE/protected" ]; then
       printf '{"required_pull_request_reviews":{}}\n'      # protected → success
