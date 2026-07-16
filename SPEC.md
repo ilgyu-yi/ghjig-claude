@@ -1262,7 +1262,7 @@ No automatic changes beyond the repo-local git-hook activation (step 7). All oth
 
 1. `gh issue view <#> --json title,body,labels,comments` — read the issue.
 2. Validate body — if acceptance criteria are missing or vague, ask the user to fix it. **Don't start work with an ambiguous goal.**
-3. Resolve the **target base** (default `main`; override via `--base <branch>`). `git fetch origin && git checkout <base> && git pull --ff-only`. If `<base>` is not `main` and is not reachable locally or remotely, fail with a clear message — `/work-on` does NOT auto-create alternate bases (see §10.5).
+3. Resolve the **target base** (default `main`; override via `--base <branch>`). `git fetch origin && git checkout <base> && git pull --ff-only`. If `<base>` is not `main` and is not reachable locally or remotely, fail with a clear message — `/work-on` does NOT auto-create alternate bases (see §10.5). Fold the repo `url` into the same `gh repo view` used for the base/default-branch lookup (`--json defaultBranchRef,url`) and derive `HOST` from the normalized url (strip scheme/userinfo/path; fail-closed on an empty/invalid host) for the step-4 host-pinned `gh api user` — one `gh repo view`, no separate host derivation (in sync with work-on.md:3).
 4. Create branch:
    ```
    USER=$(gh api user --hostname "$HOST" --jq .login)   # $HOST from `gh repo view --json url` (step 3); host-pinned so a GHES target resolves the right account, not gh's default host. In sync with work-on.md:4.
