@@ -259,6 +259,19 @@ if [ -f "$_ssot_checks" ]; then
   fi
 fi
 
+# 2.6) Local git-hook tier drift arm (SPEC §6.7, #604). Mirror the §6.5(e)
+# onboard_checks.sh --dry-run single-sourced-predicate idiom: call the
+# installer's OWN --check (no reimplemented `git config --get core.hooksPath`)
+# so this arm and the installer can never diverge. When the tier is INERT
+# (core.hooksPath unset or ≠ .githooks — a fresh-clone per-clone bootstrap gap),
+# emit one advisory naming the installer. Detect-not-silently-pass (§6.5(c)
+# silent-no-op hazard); fail-open to silence on any error / non-repo cwd (the
+# in-scope + `command -v git` guards above already hold here).
+_ghook_inst="$SHELL_ROOT/scripts/install_git_hooks.sh"
+if [ -f "$_ghook_inst" ] && ! "$_ghook_inst" --check >/dev/null 2>&1; then
+  printf '[GHJig-Claude] git-hook tier INERT — the committed .githooks/ local enforcement tier is not activated for this clone. Activate (repo-local, reversible): scripts/install_git_hooks.sh (SPEC §6.7).\n'
+fi
+
 if [ -f MISSION.md ]; then
   printf '[MISSION summary]\n'
   head -n 20 MISSION.md

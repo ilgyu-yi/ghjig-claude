@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — local-tier adapter (SPEC §6.7). Iterates ALL stdin ref
+# lines (`<local-ref> <local-oid> <remote-ref> <remote-oid>`, one per ref) and
+# blocks a push whose remote ref targets a protected branch, by CALLING
+# is_protected_branch — it copies NO check logic (single-source, §9). The
+# while-read loop is LOAD-BEARING: a single read would inspect only line 1 and
+# miss a protected ref on line 2+ (SPEC §6.7). Force-push coverage is by
+# subsumption (a force-push to a protected ref is blocked because the ref is
+# protected); a force-push to a non-protected feature branch is allowed.
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+githook_source branch_guard.sh branch || exit 0
+
+_gh_blocked=0
+# shellcheck disable=SC2034  # _gh_loid/_gh_roid are positional fillers, unused.
+while read -r _gh_lref _gh_loid _gh_rref _gh_roid; do
+  [ -n "${_gh_rref:-}" ] || continue
+  _gh_target="${_gh_rref#refs/heads/}"
+  if is_protected_branch "$_gh_target"; then
+    githook_block branch "pre-push: push to protected ref '$_gh_target' is blocked (SPEC §6.7). Push a feature branch and open a PR."
+    _gh_blocked=1
+  fi
+done
+
+[ "$_gh_blocked" -eq 0 ] || exit 1
+exit 0
