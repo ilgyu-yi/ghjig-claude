@@ -1917,7 +1917,7 @@ else
   git init -q --bare "$S151_REMOTE" >/dev/null 2>&1
   git clone -q "$S151_REMOTE" "$S151_TARGET" >/dev/null 2>&1
   S151_TARGET=$(cd "$S151_TARGET" && pwd -P)
-  (cd "$S151_TARGET"
+  (cd "$S151_TARGET" || exit 1
    git checkout -q -b feat/x 2>/dev/null || git checkout -q feat/x
    git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
    git push -q -u origin feat/x) >/dev/null 2>&1
