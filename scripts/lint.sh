@@ -206,6 +206,17 @@ main() {
     files+=("$f")
   done < <(find scripts .claude/hooks -type f -name '*.sh' -print0)
 
+  # The local git-hook tier (SPEC §6.7, #604) lives in .githooks/. Its adapters
+  # (pre-commit/pre-push/commit-msg) are EXTENSIONLESS, so the `*.sh` glob above
+  # would miss them. Enumerate every .githooks/ file that pins a bash shebang on
+  # line 1 — _lib.sh AND the three adapters — so bash -n + shellcheck cover them.
+  if [ -d .githooks ]; then
+    while IFS= read -r -d '' f; do
+      IFS= read -r _lint_first < "$f" || _lint_first=""
+      [ "$_lint_first" = '#!/usr/bin/env bash' ] && files+=("$f")
+    done < <(find .githooks -type f -print0)
+  fi
+
   if [ "${#files[@]}" -eq 0 ]; then
     echo "ERROR: no shell files found — repo layout changed?" >&2
     exit 1
