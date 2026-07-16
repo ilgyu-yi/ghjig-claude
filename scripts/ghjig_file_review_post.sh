@@ -45,16 +45,31 @@ pr_author=$(printf '%s' "$pr_json" | jq -r '.author.login // empty')
 [ -n "$pr_num" ] && [ -n "$head_sha" ] && [ -n "$pr_author" ] \
   || fail "could not resolve PR number / head / author for the current branch"
 
-# Own-PR guard (fail closed): the acting identity must be the PR author. A
-# self `COMMENT` on someone else's PR is out of this wrapper's mandate.
-me=$(gh api user --jq .login 2>/dev/null) || fail "could not resolve acting identity"
-[ -n "$me" ] || fail "empty acting identity"
-[ "$me" = "$pr_author" ] \
-  || fail "refusing: acting identity ($me) is not the PR author ($pr_author) — this wrapper is own-PR only"
-
+# Resolve the origin repo (owner/name) AND its host BEFORE the identity guard.
+# `gh api` resolves gh's DEFAULT host (github.com), not the repo's, so on a GHES
+# target a host-less `gh api user` reads the wrong account and the own-PR guard
+# below mis-fires. Derive the host from the repo's normalized url and pin it on
+# every host-less `gh api` call. Fail CLOSED on an unusable host — a silent
+# default-host fallback would let the guard pass against the wrong account (#610).
 owner_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
   || fail "could not resolve origin repo"
 [ -n "$owner_repo" ] || fail "empty origin repo"
+
+repo_url=$(gh repo view --json nameWithOwner,url --jq .url 2>/dev/null) \
+  || fail "could not resolve origin repo url"
+h=${repo_url#*://}; h=${h#*@}; h=${h%%/*}
+case "$h" in
+  ''|*[!A-Za-z0-9.:-]*)
+    fail "could not resolve repo host from url ($repo_url) — authenticate gh to that host" ;;
+esac
+
+# Own-PR guard (fail closed): the acting identity must be the PR author. A self
+# `COMMENT` on someone else's PR is out of this wrapper's mandate. The identity
+# is resolved AT THE REPO HOST (`--hostname "$h"`), never gh's default host.
+me=$(gh api user --hostname "$h" --jq .login 2>/dev/null) || fail "could not resolve acting identity"
+[ -n "$me" ] || fail "empty acting identity"
+[ "$me" = "$pr_author" ] \
+  || fail "refusing: acting identity ($me) is not the PR author ($pr_author) — this wrapper is own-PR only"
 
 # The sanitized review body arrives via a fixed staged state file (#602), never
 # stdin or an inline argument. It is resolved through the SAME shared
@@ -113,6 +128,7 @@ now=$(date +%s)
 # Post the self COMMENT review, pinned to the current head. `event=COMMENT` is
 # hardcoded; the in-memory body travels via `-F body=@-` (read as a string).
 printf '%s' "$body" | gh api "repos/$owner_repo/pulls/$pr_num/reviews" \
+  --hostname "$h" \
   -f commit_id="$head_sha" \
   -f event=COMMENT \
   -F body=@- \

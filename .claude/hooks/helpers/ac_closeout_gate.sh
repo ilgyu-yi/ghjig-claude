@@ -74,6 +74,28 @@ _ac_run_gh() {
   fi
 }
 
+# _ac_repo_host — derive the repo's HOST from `gh repo view --json url` so the
+# host-LESS `gh api` calls below can be pinned to the repo host instead of gh's
+# DEFAULT host (github.com). `gh api` does NO repo inference; on a GHES target an
+# unpinned `gh api` hits github.com → the review is unreadable and identities
+# mismatch (a self-merge bypass). The url is gh's NORMALIZED https url, so the
+# chop sidesteps SSH/HTTPS remote parsing; `nameWithOwner,url` is queried (the
+# `.url` field) so the JSON shape matches the sibling nameWithOwner read.
+# Echoes the validated host on success; echoes NOTHING and returns non-zero on an
+# unusable (empty / invalid-charset) host — the caller fails CLOSED, NEVER a
+# silent default-host fallback (which would reintroduce the bypass). Timeout-
+# bounded via _ac_run_gh (#610).
+_ac_repo_host() {
+  local url h rc
+  url=$(_ac_run_gh repo view --json nameWithOwner,url -q .url 2>/dev/null); rc=$?
+  [ "$rc" = 0 ] || return 1
+  h=${url#*://}; h=${h#*@}; h=${h%%/*}
+  case "$h" in
+    ''|*[!A-Za-z0-9.:-]*) return 1 ;;
+  esac
+  printf '%s' "$h"
+}
+
 # is_covered_ship_merge_form <cmd> — returns 0 iff the argv AFTER `gh pr merge`
 # is EXACTLY the covered ship form `--auto --merge --delete-branch`
 # (settings.json permissions.allow entry, #592). Uses the same sed-strip idiom as
@@ -99,13 +121,17 @@ is_covered_ship_merge_form() {
 #   2 — INDETERMINATE: empty PR, gh absent, or any gh lookup failure (error/
 #       timeout/down/empty) — the caller fails CLOSED on 2 (§5.7.1, #592).
 merge_is_self() {
-  local pr="$1" rc pr_author merger
+  local pr="$1" rc pr_author merger h
   [ -n "$pr" ] || return 2
   command -v gh >/dev/null 2>&1 || return 2
   pr_author=$(_ac_run_gh pr view "$pr" --json author -q .author.login 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 2
   [ -n "$pr_author" ] || return 2
-  merger=$(_ac_run_gh api user -q .login 2>/dev/null); rc=$?
+  # Resolve the merger identity AT THE REPO HOST; an unusable host is INDETERMINATE
+  # (return 2 → the caller blocks), never a silent default-host fallback (#610).
+  h=$(_ac_repo_host) || return 2
+  [ -n "$h" ] || return 2
+  merger=$(_ac_run_gh api user --hostname "$h" -q .login 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 2
   [ -n "$merger" ] || return 2
   [ "$pr_author" = "$merger" ] && return 0
@@ -404,9 +430,17 @@ review_gate_accepts() {
   [ "$rc" = 0 ] || return 1
   [ -n "$nwo" ] || return 1
 
+  # Pin the host-LESS gh api calls (the reviews FETCH + the self-marker merger)
+  # to the REPO host; else they hit gh's default host (github.com) and a GHES
+  # review is unreadable / the merger identity mismatches. Fail CLOSED (not-
+  # accepted) on an unusable host — never a silent default-host fallback (#610).
+  local h
+  h=$(_ac_repo_host) || return 1
+  [ -n "$h" ] || return 1
+
   # The review objects (state / commit_id / author.login per review).
   local reviews
-  reviews=$(_ac_run_gh api "repos/$nwo/pulls/$pr/reviews" 2>/dev/null); rc=$?
+  reviews=$(_ac_run_gh api "repos/$nwo/pulls/$pr/reviews" --hostname "$h" 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 1
   [ -n "$reviews" ] || return 1
   printf '%s' "$reviews" | jq -e 'type=="array"' >/dev/null 2>&1 || return 1
@@ -447,7 +481,7 @@ review_gate_accepts() {
   local pr_author merger
   pr_author=$(_ac_run_gh pr view "$pr" --json author -q .author.login 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 1
-  merger=$(_ac_run_gh api user -q .login 2>/dev/null); rc=$?
+  merger=$(_ac_run_gh api user --hostname "$h" -q .login 2>/dev/null); rc=$?
   [ "$rc" = 0 ] || return 1
   [ -n "$pr_author" ] && [ "$pr_author" = "$merger" ] || return 1
 
