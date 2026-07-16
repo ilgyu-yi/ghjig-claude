@@ -670,6 +670,45 @@ rm -f "$MODE_TMP/.claude/state/mode" 2>/dev/null
   fi
 ) && ok "mode: unattended + soft → fix-and-wait" || ng "mode: soft → fix-and-wait dispatch wrong (#10)"
 
+# 11i (#615): a SUPERSEDED FAILURE check-run must not count — statusCheckRollup can
+# retain a stale entry for a check that failed then passed on re-run (e.g. fragment-gate
+# before/after a skip-changelog label). ship_classify_blocker must dedup to the LATEST
+# check-run per name/context before the FAILURE test, else a clean PR is false-`hard`-parked.
+# 11i: {FAILURE(early), SUCCESS(late)} same name → clean. RED pre-fix (any-FAILURE sees the stale entry).
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:05Z"},{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:01:00Z","completedAt":"2026-01-01T00:01:05Z"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = clean ]
+  else exit 1; fi
+) && ok "classify: superseded FAILURE (stale, newer SUCCESS same check) → clean (#615)" || ng "classify: a stale FAILURE superseded by a newer SUCCESS should classify clean, not hard (#615)"
+
+# 11j (#615, no-false-clean guard): {SUCCESS(early), FAILURE(late)} same name → hard. A genuinely
+# failing LATEST check still parks. Passes pre- and post-fix (locks the safety floor).
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:05Z"},{"name":"gate","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T00:01:00Z","completedAt":"2026-01-01T00:01:05Z"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = hard ]
+  else exit 1; fi
+) && ok "classify: genuinely-failing LATEST check → hard (no false-clean) (#615)" || ng "classify: a newer FAILURE (latest) must still classify hard (#615)"
+
+# 11k (#615, guard): {SUCCESS(early), PENDING(late)} same name → soft. A fresh in-progress re-run
+# is still soft. Passes pre- and post-fix.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:05Z"},{"name":"gate","status":"IN_PROGRESS","startedAt":"2026-01-01T00:01:00Z"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = soft ]
+  else exit 1; fi
+) && ok "classify: fresh IN_PROGRESS re-run (latest) → soft (#615)" || ng "classify: a newer in-progress check (latest) must classify soft (#615)"
+
+# 11l (#615): {PENDING(early), SUCCESS(late)} same name → clean. A stale in-progress entry
+# superseded by a completed SUCCESS must not keep the PR soft. RED pre-fix (any-PENDING sees the stale entry).
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"IN_PROGRESS","startedAt":"2026-01-01T00:00:00Z"},{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:01:00Z","completedAt":"2026-01-01T00:01:05Z"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = clean ]
+  else exit 1; fi
+) && ok "classify: superseded IN_PROGRESS (stale, newer SUCCESS same check) → clean (#615)" || ng "classify: a stale in-progress superseded by a newer SUCCESS should classify clean, not soft (#615)"
+
 # 11g. classifier emits stderr warning on empty stdin (#10)
 (
   if command -v ship_classify_blocker >/dev/null 2>&1; then

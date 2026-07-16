@@ -104,8 +104,17 @@ ship_classify_blocker() {
     return 0
   fi
 
+  # #615: dedup the rollup to the LATEST check-run per name/context before the
+  # PENDING/FAILURE tests — statusCheckRollup can retain a stale, superseded entry
+  # for a check that re-ran (e.g. a fragment-gate that failed then passed after a
+  # skip-changelog label), and an undeduped any-PENDING/any-FAILURE would count the
+  # stale entry, false-classifying a clean PR as soft/hard. `latest per check` =
+  # group by name (check-run) or context (legacy status), take the newest by
+  # completedAt (fallback startedAt), mirroring `gh pr checks`'s per-context view.
   if printf '%s' "$json" | jq -e \
-       '(.statusCheckRollup // []) | map(.status // .conclusion // "") |
+       '(.statusCheckRollup // []) | group_by(.name // .context // "") |
+        map(sort_by(.completedAt // .startedAt // "") | last) |
+        map(.status // .conclusion // "") |
         any(. == "PENDING" or . == "IN_PROGRESS" or . == "QUEUED")' \
        >/dev/null 2>&1; then
     printf 'soft\n'; return 0
@@ -120,8 +129,12 @@ ship_classify_blocker() {
     printf 'hard\n'; return 0
   fi
 
+  # #615: same latest-per-check dedup as the PENDING test above — a superseded
+  # FAILURE (a check that later re-ran green) must not force `hard`.
   if printf '%s' "$json" | jq -e \
-       '(.statusCheckRollup // []) | map(.conclusion // "") |
+       '(.statusCheckRollup // []) | group_by(.name // .context // "") |
+        map(sort_by(.completedAt // .startedAt // "") | last) |
+        map(.conclusion // "") |
         any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT")' \
        >/dev/null 2>&1; then
     printf 'hard\n'; return 0
