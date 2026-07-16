@@ -58,6 +58,7 @@ SMOKE_D="$(dirname "${BASH_SOURCE[0]}")/smoke.d"
 . "$SMOKE_D/50-perproject-recall.sh"
 . "$SMOKE_D/60-escape-identity.sh"
 . "$SMOKE_D/70-gates-contentlocks.sh"
+. "$SMOKE_D/80-git-hook-tier.sh"
 
 # ---------- results ----------
 echo
