@@ -33,7 +33,14 @@ These need authoring judgment and the MISSION scaffold-not-author boundary, so t
    - `.github/ISSUE_TEMPLATE/` → `.claude/ghjig-root/.claude/templates/issue_template_for_target.md`
    - `.github/PULL_REQUEST_TEMPLATE.md` → `.claude/ghjig-root/.claude/templates/pr_template_for_target.md`
    - `.github/CODEOWNERS` → recommend.
-3. **Branch protection setup.** If `branch-protect` is `fail`, print the setup commands only (setup requires admin) — do not apply them.
+3. **Branch protection setup** (tier-3, SPEC §6.7, §5.1 step 5). Surface the granular server-side state — run the tier-3 verifier and report each facet, then **prescribe** the exact SET commands. Unlike the tier-2 activation in step 4, `/onboard` **never auto-SETs** tier-3: asserting all-actor server authority is high-cost-if-wrong (SPEC §6.0), so it stays report+prescribe behind human execution.
+
+   ```bash
+   "$GR/scripts/install_branch_protection.sh" --check      # classify the five facets: configured/partial/absent/unreadable
+   "$GR/scripts/install_branch_protection.sh" --prescribe  # print the exact gh api / UI commands (setup requires admin)
+   ```
+
+   Report each facet (PR required, review required at head, required status checks, force-push blocked, direct-push/deletion blocked) with its state, plus the `bypass_actors`/`enforce_admins` surface — a tier the setting admin can bypass is authority for non-those-actors only (SPEC §6.7). The coarse `branch-protect` line above is the boolean glance; this verifier is the granular tier-3 surface.
 4. **Local git-hook tier activation** (SPEC §6.7, §5.1 step 7). Unlike the recommend-only steps above, this is the **one activation `/onboard` performs** — it is repo-local and reversible, so it respects the §3.4 user-global boundary. Install and verify the committed `.githooks/` enforcement tier:
 
    ```bash
