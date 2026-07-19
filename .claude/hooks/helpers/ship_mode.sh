@@ -103,6 +103,20 @@ ship_classify_blocker() {
     printf 'hard\n'
     return 0
   fi
+  # #621: a degenerate payload must fail CLOSED, not fall through to the terminal
+  # `case ""|APPROVED) → clean`. Without this guard a malformed, non-object, or
+  # whitespace-only payload makes the jq -e dedup tests skip and the reviewDecision/
+  # mergeStateStatus extracts yield "" → clean (fail-open) — a wrong `clean` routes
+  # toward an unattended merge. The guard is OBJECT-SHAPED, not parse-only: real input
+  # (`gh pr view --json …`) is always a JSON object, and `jq -e 'type=="object"'`
+  # rejects parse errors, scalars/arrays, AND whitespace-only (zero documents) in one
+  # check — a parse-only `jq empty` would accept the latter two. Parity with the
+  # empty-stdin and jq-missing arms above.
+  if ! printf '%s' "$json" | jq -e 'type=="object"' >/dev/null 2>&1; then
+    printf 'ship_classify_blocker: non-object/malformed JSON on stdin — defaulting to hard\n' >&2
+    printf 'hard\n'
+    return 0
+  fi
 
   # #615: dedup the rollup to the LATEST check-run per name/context before the
   # PENDING/FAILURE tests — statusCheckRollup can retain a stale, superseded entry

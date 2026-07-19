@@ -765,6 +765,39 @@ rm -f "$MODE_TMP/.claude/state/mode" 2>/dev/null
   fi
 ) && ok "classify: empty stdin → stderr warning" || ng "classify: empty stdin should warn 'no input on stdin' (#10)"
 
+# 11r (#621): malformed NON-EMPTY stdin must fail closed to `hard`, not `clean`.
+# A garbage payload makes both jq -e dedup tests exit non-zero (skipped) and the
+# reviewDecision/mergeStateStatus extracts yield "" → terminal case ""|APPROVED)
+# would return `clean` (fail-OPEN) — a wrong `clean` routes toward an unattended
+# merge. Parity with the empty-stdin and jq-missing guards, which already fail hard.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    [ "$(printf 'this is not json { [ ' | ship_classify_blocker 2>/dev/null)" = hard ]
+  else exit 1; fi
+) && ok "classify: malformed non-empty JSON → hard (fail-closed) (#621)" || ng "classify: malformed non-empty stdin must classify hard, not clean (#621)"
+
+# 11s (#621, guard): a well-formed clean payload still classifies clean post-guard.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = clean ]
+  else exit 1; fi
+) && ok "classify: well-formed clean payload still clean after the jq-empty guard (#621)" || ng "classify: the malformed-JSON guard must not regress a well-formed clean payload (#621)"
+
+# 11t (#621): well-formed but NON-OBJECT (or whitespace-only) input must also fail
+# closed to `hard`. `gh pr view --json …` always emits an object; a scalar/array/
+# whitespace payload is degenerate. A parse-only guard (jq empty) accepts these
+# (whitespace = zero JSON documents → exit 0) and lets the .field extracts collapse
+# to "" → clean (fail-open) — so the guard must be object-shaped, not parse-only.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    ws=$(printf '   ' | ship_classify_blocker 2>/dev/null)
+    sc=$(printf '42' | ship_classify_blocker 2>/dev/null)
+    ar=$(printf '[1,2,3]' | ship_classify_blocker 2>/dev/null)
+    [ "$ws" = hard ] && [ "$sc" = hard ] && [ "$ar" = hard ]
+  else exit 1; fi
+) && ok "classify: whitespace-only / scalar / array (non-object) → hard (fail-closed) (#621)" || ng "classify: well-formed non-object or whitespace input must classify hard, not clean (#621)"
+
 # 11h. ship_park_pr idempotent on repeat (#10)
 # Stubs `gh` via a tmpdir on PATH so the helper can check label presence
 # without a real PR. First call: gh returns []; helper emits comment +
