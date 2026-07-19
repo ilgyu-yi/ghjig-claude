@@ -60,20 +60,56 @@ EOF
     "$RULESET_NAME" "$rules"
 }
 
-build_classic_payload() {  # floor-merge: take the more-restrictive of desired-vs-current
-  local current="$1" desired_count=1 cur_count union_count name
-  cur_count=$(printf '%s' "$current" \
+build_classic_payload() {  # floor-merge union of desired-vs-current, per facet (never a destructive full-replace)
+  local current="$1" desired_count
+  # SSOT: the desired approving-review floor is read from facet_spec (single source,
+  # §9) — the classic union and the ruleset payload cannot drift on the review count.
+  desired_count=$(facet_spec \
     | sed -n 's/.*"required_approving_review_count":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
-  [ -n "$cur_count" ] || cur_count=0
-  union_count=$desired_count
-  [ "$cur_count" -gt "$union_count" ] && union_count=$cur_count
-  # SSOT: the floor-merge union must re-assert every facet_spec facet — a union PUT,
-  # never a destructive full-replace that would drop an org-added stronger facet.
-  while IFS='|' read -r name _; do [ -n "$name" ] || continue; done <<EOF
-$(facet_spec)
-EOF
-  printf '{"required_pull_request_reviews":{"required_approving_review_count":%s,"require_last_push_approval":true},"required_status_checks":{"strict":true,"contexts":[]},"enforce_admins":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}\n' \
-    "$union_count"
+  [ -n "$desired_count" ] || desired_count=1
+  # `gh api …/protection` GET is object-shaped; guard against a non-JSON body.
+  printf '%s' "$current" | jq empty >/dev/null 2>&1 || current='{}'
+  # Floor-merge: for each facet emit the MORE-restrictive of current-vs-desired, and
+  # PRESERVE any org-added stronger facet the current protection already carries. Never
+  # emit contexts:[] / enforce_admins:null / restrictions:null over an existing value —
+  # a classic PUT is a full-replacement, so a desired-only payload would silently
+  # downgrade a stronger repo. desired = {contexts:[], enforce_admins: not-forced,
+  # linear/conversation/lock/block: not-forced, force_push/deletion: disallowed}.
+  printf '%s' "$current" | jq -c --argjson want "$desired_count" '
+    def logins($a): [ ($a // [])[] | if type=="object" then (.login // .slug // .name // .) else . end ];
+    . as $cur
+    | {
+        required_status_checks: {
+          strict: true,
+          contexts: (($cur.required_status_checks.contexts // []) | unique)   # current ∪ desired([])
+        },
+        enforce_admins: ($cur.enforce_admins.enabled // false),               # preserve current-true; never force
+        required_pull_request_reviews: (
+          {
+            required_approving_review_count: ([($cur.required_pull_request_reviews.required_approving_review_count // 0), $want] | max),
+            require_last_push_approval: (($cur.required_pull_request_reviews.require_last_push_approval // false) or true),
+            require_code_owner_reviews: ($cur.required_pull_request_reviews.require_code_owner_reviews // false),
+            dismiss_stale_reviews: ($cur.required_pull_request_reviews.dismiss_stale_reviews // false)
+          }
+          + (if $cur.required_pull_request_reviews.dismissal_restrictions
+             then {dismissal_restrictions: {
+                     users: logins($cur.required_pull_request_reviews.dismissal_restrictions.users),
+                     teams: logins($cur.required_pull_request_reviews.dismissal_restrictions.teams)}}
+             else {} end)
+        ),
+        restrictions: (if $cur.restrictions
+                       then {users: logins($cur.restrictions.users),
+                             teams: logins($cur.restrictions.teams),
+                             apps:  logins($cur.restrictions.apps)}
+                       else null end),                                        # preserve current; never null-over-existing
+        allow_force_pushes: false,
+        allow_deletions: false
+      }
+      + (if ($cur.required_linear_history.enabled // false)         then {required_linear_history: true}         else {} end)
+      + (if ($cur.required_conversation_resolution.enabled // false) then {required_conversation_resolution: true} else {} end)
+      + (if ($cur.lock_branch.enabled // false)                    then {lock_branch: true}                    else {} end)
+      + (if ($cur.block_creations.enabled // false)                then {block_creations: true}                else {} end)
+  '
 }
 
 # ── Verify (any actor; reads rules ∪ classic, classifies the five facets) ──────
@@ -85,13 +121,17 @@ run_verify() {
   local out err
   out=$(mktemp); err=$(mktemp)
 
+  # Readable-but-absent is allowed ONLY on a genuine 404. Any other read failure
+  # (403 / 5xx / network) is 'unreadable' — never silently classified 'absent'.
   if gh api "repos/{owner}/{repo}/rules/branches/$DEFAULT_BRANCH" --hostname "$HOST" >"$out" 2>"$err"; then
     rules_json=$(cat "$out")
-  elif grep -q 403 "$err"; then rules_readable=0; fi
+  elif grep -q 404 "$err"; then rules_json=""       # readable-but-absent
+  else rules_readable=0; fi                          # 403/5xx/network → unreadable
 
   if gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" --hostname "$HOST" >"$out" 2>"$err"; then
     classic_json=$(cat "$out")
-  elif grep -q 403 "$err"; then classic_readable=0; fi  # a 404 ⇒ readable-but-absent
+  elif grep -q 404 "$err"; then classic_json=""     # readable-but-absent
+  else classic_readable=0; fi                        # 403/5xx/network → unreadable
   rm -f "$out" "$err"
 
   local name rdet cdet present=0 total=0 hit
@@ -144,36 +184,64 @@ prescribe() {
 
 # ── SET ladder (admin only; highest authority first, degrade-not-fail) ─────────
 set_via_ladder() {
-  local list our_id payload current
+  local list our_id payload current err
+  err=$(mktemp)
   # Path 1: rulesets API + admin → zero-clobber update of OUR ruleset, by id.
-  if list=$(gh api "repos/{owner}/{repo}/rulesets" --hostname "$HOST" 2>/dev/null); then
-    # Split the list into one JSON object per line, keep the object carrying OUR
-    # ruleset name, and extract its id — so we update BY ID (zero-clobber).
-    our_id=$(printf '%s' "$list" | grep -o '{[^}]*}' \
-      | grep -F '"name":"'"$RULESET_NAME"'"' \
-      | sed -n 's/.*"id":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+  if list=$(gh api "repos/{owner}/{repo}/rulesets" --hostname "$HOST" 2>"$err"); then
+    rm -f "$err"
+    # Resolve OUR ruleset's id from the list with jq (robust to nested _links, unlike a
+    # brace-split), so we update strictly BY ID (zero-clobber; never a sibling ruleset).
+    our_id=$(printf '%s' "$list" | jq -r '.[]? | select(.name=="'"$RULESET_NAME"'") | .id' 2>/dev/null | head -1)
     payload=$(build_ruleset_payload)
-    if [ -n "$our_id" ]; then
-      printf '%s' "$payload" | gh api "repos/{owner}/{repo}/rulesets/$our_id" \
-        --method PATCH --hostname "$HOST" --input - >/dev/null 2>&1
-      printf 'install_branch_protection: updated ruleset %s (id %s) by id — zero-clobber.\n' "$RULESET_NAME" "$our_id"
-    else
-      printf '%s' "$payload" | gh api "repos/{owner}/{repo}/rulesets" \
-        --method POST --hostname "$HOST" --input - >/dev/null 2>&1
-      printf 'install_branch_protection: created ruleset %s.\n' "$RULESET_NAME"
+    if [ -n "$our_id" ] && [ "$our_id" != "null" ]; then
+      # SET honesty: capture the mutation's exit status — never report success on a
+      # failed (ignored non-zero) mutation.
+      if printf '%s' "$payload" | gh api "repos/{owner}/{repo}/rulesets/$our_id" \
+           --method PATCH --hostname "$HOST" --input - >/dev/null 2>&1; then
+        printf 'install_branch_protection: updated ruleset %s (id %s) by id — zero-clobber.\n' "$RULESET_NAME" "$our_id"
+        ( audit_log info tier3 ruleset-set "ruleset=$RULESET_NAME host=$HOST id=$our_id" ) >/dev/null 2>&1 || true
+        return 0
+      fi
+      printf 'install_branch_protection: ruleset %s (id %s) SET failed — state unchanged.\n' "$RULESET_NAME" "$our_id" >&2
+      ( audit_log warn tier3 ruleset-set-failed "ruleset=$RULESET_NAME host=$HOST id=$our_id" ) >/dev/null 2>&1 || true
+      return 1
     fi
-    ( audit_log info tier3 ruleset-set "ruleset=$RULESET_NAME host=$HOST" ) >/dev/null 2>&1 || true
-    return 0
+    if printf '%s' "$payload" | gh api "repos/{owner}/{repo}/rulesets" \
+         --method POST --hostname "$HOST" --input - >/dev/null 2>&1; then
+      printf 'install_branch_protection: created ruleset %s.\n' "$RULESET_NAME"
+      ( audit_log info tier3 ruleset-set "ruleset=$RULESET_NAME host=$HOST created=1" ) >/dev/null 2>&1 || true
+      return 0
+    fi
+    printf 'install_branch_protection: ruleset %s creation failed — state unchanged.\n' "$RULESET_NAME" >&2
+    ( audit_log warn tier3 ruleset-set-failed "ruleset=$RULESET_NAME host=$HOST created=0" ) >/dev/null 2>&1 || true
+    return 1
   fi
 
-  # Path 2: rulesets unsupported (404 / older GHES) + admin → classic floor-merge PUT.
+  # Path 1 failed. Fall to the classic path ONLY on a genuine 404 (rulesets
+  # unsupported / older GHES). Any OTHER error (403/5xx/network) FAILS CLOSED — never a
+  # silent down-convert to a destructive classic full-replace on a transient error.
+  if ! grep -q '404' "$err"; then
+    printf 'install_branch_protection: rulesets list failed (non-404) on %s — refusing to down-convert to a classic PUT (fail-closed):\n' "$HOST" >&2
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+
+  # Path 2: rulesets unsupported (genuine 404) + admin → classic floor-merge PUT.
   current=$(gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
-    --hostname "$HOST" 2>/dev/null || printf '{}')
+    --hostname "$HOST" 2>/dev/null)
+  [ -n "$current" ] || current='{}'
   payload=$(build_classic_payload "$current")
-  printf '%s' "$payload" | gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
-    --method PUT --hostname "$HOST" --input - >/dev/null 2>&1
-  printf 'install_branch_protection: classic floor-merge PUT on %s (union, never a full-replace).\n' "$DEFAULT_BRANCH"
-  ( audit_log info tier3 classic-set "branch=$DEFAULT_BRANCH host=$HOST" ) >/dev/null 2>&1 || true
+  if printf '%s' "$payload" | gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
+       --method PUT --hostname "$HOST" --input - >/dev/null 2>&1; then
+    printf 'install_branch_protection: classic floor-merge PUT on %s (union, never a full-replace).\n' "$DEFAULT_BRANCH"
+    ( audit_log info tier3 classic-set "branch=$DEFAULT_BRANCH host=$HOST" ) >/dev/null 2>&1 || true
+    return 0
+  fi
+  printf 'install_branch_protection: classic protection PUT failed on %s — state unchanged.\n' "$DEFAULT_BRANCH" >&2
+  ( audit_log warn tier3 classic-set-failed "branch=$DEFAULT_BRANCH host=$HOST" ) >/dev/null 2>&1 || true
+  return 1
 }
 
 # ── Arg parse ─────────────────────────────────────────────────────────────────
@@ -208,7 +276,7 @@ case "$MODE" in
   set)
     if [ "$PERM" = "ADMIN" ]; then
       set_via_ladder
-      exit 0
+      exit $?
     fi
     # No admin → verify + prescribe, exit 0, never a hard failure, never mutate.
     echo "install_branch_protection: not an admin (viewerPermission=${PERM:-unknown}) — verify + prescribe only, no mutation."
