@@ -62,6 +62,11 @@ cat > "$S613_BIN/gh" <<'SHIM'
 : "${GH_SHIM_STATE:?}"
 d="$GH_SHIM_STATE"
 
+# #622: when e500_404 is present, non-404 (5xx) error messages carry the bare
+# substring "404" (a trace id) — to prove the 404 discrimination matches the
+# structured HTTP-404 status phrasing, NOT a bare "404" substring.
+x404=''; [ -f "$d/e500_404" ] && x404=' (trace-id 404abc)'
+
 # --- method + --input extraction (for the recorded PUT payload) ---
 method=GET; prev=
 for a in "$@"; do
@@ -90,11 +95,11 @@ case "$*" in
   *"repo view"*nameWithOwner*)    printf 'o/r\n' ;;
   *api*rules/branches*)           # the verify "rules" union arm (readable by any actor)
       [ -f "$d/rules_403" ] && { echo 'gh: 403 Forbidden' >&2; exit 1; }
-      [ -f "$d/rules_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
+      [ -f "$d/rules_500" ] && { echo "gh: 500 Internal Server Error$x404" >&2; exit 1; }
       cat "$d/rules_branches.json" 2>/dev/null || printf '[]\n' ;;
   *api*rulesets*)                 # the rulesets API (SET path 1)
       [ -f "$d/rulesets_404" ] && { echo 'gh: 404 Not Found (rulesets unsupported)' >&2; exit 1; }
-      [ -f "$d/rulesets_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
+      [ -f "$d/rulesets_500" ] && { echo "gh: 500 Internal Server Error$x404" >&2; exit 1; }
       case "$method" in
         GET) case "$*" in
                *rulesets/*) printf '{"id":0,"name":"ghjig-tier3"}\n' ;;   # a by-id GET
@@ -106,7 +111,7 @@ case "$*" in
   *api*branches*protection*)      # classic branch protection (SET path 2 / verify union)
       case "$method" in
         GET) [ -f "$d/classic_403" ] && { echo 'gh: 403 Forbidden' >&2; exit 1; }
-             [ -f "$d/classic_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
+             [ -f "$d/classic_500" ] && { echo "gh: 500 Internal Server Error$x404" >&2; exit 1; }
              if [ -f "$d/classic.json" ]; then cat "$d/classic.json"; else echo 'gh: 404 Not Found' >&2; exit 1; fi ;;
         *)   [ -f "$d/set_fail" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
              printf '{}\n' ;;   # PUT accepted (already recorded above)
@@ -362,6 +367,31 @@ if [ -x "$S613_SCRIPT" ]; then
     ng "155-13: --prescribe must warn 'full replacement' and not label the classic command 'floor-merge' (out: $(printf '%s' "$o13" | tr '\n' ' ')) (#613)"
   fi
 
+  # ── §155-14 (#622): 404 discrimination is structured, not a bare substring — path 1 ──
+  # A NON-404 (5xx) rulesets-list error whose message merely CONTAINS the substring
+  # "404" (a trace id) must NOT be mistaken for a genuine "rulesets unsupported" 404 →
+  # it must fail closed (no classic PUT), like any other non-404 error (§155-10).
+  s14=$(s613_state "$S613_HOST" ADMIN); : > "$s14/rulesets_500"; : > "$s14/e500_404"
+  ( cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s14" bash "$S613_SCRIPT" ) >/dev/null 2>&1
+  s14_classicput=$(grep -F 'branches/main/protection' "$s14/calls" 2>/dev/null | grep -Ec '\[PUT\]|\[-XPUT\]|\[--method\] \[PUT\]')
+  if [ "$s14_classicput" -eq 0 ]; then
+    ok "155-14: a non-404 list error containing the substring '404' does NOT down-convert to a classic PUT (structured 404 match) (#622)"
+  else
+    ng "155-14: a 5xx-with-'404'-substring list error fell through to $s14_classicput classic PUT(s) — the 404 gate must match the HTTP status, not a bare substring (#622)"
+  fi
+
+  # ── §155-15 (#622): 404 discrimination is structured, not a bare substring — verify ──
+  # Both verify GETs fail with a NON-404 (5xx) error whose message CONTAINS "404".
+  # --check must classify 'unreadable' (could-not-read), NEVER 'absent' (which a bare
+  # substring match would wrongly produce by treating the 5xx as a readable-absent 404).
+  s15=$(s613_state "$S613_HOST" ADMIN); : > "$s15/rules_500"; : > "$s15/classic_500"; : > "$s15/e500_404"
+  o15=$(cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s15" bash "$S613_SCRIPT" --check 2>&1)
+  if printf '%s' "$o15" | grep -qw unreadable && ! printf '%s' "$o15" | grep -qw absent; then
+    ok "155-15: a non-404 verify error containing the substring '404' is 'unreadable', never 'absent' (structured 404 match) (#622)"
+  else
+    ng "155-15: a 5xx-with-'404'-substring verify error misclassified (got: $(printf '%s' "$o15" | tr '\n' ' ')) — must be 'unreadable' (#622)"
+  fi
+
 else
   ng "155-1a: scripts/install_branch_protection.sh absent/non-executable — verify 'configured' untested (#613)"
   ng "155-1b: install_branch_protection.sh absent — verify 'partial' untested (#613)"
@@ -381,6 +411,8 @@ else
   ng "155-11: install_branch_protection.sh absent — non-404 verify → unreadable untested (#613)"
   ng "155-12: install_branch_protection.sh absent — path-2 current-GET fail-closed untested (#613)"
   ng "155-13: install_branch_protection.sh absent — prescribe full-replace mislabel untested (#613)"
+  ng "155-14: install_branch_protection.sh absent — structured-404 path-1 gate untested (#622)"
+  ng "155-15: install_branch_protection.sh absent — structured-404 verify untested (#622)"
 fi
 
 rm -rf "$S613_DIR"
