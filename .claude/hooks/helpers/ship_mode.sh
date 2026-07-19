@@ -111,9 +111,22 @@ ship_classify_blocker() {
   # stale entry, false-classifying a clean PR as soft/hard. `latest per check` =
   # group by name (check-run) or context (legacy status), take the newest by
   # completedAt (fallback startedAt), mirroring `gh pr checks`'s per-context view.
+  #
+  # #617: the sort key is COMPOUND — [<timestamp>, sev] — so the tie-break is
+  # fail-closed. A timestamp-less entry falls back to "" and jq's stable sort would
+  # otherwise leave a "" tie in array order, making `last` array-position-dependent
+  # (a real FAILURE placed before a SUCCESS could be dropped). The timestamp still
+  # dominates (correct latest-wins for real data, which always carries startedAt);
+  # sev only breaks a "" tie toward the more-severe member (FAILURE/CANCELLED/
+  # TIMED_OUT > PENDING/IN_PROGRESS/QUEUED > SUCCESS) so `last` never drops a
+  # FAILURE/PENDING in favor of a SUCCESS on a degenerate tie.
   if printf '%s' "$json" | jq -e \
-       '(.statusCheckRollup // []) | group_by(.name // .context // "") |
-        map(sort_by(.completedAt // .startedAt // "") | last) |
+       'def sev: (.conclusion // "") as $c | (.status // "") as $s |
+          (if $c == "FAILURE" or $c == "CANCELLED" or $c == "TIMED_OUT" then 2
+           elif $s == "PENDING" or $s == "IN_PROGRESS" or $s == "QUEUED" then 1
+           else 0 end);
+        (.statusCheckRollup // []) | group_by(.name // .context // "") |
+        map(sort_by([(.completedAt // .startedAt // ""), sev]) | last) |
         map(.status // .conclusion // "") |
         any(. == "PENDING" or . == "IN_PROGRESS" or . == "QUEUED")' \
        >/dev/null 2>&1; then
@@ -131,9 +144,16 @@ ship_classify_blocker() {
 
   # #615: same latest-per-check dedup as the PENDING test above — a superseded
   # FAILURE (a check that later re-ran green) must not force `hard`.
+  # #617: same compound [<timestamp>, sev] fail-closed tie-break (see the PENDING
+  # test above) — a "" timestamp tie resolves toward the more-severe member, so a
+  # no-timestamp {FAILURE, SUCCESS} pair classifies hard regardless of array order.
   if printf '%s' "$json" | jq -e \
-       '(.statusCheckRollup // []) | group_by(.name // .context // "") |
-        map(sort_by(.completedAt // .startedAt // "") | last) |
+       'def sev: (.conclusion // "") as $c | (.status // "") as $s |
+          (if $c == "FAILURE" or $c == "CANCELLED" or $c == "TIMED_OUT" then 2
+           elif $s == "PENDING" or $s == "IN_PROGRESS" or $s == "QUEUED" then 1
+           else 0 end);
+        (.statusCheckRollup // []) | group_by(.name // .context // "") |
+        map(sort_by([(.completedAt // .startedAt // ""), sev]) | last) |
         map(.conclusion // "") |
         any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT")' \
        >/dev/null 2>&1; then

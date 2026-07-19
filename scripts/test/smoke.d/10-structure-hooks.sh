@@ -709,6 +709,52 @@ rm -f "$MODE_TMP/.claude/state/mode" 2>/dev/null
   else exit 1; fi
 ) && ok "classify: superseded IN_PROGRESS (stale, newer SUCCESS same check) → clean (#615)" || ng "classify: a stale in-progress superseded by a newer SUCCESS should classify clean, not soft (#615)"
 
+# 11m–p (#617): fail-closed dedup tie-break when same-name check-runs lack timestamps.
+# #615's sort_by(.completedAt // .startedAt // "") falls back to "" with no timestamps;
+# jq's sort_by is stable, so a "" tie leaves array order intact and `last` picks whatever
+# GitHub placed last — array-order-dependent, not fail-closed. A compound key
+# [<timestamp>, <severity-rank>] must break the "" tie toward the MORE-severe member
+# (FAILURE/CANCELLED/TIMED_OUT > PENDING/IN_PROGRESS/QUEUED > SUCCESS) so a tie never
+# drops a FAILURE/PENDING in favor of a SUCCESS regardless of array position.
+
+# 11m: {FAILURE(first), SUCCESS(last)} same name, NO timestamps → hard. RED pre-fix
+# (stable "" sort leaves SUCCESS last → FAILURE dropped → clean). mergeStateStatus=CLEAN
+# isolates the dedup as the sole driver of hard.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"FAILURE"},{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = hard ]
+  else exit 1; fi
+) && ok "classify: no-timestamp {FAILURE,SUCCESS} tie → hard (fail-closed) (#617)" || ng "classify: a no-timestamp FAILURE/SUCCESS tie must classify hard regardless of array order (#617)"
+
+# 11n: {SUCCESS(first), FAILURE(last)} same name, NO timestamps → hard. Locks the floor
+# (severity tie-break must not regress the case array order already got right).
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"gate","status":"COMPLETED","conclusion":"FAILURE"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = hard ]
+  else exit 1; fi
+) && ok "classify: no-timestamp {SUCCESS,FAILURE} tie → hard (order-independent) (#617)" || ng "classify: a no-timestamp SUCCESS/FAILURE tie must still classify hard (#617)"
+
+# 11o: {SUCCESS(first), PENDING(last)} same name, NO timestamps → soft. Locks the pending
+# floor for the order array already got right.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"gate","status":"IN_PROGRESS"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = soft ]
+  else exit 1; fi
+) && ok "classify: no-timestamp {SUCCESS,PENDING} tie → soft (#617)" || ng "classify: a no-timestamp SUCCESS/PENDING tie must classify soft (#617)"
+
+# 11p: {PENDING(first), SUCCESS(last)} same name, NO timestamps → soft. RED pre-fix
+# (stable "" sort leaves SUCCESS last → PENDING dropped → clean). Proves the fail-closed
+# tie-break covers the PENDING tier, not only FAILURE, independent of array order.
+(
+  if command -v ship_classify_blocker >/dev/null 2>&1; then
+    j='{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","statusCheckRollup":[{"name":"gate","status":"IN_PROGRESS"},{"name":"gate","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+    [ "$(printf '%s' "$j" | ship_classify_blocker 2>/dev/null)" = soft ]
+  else exit 1; fi
+) && ok "classify: no-timestamp {PENDING,SUCCESS} tie → soft (fail-closed) (#617)" || ng "classify: a no-timestamp PENDING/SUCCESS tie must classify soft regardless of array order (#617)"
+
 # 11g. classifier emits stderr warning on empty stdin (#10)
 (
   if command -v ship_classify_blocker >/dev/null 2>&1; then
