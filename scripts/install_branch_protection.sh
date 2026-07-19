@@ -112,6 +112,14 @@ build_classic_payload() {  # floor-merge union of desired-vs-current, per facet 
   '
 }
 
+# ── #622: structured HTTP-404 discrimination (single-sourced) ─────────────────
+# gh api emits "gh: Not Found (HTTP 404)" for a genuine 404; match that HTTP status
+# phrasing (or the reason phrase), NOT a bare "404" substring — a 403/5xx error
+# message can carry "404" incidentally (a trace id, a URL, a check name). Every
+# 404-vs-error decision below routes through this one predicate so they cannot drift
+# and none mistakes an incidental "404" in a non-404 error for a genuine 404.
+_gh_err_is_404() { grep -qE 'HTTP 404|404 Not Found' "$1" 2>/dev/null; }
+
 # ── Verify (any actor; reads rules ∪ classic, classifies the five facets) ──────
 # Emits per-facet present/missing lines plus ONE overall status word among
 # configured / partial / absent / unreadable. Fail-closed honest: a 403 on both
@@ -125,12 +133,12 @@ run_verify() {
   # (403 / 5xx / network) is 'unreadable' — never silently classified 'absent'.
   if gh api "repos/{owner}/{repo}/rules/branches/$DEFAULT_BRANCH" --hostname "$HOST" >"$out" 2>"$err"; then
     rules_json=$(cat "$out")
-  elif grep -q 404 "$err"; then rules_json=""       # readable-but-absent
+  elif _gh_err_is_404 "$err"; then rules_json=""    # readable-but-absent
   else rules_readable=0; fi                          # 403/5xx/network → unreadable
 
   if gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" --hostname "$HOST" >"$out" 2>"$err"; then
     classic_json=$(cat "$out")
-  elif grep -q 404 "$err"; then classic_json=""     # readable-but-absent
+  elif _gh_err_is_404 "$err"; then classic_json=""  # readable-but-absent
   else classic_readable=0; fi                        # 403/5xx/network → unreadable
   rm -f "$out" "$err"
 
@@ -224,7 +232,7 @@ set_via_ladder() {
   # Path 1 failed. Fall to the classic path ONLY on a genuine 404 (rulesets
   # unsupported / older GHES). Any OTHER error (403/5xx/network) FAILS CLOSED — never a
   # silent down-convert to a destructive classic full-replace on a transient error.
-  if ! grep -q '404' "$err"; then
+  if ! _gh_err_is_404 "$err"; then
     printf 'install_branch_protection: rulesets list failed (non-404) on %s — refusing to down-convert to a classic PUT (fail-closed):\n' "$HOST" >&2
     cat "$err" >&2
     rm -f "$err"
@@ -242,7 +250,7 @@ set_via_ladder() {
   if current=$(gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
        --hostname "$HOST" 2>"$err"); then
     rm -f "$err"
-  elif grep -q '404' "$err"; then
+  elif _gh_err_is_404 "$err"; then
     current='{}'; rm -f "$err"
   else
     printf 'install_branch_protection: current protection on %s unreadable (non-404) — refusing classic PUT (fail-closed):\n' "$DEFAULT_BRANCH" >&2
