@@ -334,6 +334,34 @@ if [ -x "$S613_SCRIPT" ]; then
     ng "155-11: a 5xx verify error misclassified (got: $(printf '%s' "$o11" | tr '\n' ' ')) — must be 'unreadable', not 'absent' (#613)"
   fi
 
+  # ── §155-12: path-2 current-protection GET is fail-closed on a non-404 error ──
+  # rulesets 404 (→ path 2) + admin, but the classic current-protection GET the
+  # floor-merge depends on fails with a NON-404 (500). Treating that as {} would
+  # floor-merge against a false-empty and PUT a destructive full-replace, silently
+  # stripping any existing protection. The current-read must fail closed (no PUT)
+  # exactly like the path-1 list gate and run_verify — only a genuine 404 → {}.
+  s12=$(s613_state "$S613_HOST" ADMIN); : > "$s12/rulesets_404"; : > "$s12/classic_500"
+  ( cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s12" bash "$S613_SCRIPT" ) >/dev/null 2>&1
+  s12_classicput=$(grep -F 'branches/main/protection' "$s12/calls" 2>/dev/null | grep -Ec '\[PUT\]|\[-XPUT\]|\[--method\] \[PUT\]')
+  if [ "$s12_classicput" -eq 0 ]; then
+    ok "155-12: a non-404 (5xx) current-protection GET on path 2 does NOT PUT a destructive full-replace (fail-closed) (#613)"
+  else
+    ng "155-12: a 5xx current-GET fell through to $s12_classicput classic PUT(s) — the current-read must be gated on 404 ONLY (#613)"
+  fi
+
+  # ── §155-13: --prescribe does not mislabel the classic full-replace as floor-merge ──
+  # The prescribed classic command is STATIC text built from build_classic_payload '{}'
+  # (the bare desired floor) — it cannot read current, so pasting it verbatim on a
+  # stronger repo is a destructive downgrade. It must NOT be labeled "floor-merge" and
+  # MUST warn it is a full replacement that does not preserve existing protection.
+  s13=$(s613_state "$S613_HOST" ADMIN)
+  o13=$(cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s13" bash "$S613_SCRIPT" --prescribe 2>&1)
+  if printf '%s' "$o13" | grep -qi 'full replacement' && ! printf '%s' "$o13" | grep -qi 'floor-merge'; then
+    ok "155-13: --prescribe warns the classic PUT is a full replacement and drops the misleading 'floor-merge' label (#613)"
+  else
+    ng "155-13: --prescribe must warn 'full replacement' and not label the classic command 'floor-merge' (out: $(printf '%s' "$o13" | tr '\n' ' ')) (#613)"
+  fi
+
 else
   ng "155-1a: scripts/install_branch_protection.sh absent/non-executable — verify 'configured' untested (#613)"
   ng "155-1b: install_branch_protection.sh absent — verify 'partial' untested (#613)"
@@ -351,6 +379,8 @@ else
   ng "155-9: install_branch_protection.sh absent — SET failure honesty untested (#613)"
   ng "155-10: install_branch_protection.sh absent — non-404 list error fail-closed untested (#613)"
   ng "155-11: install_branch_protection.sh absent — non-404 verify → unreadable untested (#613)"
+  ng "155-12: install_branch_protection.sh absent — path-2 current-GET fail-closed untested (#613)"
+  ng "155-13: install_branch_protection.sh absent — prescribe full-replace mislabel untested (#613)"
 fi
 
 rm -rf "$S613_DIR"
