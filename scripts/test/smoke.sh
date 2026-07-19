@@ -60,6 +60,7 @@ SMOKE_D="$(dirname "${BASH_SOURCE[0]}")/smoke.d"
 . "$SMOKE_D/70-gates-contentlocks.sh"
 . "$SMOKE_D/80-git-hook-tier.sh"
 . "$SMOKE_D/90-ghes-host.sh"
+. "$SMOKE_D/91-branch-protection.sh"
 
 # ---------- results ----------
 echo
