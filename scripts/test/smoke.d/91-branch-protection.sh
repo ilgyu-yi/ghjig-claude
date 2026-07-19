@@ -46,11 +46,17 @@ mkdir -p "$S613_BIN" "$S613_CWD"
 #   repo_url            full `gh repo view --json url` value (empty ⇒ degenerate host)
 #   perm                ADMIN | WRITE  (viewerPermission)
 #   rulesets_404        (touch) ⇒ the rulesets API 404s (older GHES) → classic fallback
+#   rulesets_500        (touch) ⇒ the rulesets API 5xx-errors (NON-404; must NOT be
+#                       treated as "unsupported" → must NOT down-convert to classic)
 #   rulesets_list.json  the `GET .../rulesets` LIST body (for finding ghjig-tier3 by id)
 #   rules_branches.json the `GET .../rules/branches/{b}` verify body ([] ⇒ none)
 #   rules_403           (touch) ⇒ that GET 403s (unreadable)
+#   rules_500           (touch) ⇒ that GET 5xx-errors (NON-404, NON-403 → unreadable)
 #   classic.json        the `GET .../branches/{b}/protection` body (absent file ⇒ 404)
 #   classic_403         (touch) ⇒ that GET 403s (unreadable)
+#   classic_500         (touch) ⇒ that GET 5xx-errors (NON-404, NON-403 → unreadable)
+#   set_fail            (touch) ⇒ the MUTATING call (ruleset PATCH/POST or classic
+#                       PUT) exits non-zero — the SET must NOT report success
 cat > "$S613_BIN/gh" <<'SHIM'
 #!/bin/sh
 : "${GH_SHIM_STATE:?}"
@@ -84,21 +90,26 @@ case "$*" in
   *"repo view"*nameWithOwner*)    printf 'o/r\n' ;;
   *api*rules/branches*)           # the verify "rules" union arm (readable by any actor)
       [ -f "$d/rules_403" ] && { echo 'gh: 403 Forbidden' >&2; exit 1; }
+      [ -f "$d/rules_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
       cat "$d/rules_branches.json" 2>/dev/null || printf '[]\n' ;;
   *api*rulesets*)                 # the rulesets API (SET path 1)
       [ -f "$d/rulesets_404" ] && { echo 'gh: 404 Not Found (rulesets unsupported)' >&2; exit 1; }
+      [ -f "$d/rulesets_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
       case "$method" in
         GET) case "$*" in
                *rulesets/*) printf '{"id":0,"name":"ghjig-tier3"}\n' ;;   # a by-id GET
                *)           cat "$d/rulesets_list.json" 2>/dev/null || printf '[]\n' ;;
              esac ;;
-        *)   printf '{"id":111,"name":"ghjig-tier3"}\n' ;;               # POST/PUT/PATCH accepted
+        *)   [ -f "$d/set_fail" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
+             printf '{"id":111,"name":"ghjig-tier3"}\n' ;;               # POST/PUT/PATCH accepted
       esac ;;
   *api*branches*protection*)      # classic branch protection (SET path 2 / verify union)
       case "$method" in
         GET) [ -f "$d/classic_403" ] && { echo 'gh: 403 Forbidden' >&2; exit 1; }
+             [ -f "$d/classic_500" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
              if [ -f "$d/classic.json" ]; then cat "$d/classic.json"; else echo 'gh: 404 Not Found' >&2; exit 1; fi ;;
-        *)   printf '{}\n' ;;   # PUT accepted (already recorded above)
+        *)   [ -f "$d/set_fail" ] && { echo 'gh: 500 Internal Server Error' >&2; exit 1; }
+             printf '{}\n' ;;   # PUT accepted (already recorded above)
       esac ;;
 esac
 exit 0
@@ -206,6 +217,31 @@ if [ -x "$S613_SCRIPT" ]; then
     ng "155-4: classic fallback must issue a union PUT keeping review_count=3 (put=$s4_put union=$s4_union) (#613)"
   fi
 
+  # ── §155-4b: classic floor-merge PRESERVES every stronger facet (the missed HIGH) ──
+  # rulesets 404 + admin. The classic GET carries a repo ALREADY stronger than the
+  # desired hardcoded template across FIVE facets. A true floor-merge PUT must union-
+  # preserve ALL of them; a destructive full-replace (the current defect) emits
+  # contexts:[], enforce_admins:null, restrictions:null and drops require_code_owner_
+  # reviews — silently DOWNGRADING a stronger repo. Boundary: this asserts the recorded
+  # PUT payload's CALL SHAPE (what the union sends), not GitHub's enforcement semantics.
+  s4b=$(s613_state "$S613_HOST" ADMIN); : > "$s4b/rulesets_404"
+  printf '%s\n' '{"required_status_checks":{"strict":true,"contexts":["ci"]},"enforce_admins":{"enabled":true},"restrictions":{"users":["alice"],"teams":[],"apps":[]},"required_pull_request_reviews":{"require_code_owner_reviews":true,"required_approving_review_count":2,"require_last_push_approval":true}}' > "$s4b/classic.json"
+  ( cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s4b" bash "$S613_SCRIPT" ) >/dev/null 2>&1
+  # The only recorded STDIN in this fixture is the classic PUT payload (the prior GET
+  # carries no --input), so grepping $calls targets that payload.
+  s4b_put=$(grep -F 'branches/main/protection' "$s4b/calls" 2>/dev/null | grep -Ec '\[PUT\]|\[-XPUT\]|\[--method\] \[PUT\]')
+  s4b_ctx=$(grep -Ec '"contexts":[[:space:]]*\[[^]]*"ci"' "$s4b/calls" 2>/dev/null)            # never emitted as []
+  s4b_admins=$(grep -Ec '"enforce_admins":[[:space:]]*(true|\{)' "$s4b/calls" 2>/dev/null)      # never null/false
+  s4b_restr=$(grep -Ec '"restrictions":[[:space:]]*\{' "$s4b/calls" 2>/dev/null)               # never null
+  s4b_owner=$(grep -Ec '"require_code_owner_reviews":[[:space:]]*true' "$s4b/calls" 2>/dev/null) # preserved
+  s4b_count=$(grep -Ec 'required_approving_review_count[^0-9]*[2-9]' "$s4b/calls" 2>/dev/null)   # ≥ current(2)
+  if [ "$s4b_put" -ge 1 ] && [ "$s4b_ctx" -ge 1 ] && [ "$s4b_admins" -ge 1 ] \
+     && [ "$s4b_restr" -ge 1 ] && [ "$s4b_owner" -ge 1 ] && [ "$s4b_count" -ge 1 ]; then
+    ok "155-4b: classic floor-merge PRESERVES every stronger facet (contexts/enforce_admins/restrictions/code-owner/count) — no destructive full-replace (#613)"
+  else
+    ng "155-4b: classic PUT DOWNGRADES a stronger repo (put=$s4b_put ctx=$s4b_ctx admins=$s4b_admins restr=$s4b_restr owner=$s4b_owner count=$s4b_count; want all ≥1) (#613)"
+  fi
+
   # ── §155-5: degrade without admin — prescribe + exit 0, never mutate ──────────
   s5=$(s613_state "$S613_HOST" WRITE); printf '[]\n' > "$s5/rules_branches.json"
   o5=$(cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s5" bash "$S613_SCRIPT" 2>&1); rc5=$?
@@ -257,6 +293,47 @@ if [ -x "$S613_SCRIPT" ]; then
     ng "155-8: facet spec not single-sourced (defs=$s8_def, refs=$s8_all; want 1 def + ≥2 uses) (#613)"
   fi
 
+  # ── §155-9: SET failure honesty — a failed mutation must NOT report success ────
+  # rulesets API + admin, but the mutating PATCH exits non-zero (set_fail). An honest
+  # SET must NOT print a success line and must SURFACE the failure (non-zero exit or a
+  # failure/error message), never claim success on an ignored non-zero exit status.
+  s9=$(s613_state "$S613_HOST" ADMIN); : > "$s9/set_fail"
+  printf '[{"id":111,"name":"ghjig-tier3"}]\n' > "$s9/rulesets_list.json"
+  o9=$(cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s9" bash "$S613_SCRIPT" 2>&1); rc9=$?
+  s9_success=$(printf '%s' "$o9" | grep -Eic 'updated ruleset|created ruleset|zero-clobber|classic floor-merge PUT')
+  s9_surfaced=0
+  { [ "$rc9" -ne 0 ] || printf '%s' "$o9" | grep -qiE 'fail|error|could not|unable'; } && s9_surfaced=1
+  if [ "$s9_success" -eq 0 ] && [ "$s9_surfaced" -eq 1 ]; then
+    ok "155-9: a failed mutation is surfaced (rc=$rc9 / message), never falsely reported as success (#613)"
+  else
+    ng "155-9: SET reported success on a failed mutation (success-lines=$s9_success surfaced=$s9_surfaced rc=$rc9) — dishonest (#613)"
+  fi
+
+  # ── §155-10: path-2 gated on 404 ONLY — a non-404 list error must NOT down-convert ──
+  # rulesets LIST fails with a NON-404 (500) error + admin. The escalation ladder must
+  # fail closed on a transient/5xx list error — it must NOT silently treat it as
+  # "rulesets unsupported" and fall through to a DESTRUCTIVE classic protection PUT.
+  s10=$(s613_state "$S613_HOST" ADMIN); : > "$s10/rulesets_500"
+  ( cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s10" bash "$S613_SCRIPT" ) >/dev/null 2>&1
+  s10_classicput=$(grep -F 'branches/main/protection' "$s10/calls" 2>/dev/null | grep -Ec '\[PUT\]|\[-XPUT\]|\[--method\] \[PUT\]')
+  if [ "$s10_classicput" -eq 0 ]; then
+    ok "155-10: a non-404 (5xx) rulesets-list error does NOT down-convert to a destructive classic PUT (fail-closed) (#613)"
+  else
+    ng "155-10: a 5xx list error fell through to $s10_classicput classic PUT(s) — path-2 must be gated on 404 ONLY (#613)"
+  fi
+
+  # ── §155-11: verify non-404 error → unreadable, never absent (fail-closed honest) ──
+  # Both verify GETs fail with a NON-404, NON-403 (500) error. --check must classify
+  # 'unreadable' (we could not read state), NEVER 'absent' (which would falsely assert
+  # the repo is unprotected on a transient/5xx error).
+  s11=$(s613_state "$S613_HOST" ADMIN); : > "$s11/rules_500"; : > "$s11/classic_500"
+  o11=$(cd "$S613_CWD" && PATH="$S613_BIN:$PATH" GH_SHIM_STATE="$s11" bash "$S613_SCRIPT" --check 2>&1)
+  if printf '%s' "$o11" | grep -qw unreadable && ! printf '%s' "$o11" | grep -qw absent; then
+    ok "155-11: a non-404/non-403 (5xx) verify error is 'unreadable', never 'absent' (#613)"
+  else
+    ng "155-11: a 5xx verify error misclassified (got: $(printf '%s' "$o11" | tr '\n' ' ')) — must be 'unreadable', not 'absent' (#613)"
+  fi
+
 else
   ng "155-1a: scripts/install_branch_protection.sh absent/non-executable — verify 'configured' untested (#613)"
   ng "155-1b: install_branch_protection.sh absent — verify 'partial' untested (#613)"
@@ -265,11 +342,15 @@ else
   ng "155-2: install_branch_protection.sh absent — non-admin readable verify untested (#613)"
   ng "155-3: install_branch_protection.sh absent — zero-clobber by-id SET untested (#613)"
   ng "155-4: install_branch_protection.sh absent — GHES-404 classic floor-merge PUT untested (#613)"
+  ng "155-4b: install_branch_protection.sh absent — classic floor-merge preservation untested (#613)"
   ng "155-5: install_branch_protection.sh absent — no-admin degrade-not-fail untested (#613)"
   ng "155-6: install_branch_protection.sh absent — host-pin untested (#613)"
   ng "155-6b: install_branch_protection.sh absent — degenerate-host fail-closed untested (#613)"
   ng "155-7: install_branch_protection.sh absent — no-user-global boundary untested (#613)"
   ng "155-8: install_branch_protection.sh absent — SSOT single-source facet spec untested (#613)"
+  ng "155-9: install_branch_protection.sh absent — SET failure honesty untested (#613)"
+  ng "155-10: install_branch_protection.sh absent — non-404 list error fail-closed untested (#613)"
+  ng "155-11: install_branch_protection.sh absent — non-404 verify → unreadable untested (#613)"
 fi
 
 rm -rf "$S613_DIR"
