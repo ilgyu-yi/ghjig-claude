@@ -176,7 +176,11 @@ prescribe() {
   printf '  gh api repos/{owner}/{repo}/rulesets --hostname %s --method POST --input - <<'"'"'JSON'"'"'\n' "$HOST"
   printf '  %s\n' "$(build_ruleset_payload)"
   printf '  JSON\n'
-  printf '  # classic fallback (older GHES / no rulesets): floor-merge PUT\n'
+  printf '  # classic fallback (older GHES / no rulesets). PREFER the SET path\n'
+  printf '  # (install_branch_protection.sh, no arg): it merges the desired floor into the\n'
+  printf '  # current protection non-destructively. A raw PUT is a FULL REPLACEMENT — the\n'
+  printf '  # payload below is the minimum desired floor ONLY and does NOT preserve stronger\n'
+  printf '  # existing protection. If you must PUT by hand, GET the current protection first and merge.\n'
   printf '  gh api repos/{owner}/{repo}/branches/%s/protection --hostname %s --method PUT --input - <<'"'"'JSON'"'"'\n' "$DEFAULT_BRANCH" "$HOST"
   printf '  %s\n' "$(build_classic_payload '{}')"
   printf '  JSON\n'
@@ -229,9 +233,23 @@ set_via_ladder() {
   rm -f "$err"
 
   # Path 2: rulesets unsupported (genuine 404) + admin → classic floor-merge PUT.
-  current=$(gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
-    --hostname "$HOST" 2>/dev/null)
-  [ -n "$current" ] || current='{}'
+  # The current-protection GET the floor-merge depends on is itself fail-closed —
+  # the SAME discipline as the path-1 list gate above and run_verify: a genuine 404
+  # means "no protection yet" (safe to create from '{}'); any OTHER read error
+  # (403/5xx/network) leaves the current state UNKNOWN, so refuse the PUT rather
+  # than floor-merge against a false-empty and silently strip existing protection.
+  err=$(mktemp)
+  if current=$(gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
+       --hostname "$HOST" 2>"$err"); then
+    rm -f "$err"
+  elif grep -q '404' "$err"; then
+    current='{}'; rm -f "$err"
+  else
+    printf 'install_branch_protection: current protection on %s unreadable (non-404) — refusing classic PUT (fail-closed):\n' "$DEFAULT_BRANCH" >&2
+    cat "$err" >&2; rm -f "$err"
+    ( audit_log warn tier3 classic-current-unreadable "branch=$DEFAULT_BRANCH host=$HOST" ) >/dev/null 2>&1 || true
+    return 1
+  fi
   payload=$(build_classic_payload "$current")
   if printf '%s' "$payload" | gh api "repos/{owner}/{repo}/branches/$DEFAULT_BRANCH/protection" \
        --method PUT --hostname "$HOST" --input - >/dev/null 2>&1; then
