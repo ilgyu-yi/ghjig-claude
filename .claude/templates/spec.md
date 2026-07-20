@@ -9,6 +9,8 @@
 >
 > Regenerate the ToC after adding/renaming/moving any heading: `build_toc.sh` (CI enforces
 > freshness via `check-toc.yml`). ToC line numbers are a hint — the heading text is the truth.
+> If an existing SPEC still has a legacy anchor-link ToC, `build_toc.sh --migrate` converts it
+> once to the marker form (number your section headings as `## N. Title` first).
 
 ## Table of contents
 
