@@ -795,7 +795,7 @@ fi
 #   Rule 1 fail → stderr contains "home this contract prose in SPEC.md"
 #   Rule 2 fail → stderr contains "create SPEC.md as the content home"
 S120_CHK="$S90_SUBWF/check-ssot-home.sh"     # the Phase-C script under test
-S120_STUB_SRC="$S90_TMPL"                    # scaffold a stub SPEC.md is byte-identical to (modulo ToC + {{project}}/{{today}})
+S120_STUB_SRC="$S90_TMPL"                    # scaffold: an all-<…>-placeholder body → the structural stub detector fires (not a byte-compare)
 
 # A substantive, real SPEC.md (clearly NOT the scaffold) reused by the pass fixtures.
 S120_REALSPEC='# Acme — Specification
@@ -882,9 +882,10 @@ s120_run "$S120_F6"
   || ng "120f (F6): homed SSOT must pass (exit 0), got rc=$S120_RC (#627)"
 rm -rf "$S120_F6"
 
-# --- F7 (120g): stub FAIL — docs claim SPEC + a SPEC.md byte-identical to the
-#     spec.md scaffold (placeholders substituted to realistic values) → exit 1.
-#     A stub counts as absent for Rule 2. ---
+# --- F7 (120g): stub FAIL — docs claim SPEC + a SPEC.md whose body is still all
+#     <…> placeholders (the spec.md scaffold, placeholders substituted to realistic
+#     values) → the structural stub detector fires → exit 1. A stub counts as absent
+#     for Rule 2. ---
 S120_F7=$(mktemp -d); mkdir -p "$S120_F7/docs"
 printf '# API\nFull details in SPEC §4.\n' > "$S120_F7/docs/api.md"
 sed -e 's/{{ project }}/Acme/g' -e 's/{{ today }}/2026-07-20/g' "$S120_STUB_SRC" > "$S120_F7/SPEC.md"
@@ -896,8 +897,8 @@ rm -rf "$S120_F7"
 
 # --- F9 (120h): substantive-short SPEC PASS — the critical stub false-fail guard.
 #     A real mid-onboarding SPEC.md with genuine prose in §1/§2 but one section body
-#     still a <…> placeholder is NOT byte-identical to the scaffold → must NOT be
-#     misread as a stub → exit 0. ---
+#     still a <…> placeholder has real body lines → the structural detector does NOT
+#     treat it as a stub → exit 0. ---
 S120_F9=$(mktemp -d); mkdir -p "$S120_F9/docs"
 printf '# API\nFull details in SPEC §2.\n' > "$S120_F9/docs/api.md"
 printf '%s' '# Acme — Specification
@@ -916,6 +917,27 @@ s120_run "$S120_F9"
   && ok "120h (F9): real short SPEC (genuine §1/§2 prose, one <…> placeholder) not read as stub → exit 0 (#627)" \
   || ng "120h (F9): substantive-short SPEC misread as stub, got rc=$S120_RC (#627)"
 rm -rf "$S120_F9"
+
+# --- F10 (120i): stub detection is STRUCTURAL, not a byte-compare to the scaffold.
+#     A SPEC.md with CUSTOMIZED headings (nothing like the scaffold's text) but an
+#     all-<…>-placeholder body must still be read as a stub → exit 1. This pins the
+#     SPEC §1.3 Rule 2 guarantee that detection keys on the body being all-placeholder,
+#     NOT on byte-identity to .claude/templates/spec.md (which is absent in targets). ---
+S120_F10=$(mktemp -d); mkdir -p "$S120_F10/docs"
+printf '# API\nFull details in SPEC §7.\n' > "$S120_F10/docs/api.md"
+printf '%s' '# Widgetron — Behaviour Spec
+
+## 7. Ingest surface
+<TODO: describe the ingest surface.>
+
+## 8. Storage guarantees
+<TODO: describe the storage guarantees.>
+' > "$S120_F10/SPEC.md"
+s120_run "$S120_F10"
+[ "$S120_RC" = 1 ] \
+  && ok "120i (F10): all-placeholder body with custom headings is a stub (structural, not byte-identity) → exit 1 (#627)" \
+  || ng "120i (F10): custom-heading all-placeholder SPEC must be read as a stub (exit 1), got rc=$S120_RC (#627)"
+rm -rf "$S120_F10"
 
 # ---------- §92 (#354): SPEC §6.0 wired into the review layer (enforcement-style lens) ----------
 # §6.0's own P4 forbids "guidance with no gate behind it"; the enforcement-style
