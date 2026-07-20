@@ -232,16 +232,18 @@ for f in ISSUE_TEMPLATE/config.yml ISSUE_TEMPLATE/directive-proposal.yml \
          workflows/issues-to-project-mirror.yml \
          workflows/dir-mode-post-merge.yml workflows/check-changelog.yml \
          workflows/check-toc.yml \
+         workflows/check-ssot-home.yml \
          workflows/initiative-feedback-label.yml \
          workflows/resolve_parent_directive.sh \
          workflows/detect_bare_refs_directive.sh \
-         workflows/build_toc.sh; do
+         workflows/build_toc.sh \
+         workflows/check-ssot-home.sh; do
   [ -f "$S63_SUB/$f" ] && s63a_count=$((s63a_count + 1))
 done
-if [ "$s63a_count" = 16 ]; then
-  ok "63a: target-substrate canonical-source has 16 files (6 ISSUE_TEMPLATE + 7 workflows + 3 sourced helpers) (#118 + #133 + #180 + #335 + #337 + #347 + #359)"
+if [ "$s63a_count" = 18 ]; then
+  ok "63a: target-substrate canonical-source has 18 files (6 ISSUE_TEMPLATE + 8 workflows + 4 sourced helpers) (#118 + #133 + #180 + #335 + #337 + #347 + #359 + #627)"
 else
-  ng "63a: target-substrate canonical-source missing files: expected 16, found $s63a_count (#118 + #133 + #180 + #335 + #337 + #347 + #359)"
+  ng "63a: target-substrate canonical-source missing files: expected 18, found $s63a_count (#118 + #133 + #180 + #335 + #337 + #347 + #359 + #627)"
 fi
 
 # §63b: /onboard-dir-mode skill file exists with tiered procedure.
