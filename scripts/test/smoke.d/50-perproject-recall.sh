@@ -784,6 +784,161 @@ else
   ng "91: docs/*.md not leading with a SPEC reference:$S91_FAIL (SPEC §9 thin-pointer norm) (#348)"
 fi
 
+# ---------- §120 (#627): target-side check-ssot-home gate — SSOT-home discipline ----------
+# The shipped tier-3 CI gate (.claude/templates/target-substrate/workflows/
+# check-ssot-home.sh, SPEC §1.3 "Target-side enforcement") ports internal smoke
+# §91 (docs-thin-pointer, Rule 1) into bound targets and adds a Rule-2 SSOT-
+# presence arm + a track-active guard. Models the §90 idiom: EXECUTE the checked-
+# in script against a synthesized fixture in an isolated `mktemp -d` root, capture
+# exit code (+ stderr remediation substring), assert. One ok/ng per fixture.
+# Contract tokens asserted verbatim from SPEC §1.3:
+#   Rule 1 fail → stderr contains "home this contract prose in SPEC.md"
+#   Rule 2 fail → stderr contains "create SPEC.md as the content home"
+S120_CHK="$S90_SUBWF/check-ssot-home.sh"     # the Phase-C script under test
+S120_STUB_SRC="$S90_TMPL"                    # scaffold: an all-<…>-placeholder body → the structural stub detector fires (not a byte-compare)
+
+# A substantive, real SPEC.md (clearly NOT the scaffold) reused by the pass fixtures.
+S120_REALSPEC='# Acme — Specification
+
+## 1. Overview
+Acme is a widget pipeline that ingests purchase orders and emits invoices.
+
+## 2. Contracts
+The HTTP API exposes POST /orders and GET /invoices/{id} with a stable JSON schema.
+
+## 3. Non-goals
+Acme does not handle payments or shipping logistics.
+'
+
+# Run the gate against a populated root. Captures STDERR ONLY (stdout discarded)
+# so the remediation-substring assertions honor the contract that the positive
+# next step lands on stderr. Sets S120_RC + S120_ERR. Under `set -uo pipefail`
+# (no `-e`) the non-zero rc of a failing fixture does not abort the section.
+s120_run() {  # $1 = root dir
+  S120_ERR=$(bash "$S120_CHK" --root "$1" 2>&1 1>/dev/null); S120_RC=$?
+}
+
+# --- F1 (120a): contract-less repo → track-active guard skips clean (exit 0). ---
+S120_F1=$(mktemp -d); mkdir -p "$S120_F1/docs"
+printf '# Guide\nA getting-started guide with no contract reference here.\n' > "$S120_F1/docs/guide.md"
+s120_run "$S120_F1"
+[ "$S120_RC" = 0 ] \
+  && ok "120a (F1): contract-less repo (no SPEC.md, docs claim none) → exit 0, skip clean (#627)" \
+  || ng "120a (F1): contract-less repo must skip clean (exit 0), got rc=$S120_RC (#627)"
+rm -rf "$S120_F1"
+
+# --- F2 (120b): compliant docs pointer + a real SPEC.md → exit 0. ---
+S120_F2=$(mktemp -d); mkdir -p "$S120_F2/docs"
+printf '# Guide\nFull details in SPEC §2.\n' > "$S120_F2/docs/guide.md"
+printf '%s' "$S120_REALSPEC" > "$S120_F2/SPEC.md"
+s120_run "$S120_F2"
+[ "$S120_RC" = 0 ] \
+  && ok "120b (F2): compliant docs pointer + real SPEC.md → exit 0 (#627)" \
+  || ng "120b (F2): compliant + real SPEC.md must pass (exit 0), got rc=$S120_RC (#627)"
+rm -rf "$S120_F2"
+
+# --- F3 (120c): thin-pointer PASS — title + lead-in pointer, real SPEC.md → exit 0. ---
+S120_F3=$(mktemp -d); mkdir -p "$S120_F3/docs"
+printf '# X\nFull details in SPEC §3.\n' > "$S120_F3/docs/x.md"
+printf '%s' "$S120_REALSPEC" > "$S120_F3/SPEC.md"
+s120_run "$S120_F3"
+[ "$S120_RC" = 0 ] \
+  && ok "120c (F3): thin-pointer (SPEC ref in first two non-empty lines) passes → exit 0 (#627)" \
+  || ng "120c (F3): thin-pointer PASS misfired, got rc=$S120_RC (#627)"
+rm -rf "$S120_F3"
+
+# --- F4 (120d): thin-pointer FAIL — real SPEC.md (track-active) + a docs file with
+#     no SPEC in its first two non-empty lines → exit 1 + Rule-1 remediation. ---
+S120_F4=$(mktemp -d); mkdir -p "$S120_F4/docs"
+printf '%s' "$S120_REALSPEC" > "$S120_F4/SPEC.md"
+printf '# Y\nSome prose that never references the single source of truth.\n' > "$S120_F4/docs/y.md"
+s120_run "$S120_F4"
+if [ "$S120_RC" = 1 ] && [[ "$S120_ERR" == *"home this contract prose in SPEC.md"* ]]; then
+  ok "120d (F4): fat docs (no SPEC lead) → exit 1 + 'home this contract prose in SPEC.md' (#627)"
+else
+  ng "120d (F4): Rule-1 fail expected exit 1 + remediation, got rc=$S120_RC err=[$S120_ERR] (#627)"
+fi
+rm -rf "$S120_F4"
+
+# --- F5 (120e): SSOT-presence FAIL (absent) — docs lead with an anchored SPEC §
+#     pointer but no SPEC.md → exit 1 + Rule-2 remediation. ---
+S120_F5=$(mktemp -d); mkdir -p "$S120_F5/docs"
+printf '# API\nFull details in SPEC §4.\n' > "$S120_F5/docs/api.md"
+s120_run "$S120_F5"
+if [ "$S120_RC" = 1 ] && [[ "$S120_ERR" == *"create SPEC.md as the content home"* ]]; then
+  ok "120e (F5): docs claim SPEC but SPEC.md absent → exit 1 + 'create SPEC.md as the content home' (#627)"
+else
+  ng "120e (F5): Rule-2 (absent) expected exit 1 + remediation, got rc=$S120_RC err=[$S120_ERR] (#627)"
+fi
+rm -rf "$S120_F5"
+
+# --- F6 (120f): SSOT-presence PASS (homed) — F5's docs + a real SPEC.md → exit 0. ---
+S120_F6=$(mktemp -d); mkdir -p "$S120_F6/docs"
+printf '# API\nFull details in SPEC §4.\n' > "$S120_F6/docs/api.md"
+printf '%s' "$S120_REALSPEC" > "$S120_F6/SPEC.md"
+s120_run "$S120_F6"
+[ "$S120_RC" = 0 ] \
+  && ok "120f (F6): docs claim SPEC + a real SPEC.md present → exit 0 (#627)" \
+  || ng "120f (F6): homed SSOT must pass (exit 0), got rc=$S120_RC (#627)"
+rm -rf "$S120_F6"
+
+# --- F7 (120g): stub FAIL — docs claim SPEC + a SPEC.md whose body is still all
+#     <…> placeholders (the spec.md scaffold, placeholders substituted to realistic
+#     values) → the structural stub detector fires → exit 1. A stub counts as absent
+#     for Rule 2. ---
+S120_F7=$(mktemp -d); mkdir -p "$S120_F7/docs"
+printf '# API\nFull details in SPEC §4.\n' > "$S120_F7/docs/api.md"
+sed -e 's/{{ project }}/Acme/g' -e 's/{{ today }}/2026-07-20/g' "$S120_STUB_SRC" > "$S120_F7/SPEC.md"
+s120_run "$S120_F7"
+[ "$S120_RC" = 1 ] \
+  && ok "120g (F7): scaffold-stub SPEC.md counts as absent → exit 1 (#627)" \
+  || ng "120g (F7): stub SPEC.md must fail Rule 2 (exit 1), got rc=$S120_RC (#627)"
+rm -rf "$S120_F7"
+
+# --- F9 (120h): substantive-short SPEC PASS — the critical stub false-fail guard.
+#     A real mid-onboarding SPEC.md with genuine prose in §1/§2 but one section body
+#     still a <…> placeholder has real body lines → the structural detector does NOT
+#     treat it as a stub → exit 0. ---
+S120_F9=$(mktemp -d); mkdir -p "$S120_F9/docs"
+printf '# API\nFull details in SPEC §2.\n' > "$S120_F9/docs/api.md"
+printf '%s' '# Acme — Specification
+
+## 1. Overview
+Acme ingests purchase orders and emits invoices for the warehouse team.
+
+## 2. Contracts
+POST /orders accepts a JSON order; GET /invoices/{id} returns the stored invoice.
+
+## 3. Non-goals
+<not decided yet>
+' > "$S120_F9/SPEC.md"
+s120_run "$S120_F9"
+[ "$S120_RC" = 0 ] \
+  && ok "120h (F9): real short SPEC (genuine §1/§2 prose, one <…> placeholder) not read as stub → exit 0 (#627)" \
+  || ng "120h (F9): substantive-short SPEC misread as stub, got rc=$S120_RC (#627)"
+rm -rf "$S120_F9"
+
+# --- F10 (120i): stub detection is STRUCTURAL, not a byte-compare to the scaffold.
+#     A SPEC.md with CUSTOMIZED headings (nothing like the scaffold's text) but an
+#     all-<…>-placeholder body must still be read as a stub → exit 1. This pins the
+#     SPEC §1.3 Rule 2 guarantee that detection keys on the body being all-placeholder,
+#     NOT on byte-identity to .claude/templates/spec.md (which is absent in targets). ---
+S120_F10=$(mktemp -d); mkdir -p "$S120_F10/docs"
+printf '# API\nFull details in SPEC §7.\n' > "$S120_F10/docs/api.md"
+printf '%s' '# Widgetron — Behaviour Spec
+
+## 7. Ingest surface
+<TODO: describe the ingest surface.>
+
+## 8. Storage guarantees
+<TODO: describe the storage guarantees.>
+' > "$S120_F10/SPEC.md"
+s120_run "$S120_F10"
+[ "$S120_RC" = 1 ] \
+  && ok "120i (F10): all-placeholder body with custom headings is a stub (structural, not byte-identity) → exit 1 (#627)" \
+  || ng "120i (F10): custom-heading all-placeholder SPEC must be read as a stub (exit 1), got rc=$S120_RC (#627)"
+rm -rf "$S120_F10"
+
 # ---------- §92 (#354): SPEC §6.0 wired into the review layer (enforcement-style lens) ----------
 # §6.0's own P4 forbids "guidance with no gate behind it"; the enforcement-style
 # principle must therefore be referenced by the artifact-judging reviewers that
