@@ -136,16 +136,24 @@ if [ "$MODE" = "--migrate" ]; then
     # the final atomic mv.
     mig=$(mktemp)
     if grep -qE '^## Table of contents[[:space:]]*$' "$SPEC"; then
-      # Replace ONLY the contiguous ToC-list lines under the existing heading:
-      # the list items / table rows immediately after it, stopping at the first
-      # blank line or `---`. Insert the empty marker block right after the heading.
+      # Replace the legacy ToC-list block under the existing heading. The STANDARD
+      # markdown layout puts a blank line between the heading and its list, so we
+      # first SKIP any leading blank lines, THEN delete the contiguous list/table/
+      # anchor block (list item `- `/`* `/`1. `, table row `| … |`, or a `[…](#…)`
+      # anchor), stopping at the first blank line or `---` that FOLLOWS the list.
+      # The empty marker block is inserted after the heading (one blank line, then
+      # markers); the trailing blank/`---` framing and all real prose survive.
       awk -v S="$TOC_START" -v E="$TOC_END" '
         !done && /^## Table of contents[[:space:]]*$/ {
-          print; print S; print E; done=1; intoc=1; next
+          print; print ""; print S; print E; done=1; phase="leadblank"; next
         }
-        intoc {
-          if ($0 ~ /^[[:space:]]*[-*+] / || $0 ~ /^[[:space:]]*\|/) next
-          intoc=0
+        phase=="leadblank" {
+          if ($0 ~ /^[[:space:]]*$/) next   # skip blank(s) between heading and list
+          phase="list"                       # first non-blank enters list-delete
+        }
+        phase=="list" {
+          if ($0 ~ /^[[:space:]]*[-*+] / || $0 ~ /^[[:space:]]*[0-9]+\. / || $0 ~ /^[[:space:]]*\|/ || $0 ~ /\]\(#/) next
+          phase=""                           # blank/`---`/prose ends the list block
         }
         { print }
       ' "$SPEC" > "$mig"

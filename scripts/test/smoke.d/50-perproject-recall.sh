@@ -899,6 +899,36 @@ if cmp -s "$S90M_M" "$S90M_DIR/migrate_noop.before" && [ "$s90m_rc" -eq 0 ]; the
 else
   ng "90m: --migrate must no-op byte-unchanged on a marker SPEC (--check 0) — check=$s90m_rc (#629)"
 fi
+
+# 90r: --migrate on the COMMON layout — a BLANK LINE between the `## Table of contents`
+# heading and its anchor-link list (the real-world legacy shape). The splice must skip
+# the leading blank, delete the whole anchor list, and leave exactly ONE marker ToC —
+# no duplicated ToC, no orphan anchor list. Pins the content-preservation gap (#629).
+S90M_R="$S90M_DIR/migrate_blankgap.md"
+cat > "$S90M_R" <<'S90MSPEC'
+# Target
+## Table of contents
+
+- [1. Foo](#1-foo)
+- [2. Bar](#2-bar)
+
+SENTINEL_PROSE_629R must survive migrate.
+
+## 1. Foo
+body
+## 2. Bar
+body
+S90MSPEC
+bash "$S90M_TOC" --migrate --spec "$S90M_R" >/dev/null 2>&1
+s90r_rc=0; bash "$S90M_TOC" --check --spec "$S90M_R" >/dev/null 2>&1 || s90r_rc=$?
+s90r_anchors=$(grep -c '](#' "$S90M_R")
+s90r_markers=$(grep -cF '<!-- TOC START' "$S90M_R")
+if [ "$s90r_rc" -eq 0 ] && [ "$s90r_anchors" -eq 0 ] \
+   && grep -qF 'SENTINEL_PROSE_629R' "$S90M_R" && [ "$s90r_markers" -eq 1 ]; then
+  ok "90r: --migrate on the blank-line-gap layout leaves ONE marker ToC — no duplicated/orphan anchor list (#629)"
+else
+  ng "90r: --migrate must delete the anchor list across a heading→list blank gap — check=$s90r_rc anchors=$s90r_anchors markers=$s90r_markers (#629)"
+fi
 rm -rf "$S90M_DIR"
 
 # ---- check-toc.yml maps each --check exit code to a distinct positive-fix message ----
