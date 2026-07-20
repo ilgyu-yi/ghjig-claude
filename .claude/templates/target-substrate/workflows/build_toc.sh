@@ -3,8 +3,19 @@
 #
 # Usage:
 #   build_toc.sh                       # rewrite the SPEC TOC in place
-#   build_toc.sh --check               # exit 1 if the TOC is out of sync; no rewrite
+#   build_toc.sh --check               # exit-code taxonomy below; no rewrite
+#   build_toc.sh --migrate             # convert a legacy anchor-link ToC to markers
 #   build_toc.sh --spec <path> [...]   # operate on <path> instead of the default SPEC
+#
+# --check exit codes:
+#   0 clean · 1 stale (markers present, body differs) · 2 hard error (no numbered
+#   headings / SPEC not found / bad arg) · 3 marker-less (legacy anchor-link ToC —
+#   run --migrate) · 4 corrupt markers (START present, END missing — repair them).
+#
+# --migrate converts a marker-less anchor-link ToC to the line-number marker form:
+# gated on marker absence (a no-op on a SPEC that already has markers), guarded
+# (refuses byte-unchanged when the SPEC has no numbered `## N.` heading), and
+# content-preserving (replaces only the contiguous ToC-list lines, keeping prose).
 #
 # Default SPEC is the shell's own SPEC.md (self-located via this script's dir),
 # so existing callers (`build_toc.sh`, `build_toc.sh --check`) are unchanged.
@@ -30,6 +41,7 @@ MODE="write"
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)    MODE="--check" ;;
+    --migrate)  MODE="--migrate" ;;
     write)      MODE="write" ;;
     --spec)     shift; SPEC="${1:?build_toc: --spec requires a path}" ;;
     --spec=*)   SPEC="${1#--spec=}" ;;
@@ -75,8 +87,8 @@ render_toc_into() {
   local start_ln end_ln new_body new_block
   start_ln=$(grep -nF "$TOC_START" "$SPEC" | head -1 | cut -d: -f1)
   if [ -z "$start_ln" ]; then
-    echo "build_toc: TOC START marker not found in SPEC.md" >&2
-    return 2
+    echo "build_toc: no TOC markers in $SPEC — legacy/anchor-link ToC; run build_toc.sh --migrate to convert" >&2
+    return 3
   fi
   # Pin end_ln to the first END marker STRICTLY AFTER start_ln so prose
   # mentions of the markers don't false-match.
@@ -84,8 +96,8 @@ render_toc_into() {
     NR > start && index($0, needle) { print NR; exit }
   ' "$SPEC")
   if [ -z "$end_ln" ]; then
-    echo "build_toc: TOC END marker not found after TOC START in SPEC.md" >&2
-    return 2
+    echo "build_toc: corrupt TOC markers in $SPEC (START without END) — repair the markers" >&2
+    return 4
   fi
 
   new_body=$(awk "$AWK_PROG" "$SPEC")
@@ -105,6 +117,73 @@ $TOC_END"
     tail -n +$((end_ln + 1)) "$SPEC"
   } > "$out"
 }
+
+# --migrate mode: convert a marker-less (legacy anchor-link) ToC to the
+# line-number marker form. gate → guard → transactional splice → fill →
+# atomic replace. Never leaves a partial/empty-marker state on the live SPEC.
+if [ "$MODE" = "--migrate" ]; then
+  if grep -qF "$TOC_START" "$SPEC"; then
+    # Markers already present — idempotent no-op via the normal write path.
+    MODE="write"
+  else
+    # Guard-before-mutate: require at least one numbered `## N.`-style heading,
+    # else refuse and leave the SPEC byte-unchanged (never destroy content).
+    if ! grep -qE '^#{2,4} [0-9]' "$SPEC"; then
+      echo "build_toc: no numbered '## N.' headings in $SPEC — number your section headings as '## N. Title' first, then re-run build_toc.sh --migrate" >&2
+      exit 5
+    fi
+    # Transactional splice into a TEMP copy — the live SPEC is untouched until
+    # the final atomic mv.
+    mig=$(mktemp)
+    if grep -qE '^## Table of contents[[:space:]]*$' "$SPEC"; then
+      # Replace ONLY the contiguous ToC-list lines under the existing heading:
+      # the list items / table rows immediately after it, stopping at the first
+      # blank line or `---`. Insert the empty marker block right after the heading.
+      awk -v S="$TOC_START" -v E="$TOC_END" '
+        !done && /^## Table of contents[[:space:]]*$/ {
+          print; print S; print E; done=1; intoc=1; next
+        }
+        intoc {
+          if ($0 ~ /^[[:space:]]*[-*+] / || $0 ~ /^[[:space:]]*\|/) next
+          intoc=0
+        }
+        { print }
+      ' "$SPEC" > "$mig"
+    else
+      # No ToC heading — insert one plus the empty marker block immediately
+      # before the first `## ` heading.
+      awk -v S="$TOC_START" -v E="$TOC_END" '
+        !done && /^## / {
+          print "## Table of contents"; print ""; print S; print E; print ""
+          done=1
+        }
+        { print }
+      ' "$SPEC" > "$mig"
+    fi
+    # Assert the splice inserted a resolvable empty marker block; else refuse
+    # with the live SPEC byte-unchanged (we only ever wrote to the temp copy).
+    if ! grep -qF "$TOC_START" "$mig" || ! grep -qF "$TOC_END" "$mig"; then
+      echo "build_toc: --migrate found no place to insert TOC markers in $SPEC — left unchanged" >&2
+      rm -f "$mig"; exit 2
+    fi
+    # Fill the empty markers by write-convergence on the temp copy.
+    SPEC_ORIG="$SPEC"; SPEC="$mig"
+    for pass in 1 2 3; do
+      tmp=$(mktemp)
+      render_toc_into "$tmp" || { rc=$?; rm -f "$tmp" "$mig"; exit $rc; }
+      if cmp -s "$SPEC" "$tmp"; then rm -f "$tmp"; break; fi
+      mv "$tmp" "$SPEC"
+    done
+    # Assert a non-empty ToC body before the atomic replace.
+    if ! grep -qF "$TOC_START" "$mig" || ! grep -qF "$TOC_END" "$mig" || ! grep -qF '§' "$mig"; then
+      echo "build_toc: --migrate produced no ToC body for $SPEC_ORIG — left unchanged" >&2
+      rm -f "$mig"; exit 2
+    fi
+    mv "$mig" "$SPEC_ORIG"
+    echo "build_toc: migrated $SPEC_ORIG to line-number TOC markers."
+    exit 0
+  fi
+fi
 
 # --check mode: render to a temp file, compare, never write to SPEC.
 if [ "$MODE" = "--check" ]; then
