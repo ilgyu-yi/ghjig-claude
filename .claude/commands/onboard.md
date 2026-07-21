@@ -21,6 +21,8 @@ It emits one `<check> ok|fail <detail>` line per check on stdout and always exit
 - `ssot:MISSION.md` / `ssot:SPEC.md` — presence of the frequently-consulted SSOT pair (SPEC §1.3).
 - `branch-protect` — branch protection on the default branch (PR required, review required, status checks, force-push blocked); `fail` also covers the no-admin / unreadable case.
 - `ci` — presence of `.github/workflows/`.
+- `toc-format` — SPEC.md's ToC *form* (gh-free): `ok` for a marker line-number ToC (or SPEC absent), `fail` for a marker-less / anchor-link ToC (recommend `--migrate`, or number headings / add markers by hand) or corrupt markers (repair). This is a **FORMAT check, not a freshness check** — `toc-format ✓ ≠ check-toc CI green`; ToC freshness stays the `check-toc.yml` CI gate's job (SPEC §1.3).
+- `docs-pointer` — `docs/*.md` thin-pointer discipline (gh-free): `ok` when every docs file leads with a `SPEC` reference (first two non-empty lines); `fail` lists offenders (SPEC §9).
 
 Render each line as ✓ (`ok`) or ✗ (`fail`) with its one-line detail. A fork (`upstream fail`) or missing push permission (`permission fail`) is a **hard stop** — the shell is upstream-only and needs push; advise and stop before the judgment steps.
 
@@ -50,4 +52,7 @@ These need authoring judgment and the MISSION scaffold-not-author boundary, so t
 
    Report ✓ when `--check` exits 0, ✗ otherwise. Reversible any time with `git config --unset core.hooksPath` (or `scripts/install_git_hooks.sh --uninstall`). A clone that never runs this stays inert until the SessionStart drift arm re-surfaces it (SPEC §6.7).
 
-Each rendered item gets ✓ or ✗ and a one-line summary. End with a "Recommended next actions" block, leading with SPEC authoring when `ssot:SPEC.md` failed.
+Each rendered item gets ✓ or ✗ and a one-line summary. End with a "Recommended next actions" block, leading with SPEC authoring when `ssot:SPEC.md` failed. Also fold in any failing doc-shape fact check (step 8, SPEC §5.1):
+
+- `toc-format fail` — if the ToC is marker-less / anchor-link, recommend `build_toc.sh --migrate`, but **only** when the SPEC already uses numbered `## N.` headings and a canonical `## Table of contents` block; otherwise number the headings (`## N. Title`) or add the `<!-- TOC START -->`/`<!-- TOC END -->` markers by hand first. If the markers are corrupt, recommend repairing them. Note that `toc-format` is a **FORMAT check, not a freshness check** — it says nothing about whether the ToC is up to date; ToC freshness is the `check-toc.yml` CI gate's job (SPEC §1.3).
+- `docs-pointer fail` — recommend leading each offending `docs/*.md` with a "Full details in SPEC §…" reference so it stays a thin pointer, not a parallel copy of the contract (SPEC §9).
