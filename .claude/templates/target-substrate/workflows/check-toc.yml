@@ -52,7 +52,7 @@ jobs:
           rc=0
           bash .github/workflows/build_toc.sh --check --spec SPEC.md || rc=$?
           if [ "$rc" -eq 3 ]; then
-            echo "::error::SPEC.md has a marker-less (legacy anchor-link) Table of contents. Convert it once with build_toc.sh --migrate, then commit the result (SPEC §1.3)." >&2
+            echo "::error::SPEC.md has a marker-less (legacy anchor-link) Table of contents. build_toc.sh --migrate converts it ONLY when SPEC.md already uses numbered '## N.' headings and a '## Table of contents' block; otherwise number the headings ('## N. Title') or add the TOC markers by hand, then commit the result (SPEC §1.3)." >&2
             exit 1
           elif [ "$rc" -eq 4 ]; then
             echo "::error::SPEC.md has corrupt TOC markers (START present without END). Repair the markers, then regenerate with build_toc.sh (SPEC §1.3)." >&2

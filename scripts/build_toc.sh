@@ -87,7 +87,7 @@ render_toc_into() {
   local start_ln end_ln new_body new_block
   start_ln=$(grep -nF "$TOC_START" "$SPEC" | head -1 | cut -d: -f1)
   if [ -z "$start_ln" ]; then
-    echo "build_toc: no TOC markers in $SPEC — legacy/anchor-link ToC; run build_toc.sh --migrate to convert" >&2
+    echo "build_toc: no TOC markers in $SPEC — legacy/anchor-link ToC. build_toc.sh --migrate converts it ONLY when $SPEC already uses numbered '## N.' headings and a '## Table of contents' block; otherwise number the headings ('## N. Title') or add the <!-- TOC START -->/<!-- TOC END --> markers by hand." >&2
     return 3
   fi
   # Pin end_ln to the first END marker STRICTLY AFTER start_ln so prose

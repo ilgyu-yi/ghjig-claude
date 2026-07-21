@@ -929,6 +929,21 @@ if [ "$s90r_rc" -eq 0 ] && [ "$s90r_anchors" -eq 0 ] \
 else
   ng "90r: --migrate must delete the anchor list across a heading→list blank gap — check=$s90r_rc anchors=$s90r_anchors markers=$s90r_markers (#629)"
 fi
+
+# 90s (#631): the --check exit-3 (marker-less) STDERR message must name the numbered
+# `## N.` heading precondition AND a by-hand alternative (SPEC §5.1 step 8, §1.3) —
+# not just "run --migrate", which mis-recommends a migrate that would refuse on an
+# unnumbered SPEC. Captures the exit-3 stderr from the §90h marker-less fixture
+# (isolates it from the unrelated exit-5 --migrate-refuse message). RED until Phase C
+# rewords the render_toc_into exit-3 emit.
+s90s_msg=$(bash "$S90M_TOC" --check --spec "$S90M_DIR/markerless.md" 2>&1 >/dev/null)
+if printf '%s' "$s90s_msg" | grep -qi 'numbered' \
+   && printf '%s' "$s90s_msg" | grep -qF '## N.' \
+   && printf '%s' "$s90s_msg" | grep -qiE 'by hand|manually'; then
+  ok "90s: build_toc.sh --check exit-3 message names the numbered ## N. precondition + a by-hand alternative (#631)"
+else
+  ng "90s: build_toc.sh --check exit-3 message must name the numbered ## N. precondition + a by-hand alternative — got: $s90s_msg (#631)"
+fi
 rm -rf "$S90M_DIR"
 
 # ---- check-toc.yml maps each --check exit code to a distinct positive-fix message ----
@@ -954,6 +969,20 @@ if grep -qE '\brc\b' "$S90_CHECKYML" && grep -qi 'regenerat' "$S90_CHECKYML"; th
   ok "90q: check-toc.yml maps the stale (rc==1) case to a regenerate message under rc branching (#629)"
 else
   ng "90q: check-toc.yml must keep the stale/regenerate message on an rc-based branch (#629)"
+fi
+
+# 90t (#631): the rc==3 (marker-less) branch message ALSO names the numbered `## N.`
+# heading precondition + a by-hand alternative (SPEC §5.1 step 8, §1.3), while STILL
+# naming the literal build_toc.sh --migrate (so 90o stays green). Asserted on the same
+# echo line that carries build_toc.sh --migrate — the migrate recommendation and its
+# precondition belong together. RED until Phase C rewords the rc==3 branch.
+s90t_line=$(grep -F 'build_toc.sh --migrate' "$S90_CHECKYML")
+if printf '%s' "$s90t_line" | grep -qF 'build_toc.sh --migrate' \
+   && printf '%s' "$s90t_line" | grep -qF '## N.' \
+   && printf '%s' "$s90t_line" | grep -qiE 'by hand|manually'; then
+  ok "90t: check-toc.yml rc==3 message names the numbered ## N. precondition + by-hand alt, still names build_toc.sh --migrate (#631)"
+else
+  ng "90t: check-toc.yml rc==3 message must name the numbered ## N. precondition + a by-hand alternative while keeping build_toc.sh --migrate (#631)"
 fi
 
 # ---------- §91 (#348): docs/*.md are thin pointers — lead with a SPEC reference ----------
@@ -2760,6 +2789,160 @@ SHIM
     ok "118f: ci .github/workflows present→ok, absent→fail (#456)"
   else
     ng "118f: ci wrong (present=$s118_ci_present absent=$s118_ci_absent, want ok/fail) (#456)"
+  fi
+
+  # ---- §118g–§118n (#631): fact-report toc-format + docs-pointer (Phase B, RED) ----
+  # Two NEW fact-reporting lines the shared onboard_checks.sh must emit (SPEC §5.1
+  # step 8 "Doc-shape fact checks", §1.3) — both gh-free and both NON-GATING, so the
+  # script MUST still exit 0 in EVERY case. Field-1-keyed lookup reuses s118_status;
+  # a sibling s118_detail extracts the free-text detail (field 3+) for offender naming.
+  #   toc-format: keys off `build_toc.sh --check --spec SPEC.md`'s exit code
+  #     (0|1→ok, 3→fail marker-less, 4→fail corrupt, *→ok; SPEC.md absent→ok/skip via
+  #     the [ -f SPEC.md ] guard, so build_toc is never called on an absent SPEC).
+  #   docs-pointer: ok when every docs/*.md leads (first two non-empty lines contain
+  #     SPEC, §91 parity); fail listing offenders; ok when no docs/*.md.
+  # RED until Phase C: onboard_checks.sh emits NEITHER line yet, so each status lookup
+  # returns "" (≠ ok/fail) and every assertion fails LOUD — an intended RED, not a
+  # harness error. (The exit-0 sub-condition already passes; the status one is what
+  # is red.) Phase C emits build_toc via onboard_checks.sh self-locating ../build_toc.sh
+  # and invoking it with `--spec SPEC.md` from the target cwd (s118_run cd's there),
+  # under `set -uo pipefail` with a `toc_rc=0` pre-init before `|| toc_rc=$?`.
+  s118_detail() { printf '%s\n' "$s118_out" | awk -v c="$1" '$1==c{ $1=""; $2=""; sub(/^ */,""); print; exit }'; }
+
+  # --- toc-format fixtures: each in its own target dir with a SPEC.md (or none) ---
+  # marker-less anchor-link ToC WITH numbered headings → build_toc --check exit 3.
+  S118_TML="$S118_DIR/toc_markerless"; mkdir -p "$S118_TML"
+  cat > "$S118_TML/SPEC.md" <<'S118SPEC'
+# Target
+## Table of contents
+- [1. Foo](#1-foo)
+- [2. Bar](#2-bar)
+## 1. Foo
+body
+## 2. Bar
+body
+S118SPEC
+
+  # corrupt markers: TOC START present, no TOC END → build_toc --check exit 4.
+  S118_TCORRUPT="$S118_DIR/toc_corrupt"; mkdir -p "$S118_TCORRUPT"
+  cat > "$S118_TCORRUPT/SPEC.md" <<'S118SPEC'
+# Target
+## Table of contents
+<!-- TOC START — generated by scripts/build_toc.sh; do not edit by hand -->
+| Section | Title | Line |
+|---|---|---|
+## 1. Foo
+body
+S118SPEC
+
+  # healthy marker line-number ToC (fresh) — populated via the real build_toc.sh
+  # write mode so `--check` exits 0.
+  S118_TOK="$S118_DIR/toc_fresh"; mkdir -p "$S118_TOK"
+  cat > "$S118_TOK/SPEC.md" <<'S118SPEC'
+# Target
+## Table of contents
+<!-- TOC START — generated by scripts/build_toc.sh; do not edit by hand -->
+<!-- TOC END -->
+## 1. Foo
+body
+## 2. Bar
+body
+S118SPEC
+  bash "$SHELL_ROOT/scripts/build_toc.sh" --spec "$S118_TOK/SPEC.md" >/dev/null 2>&1
+
+  # stale-but-markered ToC: valid markers, WRONG body row → build_toc --check exit 1
+  # → toc-format ok (this check is FORMAT, not freshness — SPEC §5.1 step 8).
+  S118_TSTALE="$S118_DIR/toc_stale"; mkdir -p "$S118_TSTALE"
+  cat > "$S118_TSTALE/SPEC.md" <<'S118SPEC'
+# Target
+## Table of contents
+<!-- TOC START — generated by scripts/build_toc.sh; do not edit by hand -->
+| Section | Title | Line |
+|---|---|---|
+| §1 | WRONG | 999 |
+<!-- TOC END -->
+## 1. Foo
+body
+## 2. Bar
+body
+S118SPEC
+
+  # 118g: toc-format on a marker-less anchor-link SPEC (--check 3) → fail, exit 0.
+  s118_run "$S118_TML"; s118_tf_ml=$(s118_status toc-format); s118_tf_ml_rc=$s118_rc
+  if [ "$s118_tf_ml" = fail ] && [ "$s118_tf_ml_rc" = 0 ]; then
+    ok "118g: toc-format on a marker-less SPEC → fail, onboard_checks exit 0 (#631)"
+  else
+    ng "118g: toc-format marker-less wrong (status=$s118_tf_ml [rc=$s118_tf_ml_rc], want fail/0) (#631)"
+  fi
+
+  # 118h: toc-format on a corrupt-marker SPEC (START, no END → --check 4) → fail, exit 0.
+  s118_run "$S118_TCORRUPT"; s118_tf_c=$(s118_status toc-format); s118_tf_c_rc=$s118_rc
+  if [ "$s118_tf_c" = fail ] && [ "$s118_tf_c_rc" = 0 ]; then
+    ok "118h: toc-format on a corrupt-marker SPEC → fail, onboard_checks exit 0 (#631)"
+  else
+    ng "118h: toc-format corrupt-marker wrong (status=$s118_tf_c [rc=$s118_tf_c_rc], want fail/0) (#631)"
+  fi
+
+  # 118i: toc-format on a fresh marker line-number ToC (--check 0) → ok, exit 0.
+  s118_run "$S118_TOK"; s118_tf_ok=$(s118_status toc-format); s118_tf_ok_rc=$s118_rc
+  if [ "$s118_tf_ok" = ok ] && [ "$s118_tf_ok_rc" = 0 ]; then
+    ok "118i: toc-format on a fresh marker ToC → ok, onboard_checks exit 0 (#631)"
+  else
+    ng "118i: toc-format fresh-marker wrong (status=$s118_tf_ok [rc=$s118_tf_ok_rc], want ok/0) (#631)"
+  fi
+
+  # 118j: SPEC.md absent → toc-format ok (skip; the [ -f SPEC.md ] guard never calls
+  # build_toc), exit 0. Reuses the SPEC-less S118_BARE dir.
+  s118_run "$S118_BARE"; s118_tf_abs=$(s118_status toc-format); s118_tf_abs_rc=$s118_rc
+  if [ "$s118_tf_abs" = ok ] && [ "$s118_tf_abs_rc" = 0 ]; then
+    ok "118j: toc-format when SPEC.md absent → ok (skip), onboard_checks exit 0 (#631)"
+  else
+    ng "118j: toc-format absent-SPEC wrong (status=$s118_tf_abs [rc=$s118_tf_abs_rc], want ok/0) (#631)"
+  fi
+
+  # 118k: stale-but-markered ToC (--check 1) → toc-format ok — proves FORMAT ≠ freshness. exit 0.
+  s118_run "$S118_TSTALE"; s118_tf_st=$(s118_status toc-format); s118_tf_st_rc=$s118_rc
+  if [ "$s118_tf_st" = ok ] && [ "$s118_tf_st_rc" = 0 ]; then
+    ok "118k: toc-format on a stale-but-markered ToC → ok (format ≠ freshness), exit 0 (#631)"
+  else
+    ng "118k: toc-format stale-marker wrong (status=$s118_tf_st [rc=$s118_tf_st_rc], want ok/0) (#631)"
+  fi
+
+  # --- docs-pointer fixtures ---
+  S118_DP_OK="$S118_DIR/docs_ok"; mkdir -p "$S118_DP_OK/docs"
+  printf '# Recall digest\nFull details in SPEC §5.25.\n' > "$S118_DP_OK/docs/x.md"
+
+  S118_DP_FAIL="$S118_DIR/docs_fail"; mkdir -p "$S118_DP_FAIL/docs"
+  printf '# Recall digest\nFull details in SPEC §5.25.\n' > "$S118_DP_FAIL/docs/x.md"
+  printf '# Widget guide\nThis restates the widget contract inline.\n' > "$S118_DP_FAIL/docs/y.md"
+
+  S118_DP_NONE="$S118_DIR/docs_none"; mkdir -p "$S118_DP_NONE"
+
+  # 118l: every docs/*.md leads with a SPEC reference → docs-pointer ok, exit 0.
+  s118_run "$S118_DP_OK"; s118_dp_ok=$(s118_status docs-pointer); s118_dp_ok_rc=$s118_rc
+  if [ "$s118_dp_ok" = ok ] && [ "$s118_dp_ok_rc" = 0 ]; then
+    ok "118l: docs-pointer — all docs/*.md lead with SPEC → ok, exit 0 (#631)"
+  else
+    ng "118l: docs-pointer all-ok wrong (status=$s118_dp_ok [rc=$s118_dp_ok_rc], want ok/0) (#631)"
+  fi
+
+  # 118m: an offending docs/y.md (no SPEC in its first two non-empty lines) →
+  # docs-pointer fail, the detail NAMES the offender (y.md), exit 0.
+  s118_run "$S118_DP_FAIL"; s118_dp_f=$(s118_status docs-pointer); s118_dp_f_rc=$s118_rc
+  s118_dp_f_detail=$(s118_detail docs-pointer)
+  if [ "$s118_dp_f" = fail ] && [ "$s118_dp_f_rc" = 0 ] \
+     && printf '%s' "$s118_dp_f_detail" | grep -qF 'y.md'; then
+    ok "118m: docs-pointer — offender → fail, detail names y.md, exit 0 (#631)"
+  else
+    ng "118m: docs-pointer offender wrong (status=$s118_dp_f [rc=$s118_dp_f_rc] detail='$s118_dp_f_detail', want fail/0 naming y.md) (#631)"
+  fi
+
+  # 118n: no docs/ dir → docs-pointer ok (vacuously true), exit 0.
+  s118_run "$S118_DP_NONE"; s118_dp_n=$(s118_status docs-pointer); s118_dp_n_rc=$s118_rc
+  if [ "$s118_dp_n" = ok ] && [ "$s118_dp_n_rc" = 0 ]; then
+    ok "118n: docs-pointer — no docs/ dir → ok, exit 0 (#631)"
+  else
+    ng "118n: docs-pointer no-docs wrong (status=$s118_dp_n [rc=$s118_dp_n_rc], want ok/0) (#631)"
   fi
 
   rm -rf "$S118_DIR"
