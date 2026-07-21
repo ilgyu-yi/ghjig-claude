@@ -15,7 +15,8 @@
 #
 # where <status> is the stable token `ok` or `fail` (NOT a glyph — renderers map it
 # to their own presentation, keeping this script presentation-neutral). Check names:
-# upstream, permission, ssot:MISSION.md, ssot:SPEC.md, branch-protect, ci.
+# upstream, permission, ssot:MISSION.md, ssot:SPEC.md, branch-protect, ci,
+# toc-format, docs-pointer.
 #
 # It REPORTS facts and never gates: every invocation exits 0, even when a `gh`
 # probe errors (a non-admin `gh api .../protection` 404/403 is reported as
@@ -27,6 +28,11 @@
 # no-auth / smoke contexts, and `fail` correctly reads as "not confirmed OK".
 
 set -uo pipefail
+
+# Self-locate the sibling build_toc (scripts/lib/ → scripts/build_toc.sh) for the
+# gh-free toc-format check.
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+BUILD_TOC="$LIB_DIR/../build_toc.sh"
 
 DRY_RUN=
 while [ $# -gt 0 ]; do
@@ -109,6 +115,37 @@ if [ -d .github/workflows ] && [ -n "$(ls -A .github/workflows 2>/dev/null)" ]; 
   emit ci ok "present (.github/workflows/)"
 else
   emit ci fail "no workflows under .github/workflows/"
+fi
+
+# ---- SPEC ToC FORMAT (gh-free — build_toc.sh --check is filesystem-only) ----
+# FORMAT, not freshness: a stale-but-markered ToC (--check 1) is `ok` here because
+# freshness is CI's job (check-toc.yml) and the format is sound. `toc_rc=0` pre-init
+# is load-bearing under `set -u` (an unset read would abort → break exit-0), and the
+# `[ -f SPEC.md ]` guard means build_toc is never called on an absent SPEC (→ *→ok).
+toc_rc=0
+if [ -f SPEC.md ] && [ -x "$BUILD_TOC" ]; then
+  bash "$BUILD_TOC" --check --spec SPEC.md >/dev/null 2>&1 || toc_rc=$?
+fi
+case "$toc_rc" in
+  3) emit toc-format fail "marker-less/anchor-link ToC — run build_toc.sh --migrate (only if SPEC.md already uses numbered '## N.' headings + a '## Table of contents' block; else number the headings or add the <!-- TOC START -->/<!-- TOC END --> markers by hand)" ;;
+  4) emit toc-format fail "corrupt TOC markers (START without END) — repair the markers" ;;
+  *) emit toc-format ok "marker line-number ToC (or SPEC.md absent / no ToC to convert)" ;;
+esac
+
+# ---- docs/*.md thin-pointer norm (§91 parity, SPEC §9) ----
+# Each docs/*.md must lead (first two non-empty lines) with a SPEC reference. The
+# for-glob loop with `[ -f "$d" ] || continue` skips the literal glob string when no
+# docs/*.md exists → dp_fail empty → ok. `dp_fail=""` pre-init is safe under `set -u`.
+dp_fail=""
+for d in docs/*.md; do
+  [ -f "$d" ] || continue
+  lead=$(awk 'NF{n++; print; if(n==2) exit}' "$d")
+  case "$lead" in *SPEC*) : ;; *) dp_fail="$dp_fail ${d##*/}" ;; esac
+done
+if [ -n "$dp_fail" ]; then
+  emit docs-pointer fail "not leading with a SPEC reference:$dp_fail (thin-pointer norm, SPEC §9) — lead each with a 'Full details in SPEC §…' reference"
+else
+  emit docs-pointer ok "every docs/*.md leads with a SPEC reference (or none present)"
 fi
 
 exit 0
