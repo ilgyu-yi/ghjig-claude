@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # scripts/ghjig_file_review_post.sh — post a self `COMMENT` review to the CURRENT
-# branch's own PR, pinned to its head, carrying the sanitized review body from a
-# fixed out-of-band STATE FILE staged by ghjig_file_review_stage.sh
-# (SPEC §5.7.1 "Second exception — the self-review producer", #598, #602).
+# branch's own PR, pinned to its head, carrying the sanitized review body that
+# `/file-review` wrote itself to the fixed out-of-band staging file
+# `<esd>/file-review/staging` (SPEC §5.7.1 "Second exception — the self-review
+# producer", §5.29; #598, #602, #633).
 #
 # This is the single `permissions.allow`-covered surface that lets an unattended
 # `/ship` post its own head-pinned review: the auto-mode classifier defers this
@@ -10,21 +11,69 @@
 # `gh api .../pulls/<n>/reviews` self-approve POST as self-approval. The allow
 # entry is the exact, wildcard-free `Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh)`.
 #
+# THE PRODUCER IS ONE LINK, NOT TWO (#633). The caller writes the staging file;
+# there is no separate writer script and the staged file carries no header stamps
+# — it holds the sanitized body and nothing else. That matters for the capability
+# boundary: the retired writer's only job was translating a *variable* tempfile
+# path into the fixed path read below, and the only allow form that could have
+# covered a variable argv was a prefix wildcard, which would have auto-approved an
+# arbitrary-path read whose content this wrapper publishes verbatim. With the argv
+# gone, no shell script in the tree can be pointed at an arbitrary path.
+#
 # The wrapper IS the capability boundary — even invoked adversarially it can only
 # post a self `COMMENT` on the acting identity's OWN current-branch PR:
 #   - no positional args (it resolves the current-branch PR itself, mirroring
 #     `gh pr merge --auto`, so the allow entry needs no trailing wildcard) and it
 #     stays invocable BARE — no stdin pipe, so the classifier keeps deferring it;
-#   - the body is read from a staged state file (#602), invisible to the
-#     permission matcher — NOT stdin (a bare covered command cannot be fed stdin);
+#   - the body is read from the fixed staging file, invisible to the permission
+#     matcher — NOT stdin (a bare covered command cannot be fed stdin);
 #   - `event=COMMENT` is hardcoded — never APPROVE/REQUEST_CHANGES;
 #   - an own-PR guard fails closed unless the acting identity == the PR author.
+#
+# What is NOT retired: this wrapper still posts the staged body VERBATIM apart
+# from the marker/head bind, so body sanitization remains the caller's job
+# (§5.29) and the review-body egress channel is open, not closed — a tracked
+# residual owned by #634.
+#
 # Whether the produced self-review is then HONORED is a separate per-target
 # decision (`resolve_self_review_policy` / `.claude/state/self-review`, §5.7.1)
 # read by the merge-review gate (§6.1) — this producer never consults it.
 set -euo pipefail
 
 fail() { printf 'ghjig_file_review_post: %s\n' "$1" >&2; exit 1; }
+
+# deny <arm> <message> — a fail-closed reject with NO POST, plus its audit line.
+# The audit record is the block's deferred positive face (MISSION.md:18): without
+# it every arm below is an invisible block. Two mechanism details are
+# load-bearing. (a) `audit_log` resolves its log via `ghjig_state_dir`, NOT
+# `ghjig_state_dir_cli` — and a Bash-tool subprocess commonly runs with
+# CLAUDE_PROJECT_DIR unset, so without the explicit override prefix the record
+# would land on the legacy shared path (or nowhere) instead of the per-project
+# log this wrapper just resolved (SPEC §3.2.2). (b) The call is subshelled and
+# `|| true`-guarded: under `set -euo pipefail` a non-zero `audit_log` must never
+# convert a fail-closed reject into anything other than a clean refusal.
+# The reason carries the ARM NAME ONLY — an audit line echoing the body would
+# re-publish, into the log, exactly the content the reject withheld.
+deny() {
+  local arm="$1" msg="$2"
+  if command -v audit_log >/dev/null 2>&1; then
+    ( export GHJIG_STATE_DIR_OVERRIDE="${esd:-}"; audit_log info file-review rejected "reason=$arm" ) >/dev/null 2>&1 || true
+  fi
+  printf 'ghjig_file_review_post: %s — fail closed, no POST\n' "$msg" >&2
+  exit 1
+}
+
+# Portable mtime read (the repo's established idiom — session_start.sh:114-116,
+# helpers/status.sh:35-37). A platform with NEITHER branch returns non-zero so the
+# caller fails closed; it must never silently skip the TTL.
+fr_mtime() {
+  local f="$1" m
+  if m=$(stat -c %Y "$f" 2>/dev/null); then printf '%s' "$m"; return 0; fi
+  if m=$(stat -f %m "$f" 2>/dev/null); then printf '%s' "$m"; return 0; fi
+  return 1
+}
+
+esd=""
 
 _fr_self=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # Self-locate like ghjig_skip.sh (#537): the ambient env is never consulted;
@@ -71,63 +120,98 @@ me=$(gh api user --hostname "$h" --jq .login 2>/dev/null) || fail "could not res
 [ "$me" = "$pr_author" ] \
   || fail "refusing: acting identity ($me) is not the PR author ($pr_author) — this wrapper is own-PR only"
 
-# The sanitized review body arrives via a fixed staged state file (#602), never
-# stdin or an inline argument. It is resolved through the SAME shared
-# ghjig_state_dir_cli() the writer used, under `<state>/file-review/body`.
+# The sanitized review body arrives via the fixed staging file the CALLER wrote
+# (#633), never stdin, an inline argument, or a writer script. It is resolved
+# through the SAME shared ghjig_state_dir_cli() the caller resolves.
 command -v ghjig_state_dir_cli >/dev/null 2>&1 \
   || fail "ghjig_state_dir_cli unavailable (hookrt.sh not sourced)"
 esd=$(ghjig_state_dir_cli 2>/dev/null) || esd=""
 [ -n "$esd" ] || fail "could not resolve per-project state dir"
-sf="$esd/file-review/body"
+frdir="$esd/file-review"
+sf="$frdir/staging"
 
-# Fail closed BEFORE any POST if the staged body is absent/unreadable/empty.
-[ -r "$sf" ] || fail "no staged review body (absent/unreadable) — fail closed, no POST"
-if [ ! -s "$sf" ]; then rm -f "$sf"; fail "empty staged review body — fail closed, no POST"; fi
+# Symlink guards — BOTH the leaf AND the `file-review` directory component. The
+# mtime reads below default to `lstat` on BSD and GNU alike, so a symlink reports
+# the LINK's fresh mtime while the content read follows to an arbitrary target and
+# `[ -r ]` / `[ -s ]` / `[ -f ]` all pass. Guarding the leaf alone is provably
+# insufficient: with the parent a symlink the leaf is a genuine regular file. The
+# retired writer's atomic rename was the only structural regular-file guarantee at
+# this read path, so these checks replace it. Two cases stay deliberately
+# unguarded and are disclosed in SPEC §5.7.1 rather than fixed: a hardlinked
+# staging file (nlink > 1), and a symlinked ancestor above the `file-review`
+# component.
+[ ! -L "$frdir" ] || deny symlink-dir "staging directory component is a symlink ($frdir)"
+[ ! -L "$sf" ]    || deny symlink-leaf "staging file is a symlink ($sf)"
 
-# Slurp ONCE, then one-shot unlink the state file IMMEDIATELY — before validation
-# and before the POST (slurp→unlink→validate→post). Unlinking first is poison
-# cleanup (every reject path below also drops the file) and forecloses a TOCTOU:
-# a concurrent restage cannot make this wrapper post twice.
+# Fail closed BEFORE any read if the staging file is absent/irregular/unreadable/
+# empty. The absent message NAMES THE ABSOLUTE PATH so a caller/wrapper path
+# divergence is a diagnosable error rather than a silent park (SPEC §5.7.1).
+[ -e "$sf" ] || deny staging-absent "no staged review body at $sf (nothing was written there)"
+[ -f "$sf" ] || deny staging-irregular "staged review body is not a regular file ($sf)"
+[ -r "$sf" ] || deny staging-unreadable "staged review body is unreadable ($sf)"
+[ -s "$sf" ] || deny staging-empty "empty staged review body ($sf)"
+
+# stat -> slurp -> stat (equal) -> one-shot unlink -> validate -> POST.
+# The mtime is read BEFORE the slurp and AGAIN after it, and the two must be
+# equal: without the second read the freshness check would attest to a file a
+# concurrent rewrite could have replaced between the check and the read — i.e. to
+# bytes other than the ones posted.
+mt1=$(fr_mtime "$sf") || deny mtime-unresolvable "could not read the staging file mtime on this platform ($sf)"
 staged=$(cat "$sf")
+mt2=$(fr_mtime "$sf") || deny mtime-unresolvable "could not re-read the staging file mtime on this platform ($sf)"
+[ "$mt1" = "$mt2" ] \
+  || deny mtime-changed "staging file mtime changed during the read ($mt1 != $mt2) — the freshness check would not cover the posted bytes"
+
+# One-shot unlink IMMEDIATELY after the slurp+re-stat and BEFORE validation and
+# the POST. Unlinking here is poison cleanup (every validation reject below
+# therefore leaves no sanitized body at rest) and it forecloses a TOCTOU in which
+# a concurrent rewrite makes this wrapper post twice.
 rm -f "$sf"
 
-# Validate the header IN MEMORY. The two-line header is created=<epoch> then
-# head=<sha>; the rest is the verbatim body.
-created_line=$(printf '%s\n' "$staged" | sed -n '1p')
-head_line=$(printf '%s\n'    "$staged" | sed -n '2p')
-body=$(printf '%s\n'         "$staged" | tail -n +3)
-
-case "$created_line" in
-  created=*) : ;;
-  *) fail "malformed staged body (no created= header) — fail closed, no POST" ;;
-esac
-case "$head_line" in
-  head=*) : ;;
-  *) fail "malformed staged body (no head= header) — fail closed, no POST" ;;
-esac
-created=${created_line#created=}
-staged_head=${head_line#head=}
-
-# `created` must be a plausible base-10 epoch before arithmetic (mirrors
-# escape.sh:64-77): digits only, no leading zero (octal trap), <=11 digits
-# (year-5138 ceiling / bash-3.2 overflow guard), else the TTL/future checks
-# below silently fall through to HONOR.
-case "$created" in ''|0*|*[!0-9]*) fail "malformed created epoch in staged body — fail closed, no POST" ;; esac
-[ "${#created}" -le 11 ] || fail "implausible created epoch in staged body — fail closed, no POST"
+# Freshness — the TTL rides the staging file's mtime, since the caller IS the
+# writer and mtime therefore IS write time (#633). A future-dated mtime is its
+# OWN reject arm: `now - mt <= 60` alone passes for one.
+case "$mt1" in ''|*[!0-9]*) deny mtime-malformed "implausible staging file mtime ($mt1)" ;; esac
+[ "${#mt1}" -le 11 ] || deny mtime-malformed "implausible staging file mtime ($mt1)"
 now=$(date +%s)
-[ "$created" -le "$now" ] || fail "future-dated staged body — fail closed, no POST"
-[ "$(( now - created ))" -le 60 ] || fail "stale staged body (>60s TTL) — fail closed, no POST"
+[ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now)"
+[ "$(( now - mt1 ))" -le 60 ] || deny stale "stale staged review body (mtime older than the 60s TTL)"
 
-# Head-bind: the staged head must equal the wrapper's resolved current head.
-[ "$staged_head" = "$head_sha" ] \
-  || fail "staged head ($staged_head) != current head ($head_sha) — fail closed, no POST"
+# Marker accept set (SPEC §5.29): count canonical markers with the BYTE-IDENTICAL
+# regex the merge-side consumer uses (`helpers/ac_closeout_gate.sh`) and require
+# EXACTLY ONE. Sharing the literal is the anti-drift mechanism — a looser producer
+# parse would POST a body the merge gate then rejects, moving the park from the
+# free pre-POST side to the unretractable published-review side.
+markers=$(printf '%s' "$staged" \
+  | grep -oE '<!-- file-review verdict=[A-Za-z]+ head=[^[:space:]]+ reviewer=code-reviewer -->' 2>/dev/null) || markers=""
+marker_count=0
+[ -n "$markers" ] && marker_count=$(printf '%s\n' "$markers" | grep -c .)
+[ "$marker_count" = 1 ] \
+  || deny marker-count "staged body carries $marker_count canonical file-review markers, expected exactly 1"
 
-# The body (header lines stripped) must be non-empty.
-[ -n "$body" ] || fail "empty staged review body after header strip — fail closed, no POST"
+# Head-staleness guard — RETAINED, not subsumed by the single step (SPEC §5.7.1).
+# The window it covers is the WHOLE review, not the retired stage-to-post split: a
+# foreign push (a concurrent agent, a human push, GitHub's "Update branch") that
+# advances the PR head after `/file-review` computed its head would otherwise let
+# this wrapper pin `commit_id` to a head no reviewer ever saw, and `merge-review`
+# reads `commit_id` off the review object and only `verdict` from the marker.
+# Arm 1 — the marker's head= IS the remote head the review was performed against.
+marker_head=$(printf '%s' "$markers" | sed -nE 's/.*head=([^[:space:]]+) reviewer=.*/\1/p')
+[ -n "$marker_head" ] || deny marker-head-absent "could not read head= from the staged body's marker"
+[ "$marker_head" = "$head_sha" ] \
+  || deny marker-head-mismatch "marker head ($marker_head) != resolved PR head ($head_sha)"
+# Arm 2 — the shell-authored belt: the local checkout must sit on that same head.
+# This is exactly what the retired stamp compared. Both arms are STALENESS guards,
+# not anti-forge: the marker is agent-authored, so anti-forge integrity stays at
+# the `merge-review` gate.
+local_head=$(git rev-parse HEAD 2>/dev/null) || local_head=""
+[ -n "$local_head" ] || deny local-head-unresolvable "could not resolve the local git HEAD"
+[ "$local_head" = "$head_sha" ] \
+  || deny local-head-mismatch "local HEAD ($local_head) != resolved PR head ($head_sha)"
 
 # Post the self COMMENT review, pinned to the current head. `event=COMMENT` is
 # hardcoded; the in-memory body travels via `-F body=@-` (read as a string).
-printf '%s' "$body" | gh api "repos/$owner_repo/pulls/$pr_num/reviews" \
+printf '%s' "$staged" | gh api "repos/$owner_repo/pulls/$pr_num/reviews" \
   --hostname "$h" \
   -f commit_id="$head_sha" \
   -f event=COMMENT \
