@@ -177,6 +177,12 @@ rm -f "$sf"
 # freshness check is never evaluated and execution falls through to the POST.
 # Reasoning that `stat` never emits a leading zero is not a substitute for the
 # guard: the guard is what makes that assumption non-load-bearing.
+#
+# The fall-through is SCRIPT-FILE-specific, which is why it is easy to test wrong.
+# Reproduced at head: run as a script file the arithmetic error prints and control
+# continues past the TTL to the POST (exit 0); the same statements under `bash -c`
+# abort instead (exit 1). So a `bash -c` probe shows the SAFE behaviour and would
+# invite deleting this arm a second time. Reproduce in a script file, or not at all.
 case "$mt1" in ''|0*|*[!0-9]*) deny mtime-malformed "implausible staging file mtime ($mt1) — re-stage the body so its mtime is a plain epoch" ;; esac
 [ "${#mt1}" -le 11 ] || deny mtime-malformed "implausible staging file mtime ($mt1)"
 now=$(date +%s)
