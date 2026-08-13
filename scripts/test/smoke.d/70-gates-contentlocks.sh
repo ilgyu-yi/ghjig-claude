@@ -1912,7 +1912,7 @@ else
 
   # §156d: the third outcome. `inconclusive` is backticked (a code form) and is bound to
   # a non-zero exit — the whole point is that it is NOT a pass-and-warn.
-  if s156_fx '`inconclusive`' && s156_re 'non-zero exit'; then
+  if s156_re '`inconclusive`.*non-zero exit'; then
     ok "156d: §1.3.1 keeps the backticked \`inconclusive\` outcome bound to a non-zero exit (#640)"
   else
     ng "156d: §1.3.1 lost the \`inconclusive\` code form or its non-zero-exit binding (#640)"
@@ -1963,7 +1963,37 @@ else
   fi
 fi
 
-# §156j/§156k — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
+  # §156l: the TIER BOUNDARY predicate itself — the one decision this Issue calls a
+  # "fixed tier boundary" (AC1), and the decision a challenger won over the base plan.
+  # Locked on the measured-reach form (anchors + non-SSOT carrier), NOT on the rejected
+  # direction-keyed form: an edit reverting to "subtractive vs additive" must fail here.
+  if s156_re 'affected heading anchors number more than one' \
+     && s156_re 'non-SSOT carrier file is touched' \
+     && s156_re 'Direction.*never to the gate'; then
+    ok "156l: §1.3.1 fixes the tier boundary on measured reach (anchors + non-SSOT carrier) and excludes direction from the gate (#640)"
+  else
+    ng "156l: §1.3.1 lost the measured-reach tier boundary or readmitted direction into the gate (#640)"
+  fi
+
+  # §156m: the MONOTONICITY DIRECTION — widen-yes / narrow-never — plus the re-anchor
+  # carve-out the parent Directive states. §156d locks the `inconclusive` machinery;
+  # this locks the rule that machinery guards.
+  if s156_re 'widened' && s156_re 'never be narrowed' && s156_re 're-anchor'; then
+    ok "156m: §1.3.1 keeps widen-yes / narrow-never with the re-anchor carve-out (#640)"
+  else
+    ng "156m: §1.3.1 lost the monotonicity direction or the re-anchor carve-out (#640)"
+  fi
+
+  # §156n: the EMPTY DECLARATION is a production of the grammar, not an omission. The
+  # section makes absent-vs-empty load-bearing, so the empty form needs a parseable
+  # token; a reader that cannot parse it cannot tell the two states apart.
+  if s156_re '^SSOT-sweep: none$' && s156_re 'empty declaration'; then
+    ok "156n: §1.3.1 states the empty declaration as a grammar production (SSOT-sweep: none) (#640)"
+  else
+    ng "156n: §1.3.1 lost the empty-declaration token from the trailer grammar (#640)"
+  fi
+
+# §156j — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
 # added for the SSOT change sweep are shaped so §116's OWN derivations count them, and
 # §116's parity therefore still balances. The awk/grep expressions below are §116's
 # verbatim (50-perproject-recall.sh); they are re-derived here under an s156_ prefix
@@ -1988,22 +2018,6 @@ else
     ok "156j: SSOT change sweep is registered as a §1.8 lever row and a backticked §1.9 posture row, in the shapes §116 counts (#640)"
   else
     ng "156j: SSOT change sweep rows mis-shaped or absent — §1.8 lever rows=$s156_lever §1.9 posture rows=$s156_posture (expected 1 and 1) (#640)"
-  fi
-
-  # §156k: with those rows present, §116's parity identity still holds — re-derived here
-  # so this Issue positively owns "we did not break §116", instead of leaving it implicit.
-  s156_lv=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$S156_SPEC")
-  s156_ag=$(find "$SHELL_ROOT/.claude/agents" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -c .)
-  s156_cm=$(grep -cE '^### 5\.[0-9]+ `/' "$S156_SPEC")
-  s156_hk=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>/dev/null \
-            | awk '{print $2}' | sort -u | grep -c .)
-  s156_exp=$((s156_lv + s156_ag + s156_cm + s156_hk))
-  s156_rows=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$S156_SPEC" \
-              | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
-  if [ "$s156_rows" -gt 0 ] && [ "$s156_rows" = "$s156_exp" ]; then
-    ok "156k: §116 parity still balances with the SSOT-change-sweep rows present (classified=$s156_rows expected=$s156_exp) (#640)"
-  else
-    ng "156k: §116 parity broken by the SSOT-change-sweep rows — classified=$s156_rows expected=$s156_exp (levers=$s156_lv agents=$s156_ag cmds=$s156_cm hooks=$s156_hk) (#640)"
   fi
 fi
 
