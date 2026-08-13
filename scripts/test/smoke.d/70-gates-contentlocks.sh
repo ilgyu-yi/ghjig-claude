@@ -1853,3 +1853,157 @@ else
   ng "149c: lint.sh must add a deterministic per-file line-count cliff guard (line_cap) (#600)"
 fi
 
+# ---------- §156: SSOT change sweep protocol content-lock (SPEC §1.3.1, #640) ----------
+# GREEN-AT-DOC by design (the §126a/§127a/§129b shape, precedent #528 at 60-*.sh:1348),
+# NOT red-first: #640 is a doctrine-only Issue whose Directive-level plan carries an
+# explicit `Code: n/a`, so SPEC §1.3.1 IS the deliverable and smoke IS its only
+# assertion surface. These locks exist so the two LATER Execution Issues of Directive
+# #636 — which must implement exactly these code forms — cannot silently rename or drop
+# one, and so a later prose edit cannot dilute the two load-bearing negative results.
+#
+# ANTI-VACUITY: every content arm reads a WINDOW bounded to §1.3.1 (awk from the
+# `#### 1.3.1` heading, terminating at the next heading of depth <= 4), never the whole
+# SPEC — several of these tokens (`inconclusive`, `read-through`, "first-class") also
+# occur elsewhere in SPEC, so an unscoped grep would green on an unrelated section. The
+# window itself is COUNT-GUARDED (§156a): a lock over an empty window passes vacuously,
+# which is precisely anti-pattern #2 in the smoke.sh header. If the window collapses,
+# §156a fails LOUD and the content arms do not run as fake passes.
+S156_SPEC="$SHELL_ROOT/SPEC.md"
+s156_win=""
+s156_n=0
+if [ -f "$S156_SPEC" ]; then
+  # Depth-<=4 terminator written as an explicit alternation rather than `^#{1,4} `:
+  # ERE interval support in awk is not universal, and `^(#|##|###|####) ` correctly
+  # excludes `##### ` (five hashes are not followed by a space at any of the four arms).
+  s156_win=$(awk '/^#### 1\.3\.1 /{i=1;next} i&&/^(#|##|###|####) /{exit} i' "$S156_SPEC")
+  s156_n=$(printf '%s\n' "$s156_win" | grep -c .)
+fi
+
+# s156_re / s156_fx — window-scoped ERE / fixed-string probes. Both read ONLY the
+# extracted window, so no arm can be satisfied by text outside §1.3.1.
+s156_re() { printf '%s\n' "$s156_win" | grep -qE "$1"; }
+s156_fx() { printf '%s\n' "$s156_win" | grep -qF "$1"; }
+
+if [ ! -f "$S156_SPEC" ]; then
+  ng "156: SPEC.md absent — cannot assert the §1.3.1 SSOT change sweep protocol (#640)"
+elif [ "$s156_n" -lt 10 ]; then
+  # 18 non-blank lines at this commit; a floor of 10 catches a collapsed/renamed
+  # heading or a gutted section while tolerating ordinary prose tightening.
+  ng "156a: SPEC §1.3.1 window empty or collapsed (non-blank lines=$s156_n, floor=10) — the content locks below would pass VACUOUSLY (#640)"
+else
+  ok "156a: SPEC §1.3.1 window resolves non-empty (non-blank lines=$s156_n) — content locks below are load-bearing (#640)"
+
+  # §156b: the two commit-trailer KEYS, anchored to the code form (line-start inside the
+  # fenced grammar block), not a backticked prose mention — the later Execution Issues
+  # parse exactly these keys, so a rename must trip here.
+  if s156_re '^SSOT-sweep: ' && s156_re '^SSOT-sweep-tier: '; then
+    ok "156b: §1.3.1 declares both trailer keys in code form (SSOT-sweep: / SSOT-sweep-tier:) (#640)"
+  else
+    ng "156b: §1.3.1 missing a trailer key in code form (expected line-anchored 'SSOT-sweep: ' and 'SSOT-sweep-tier: ') (#640)"
+  fi
+
+  # §156c: both tier names, pinned to the tier trailer's VALUE grammar rather than to
+  # the bold prose mentions — the grammar line is what an implementation must match.
+  if s156_re '^SSOT-sweep-tier: term-sweep\|read-through$'; then
+    ok "156c: §1.3.1 pins the tier vocabulary in the trailer grammar (term-sweep|read-through) (#640)"
+  else
+    ng "156c: §1.3.1 lost the tier value grammar line 'SSOT-sweep-tier: term-sweep|read-through' (#640)"
+  fi
+
+  # §156d: the third outcome. `inconclusive` is backticked (a code form) and is bound to
+  # a non-zero exit — the whole point is that it is NOT a pass-and-warn.
+  if s156_fx '`inconclusive`' && s156_re 'non-zero exit'; then
+    ok "156d: §1.3.1 keeps the backticked \`inconclusive\` outcome bound to a non-zero exit (#640)"
+  else
+    ng "156d: §1.3.1 lost the \`inconclusive\` code form or its non-zero-exit binding (#640)"
+  fi
+
+  # §156e: the `!` scope-negation form — backticked, and tied to the word it defines, so
+  # an unrelated exclamation mark in prose cannot satisfy it.
+  if s156_re '`!`.*negat'; then
+    ok "156e: §1.3.1 defines the leading \`!\` scope-negation form (#640)"
+  else
+    ng "156e: §1.3.1 lost the leading \`!\` scope-negation form (#640)"
+  fi
+
+  # §156f: routing. `/complete-directive` must be named as the consumer of the
+  # inconclusive signal — the same line, so a stray mention elsewhere is not enough.
+  if s156_re 'consumer.*`/complete-directive`'; then
+    ok "156f: §1.3.1 names \`/complete-directive\` as the consumer of the inconclusive signal (#640)"
+  else
+    ng "156f: §1.3.1 no longer names \`/complete-directive\` as the signal's consumer (#640)"
+  fi
+
+  # §156g: anchor resolution is a GENERIC markdown heading parse, so an SSOT with
+  # unnumbered headings is a first-class case rather than a degraded one. All three
+  # tokens are required: dropping "first-class" would leave the degradation reading open.
+  if s156_fx 'generic markdown heading parse' && s156_fx 'unnumbered' && s156_fx 'first-class'; then
+    ok "156g: §1.3.1 resolves anchors by a generic markdown heading parse — unnumbered headings are first-class (#640)"
+  else
+    ng "156g: §1.3.1 lost the generic-heading-parse / unnumbered / first-class guarantee (#640)"
+  fi
+
+  # §156h: the load-bearing NEGATIVE result — mechanical derivation of the retired set
+  # from a diff does not work, and is closed to re-proposal. A later Issue that deletes
+  # this sentence re-opens a settled dead end.
+  if s156_re 'Deriving the retired set mechanically' && s156_re '\*\*not\*\* work' \
+     && s156_fx 'not to be re-proposed'; then
+    ok "156h: §1.3.1 keeps the negative result — mechanical derivation of the retired set does not work, not to be re-proposed (#640)"
+  else
+    ng "156h: §1.3.1 lost the mechanical-derivation negative result or its not-to-be-re-proposed closure (#640)"
+  fi
+
+  # §156i: the two-sets distinction (the sweep INPUT vs the evidence INPUT). Anchored on
+  # the bolded term forms the section actually uses, plus the framing sentence.
+  if s156_fx '**candidate-term set**' && s156_fx '**declared retirement set**' \
+     && s156_re 'Two sets, deliberately different'; then
+    ok "156i: §1.3.1 keeps the two-sets distinction (**candidate-term set** wide vs **declared retirement set** narrow) (#640)"
+  else
+    ng "156i: §1.3.1 collapsed the two-sets distinction (candidate-term set vs declared retirement set) (#640)"
+  fi
+fi
+
+# §156j/§156k — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
+# added for the SSOT change sweep are shaped so §116's OWN derivations count them, and
+# §116's parity therefore still balances. The awk/grep expressions below are §116's
+# verbatim (50-perproject-recall.sh); they are re-derived here under an s156_ prefix
+# rather than reading §116's s116_* variables, because the smoke.sh header reserves
+# cross-section symbols for smoke.d/_preamble.sh. Nothing is hardcoded: expected and
+# actual are both machine-derived (both are 65 at this commit — recorded here as a
+# provenance note only, deliberately NOT pinned, since any of the four families may
+# legitimately grow).
+if [ ! -f "$S156_SPEC" ]; then
+  ng "156j: SPEC.md absent — cannot assert §1.8/§1.9 SSOT-change-sweep parity (#640)"
+else
+  s156_lever=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i' "$S156_SPEC" \
+               | grep -cE '^\| \*\*SSOT change sweep\*\*')
+  s156_posture=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$S156_SPEC" \
+                 | grep -E '^\|.*SSOT change sweep' \
+                 | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
+  # §156j: both new rows exist AND match the exact shapes §116 counts — a lever row
+  # opening `| **` (so it lands in s116_levers) and a §1.9 row carrying a BACKTICKED
+  # posture token (so it lands in s116_rows). A row present but mis-shaped would keep
+  # §116 balanced-looking only by cancelling out; requiring 1 of each rules that out.
+  if [ "$s156_lever" = 1 ] && [ "$s156_posture" = 1 ]; then
+    ok "156j: SSOT change sweep is registered as a §1.8 lever row and a backticked §1.9 posture row, in the shapes §116 counts (#640)"
+  else
+    ng "156j: SSOT change sweep rows mis-shaped or absent — §1.8 lever rows=$s156_lever §1.9 posture rows=$s156_posture (expected 1 and 1) (#640)"
+  fi
+
+  # §156k: with those rows present, §116's parity identity still holds — re-derived here
+  # so this Issue positively owns "we did not break §116", instead of leaving it implicit.
+  s156_lv=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$S156_SPEC")
+  s156_ag=$(find "$SHELL_ROOT/.claude/agents" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -c .)
+  s156_cm=$(grep -cE '^### 5\.[0-9]+ `/' "$S156_SPEC")
+  s156_hk=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" 2>/dev/null \
+            | awk '{print $2}' | sort -u | grep -c .)
+  s156_exp=$((s156_lv + s156_ag + s156_cm + s156_hk))
+  s156_rows=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$S156_SPEC" \
+              | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
+  if [ "$s156_rows" -gt 0 ] && [ "$s156_rows" = "$s156_exp" ]; then
+    ok "156k: §116 parity still balances with the SSOT-change-sweep rows present (classified=$s156_rows expected=$s156_exp) (#640)"
+  else
+    ng "156k: §116 parity broken by the SSOT-change-sweep rows — classified=$s156_rows expected=$s156_exp (levers=$s156_lv agents=$s156_ag cmds=$s156_cm hooks=$s156_hk) (#640)"
+  fi
+fi
+
