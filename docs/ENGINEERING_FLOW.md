@@ -2,6 +2,8 @@
 
 Full details in [SPEC.md §2](../SPEC.md).
 
+Conducting a change that touches the SSOT — which sites it must reach, and how much of the SSOT to read while reaching them — is [SPEC.md §1.3.1](../SPEC.md).
+
 ```
 [Project start / joining]
   ./scripts/setup.sh <local-path | repo-url>   ← single entry: deps → register-or-clone → onboard → dir-mode gate (default N) → next command (--enter execs claude)
