@@ -1875,7 +1875,14 @@ if [ -f "$S156_SPEC" ]; then
   # Depth-<=4 terminator written as an explicit alternation rather than `^#{1,4} `:
   # ERE interval support in awk is not universal, and `^(#|##|###|####) ` correctly
   # excludes `##### ` (five hashes are not followed by a space at any of the four arms).
-  s156_win=$(awk '/^#### 1\.3\.1 /{i=1;next} i&&/^(#|##|###|####) /{exit} i' "$S156_SPEC")
+  #
+  # FENCE-AWARE: a fenced line beginning `# ` (a shell comment inside a ``` block) is
+  # indistinguishable from a depth-1 heading to a line-oriented terminator, so it would
+  # truncate the window mid-section — observed once, when a `# exactly one of …` comment
+  # was added inside this section's own trailer fence and silently cut the window from 21
+  # lines to 13. The `f` toggle tracks fence state so the terminator only fires OUTSIDE a
+  # fence; the floor below then guards what remains.
+  s156_win=$(awk '/^#### 1\.3\.1 /{i=1;next} !i{next} /^```/{f=!f} !f&&/^(#|##|###|####) /{exit} i' "$S156_SPEC")
   s156_n=$(printf '%s\n' "$s156_win" | grep -c .)
 fi
 
@@ -1886,10 +1893,10 @@ s156_fx() { printf '%s\n' "$s156_win" | grep -qF "$1"; }
 
 if [ ! -f "$S156_SPEC" ]; then
   ng "156: SPEC.md absent — cannot assert the §1.3.1 SSOT change sweep protocol (#640)"
-elif [ "$s156_n" -lt 10 ]; then
-  # 18 non-blank lines at this commit; a floor of 10 catches a collapsed/renamed
+elif [ "$s156_n" -lt 18 ]; then
+  # 21 non-blank lines at this commit; a floor of 18 catches a collapsed/renamed
   # heading or a gutted section while tolerating ordinary prose tightening.
-  ng "156a: SPEC §1.3.1 window empty or collapsed (non-blank lines=$s156_n, floor=10) — the content locks below would pass VACUOUSLY (#640)"
+  ng "156a: SPEC §1.3.1 window empty or collapsed (non-blank lines=$s156_n, floor=18) — the content locks below would pass VACUOUSLY (#640)"
 else
   ok "156a: SPEC §1.3.1 window resolves non-empty (non-blank lines=$s156_n) — content locks below are load-bearing (#640)"
 
@@ -1961,7 +1968,6 @@ else
   else
     ng "156i: §1.3.1 collapsed the two-sets distinction (candidate-term set vs declared retirement set) (#640)"
   fi
-fi
 
   # §156l: the TIER BOUNDARY predicate itself — the one decision this Issue calls a
   # "fixed tier boundary" (AC1), and the decision a challenger won over the base plan.
@@ -1992,6 +1998,7 @@ fi
   else
     ng "156n: §1.3.1 lost the empty-declaration token from the trailer grammar (#640)"
   fi
+fi
 
 # §156j — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
 # added for the SSOT change sweep are shaped so §116's OWN derivations count them, and
