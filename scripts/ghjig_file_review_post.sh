@@ -175,7 +175,7 @@ case "$mt1" in ''|*[!0-9]*) deny mtime-malformed "implausible staging file mtime
 [ "${#mt1}" -le 11 ] || deny mtime-malformed "implausible staging file mtime ($mt1)"
 now=$(date +%s)
 [ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now)"
-[ "$(( now - mt1 ))" -le 60 ] || deny stale "stale staged review body (mtime older than the 60s TTL)"
+[ "$(( now - mt1 ))" -le 60 ] || deny stale "stale staged review body (mtime older than the 60s TTL) — re-write the staging file and re-invoke this wrapper within 60s"
 
 # Marker accept set (SPEC §5.29): count canonical markers with the BYTE-IDENTICAL
 # regex the merge-side consumer uses (`helpers/ac_closeout_gate.sh`) and require
@@ -187,7 +187,7 @@ markers=$(printf '%s' "$staged" \
 marker_count=0
 [ -n "$markers" ] && marker_count=$(printf '%s\n' "$markers" | grep -c .)
 [ "$marker_count" = 1 ] \
-  || deny marker-count "staged body carries $marker_count canonical file-review markers, expected exactly 1"
+  || deny marker-count "staged body carries $marker_count canonical file-review markers, expected exactly 1 — re-write the staging file with exactly one canonical marker and re-invoke"
 
 # Head-staleness guard — RETAINED, not subsumed by the single step (SPEC §5.7.1).
 # The window it covers is the WHOLE review, not the retired stage-to-post split: a
@@ -197,17 +197,17 @@ marker_count=0
 # reads `commit_id` off the review object and only `verdict` from the marker.
 # Arm 1 — the marker's head= IS the remote head the review was performed against.
 marker_head=$(printf '%s' "$markers" | sed -nE 's/.*head=([^[:space:]]+) reviewer=.*/\1/p')
-[ -n "$marker_head" ] || deny marker-head-absent "could not read head= from the staged body's marker"
+[ -n "$marker_head" ] || deny marker-head-absent "could not read head= from the staged body's marker — re-write the marker in the canonical form and re-invoke"
 [ "$marker_head" = "$head_sha" ] \
-  || deny marker-head-mismatch "marker head ($marker_head) != resolved PR head ($head_sha)"
+  || deny marker-head-mismatch "marker head ($marker_head) != resolved PR head ($head_sha) — the PR head advanced since the review; re-run /file-review at the new head"
 # Arm 2 — the shell-authored belt: the local checkout must sit on that same head.
 # This is exactly what the retired stamp compared. Both arms are STALENESS guards,
 # not anti-forge: the marker is agent-authored, so anti-forge integrity stays at
 # the `merge-review` gate.
 local_head=$(git rev-parse HEAD 2>/dev/null) || local_head=""
-[ -n "$local_head" ] || deny local-head-unresolvable "could not resolve the local git HEAD"
+[ -n "$local_head" ] || deny local-head-unresolvable "could not resolve the local git HEAD — run from inside the PR's checkout and re-invoke"
 [ "$local_head" = "$head_sha" ] \
-  || deny local-head-mismatch "local HEAD ($local_head) != resolved PR head ($head_sha)"
+  || deny local-head-mismatch "local HEAD ($local_head) != resolved PR head ($head_sha) — check out the PR head (git pull --ff-only) and re-invoke"
 
 # Post the self COMMENT review, pinned to the current head. `event=COMMENT` is
 # hardcoded; the in-memory body travels via `-F body=@-` (read as a string).
