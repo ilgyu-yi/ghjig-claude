@@ -47,7 +47,7 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
    <!-- file-review verdict=<approve|block> head=<HEAD_SHA> reviewer=code-reviewer -->
    ```
 
-   `verdict=approve` derives **only** from a real `code-reviewer` `ship` and is **never hand-written**. `head=` is redundant human/grep convenience that must equal the review's `commit_id`; `reviewer=code-reviewer` records the engine. #586 reads its authoritative fields (`commit_id`, `author.login`) from the attested review **object**, and only `verdict` from this marker text.
+   `verdict=approve` derives **only** from a real `code-reviewer` `ship` and is **never hand-written**. `head=` **must be the `HEAD_SHA` privately computed in step 1 and must never be re-derived at write time** — since #633 the wrapper compares it against the `headRefOid` it resolves at POST time as arm 1 of its head-staleness guard, so re-deriving it silently vacates that arm. It is redundant only to #586's consumer bind, which reads `commit_id` off the review object. It must equal the review's `commit_id`; `reviewer=code-reviewer` records the engine. #586 reads its authoritative fields (`commit_id`, `author.login`) from the attested review **object**, and only `verdict` from this marker text.
 
 7. **Submit `commit_id`-pinned via REST** — bind the privately-confirmed head as `commit_id` and read the body from the temp file:
 
@@ -63,15 +63,26 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 
    - **Another author's PR:** `event=APPROVE` (approve) / `event=REQUEST_CHANGES` (block) — the direct `gh api` call above.
    - **Own PR:** `event=COMMENT` (GitHub 422s a self approve/request-changes); the body carries the marker.
-     - **Own PR that is the CURRENT branch's PR (the `/ship` self-merge case) → stage-then-invoke-bare through the wrapper (#598):** the raw `gh api …/reviews` self-approve POST is blocked by the auto-mode classifier as self-approval (SPEC §5.7.1), and stdin cannot be fed to a bare covered command in the harness. So instead of a pipe, use a **two-step** flow. First **stage** the already-sanitized body tempfile (the `mktemp` file from step 6 — pass its **path**, never the body content inline) via the writer:
-       ```bash
-       .claude/ghjig-root/scripts/ghjig_file_review_stage.sh <tempfile>
+     - **Own PR that is the CURRENT branch's PR (the `/ship` self-merge case) → write-then-invoke-bare through the single wrapper (#598, #633):** the raw `gh api …/reviews` self-approve POST is blocked by the auto-mode classifier as self-approval (SPEC §5.7.1), and stdin cannot be fed to a bare covered command in the harness. There is **no stage script** — write the step-6 sanitized body **yourself**, with the `Write` tool, to the fixed staging file:
+
        ```
-       Then invoke the wrapper **bare** — no pipe, no redirect, no args — so the classifier defers on the byte-exact allow match:
+       .claude/ghjig-state/file-review/staging
+       ```
+
+       On this arm the staging file **is** the body destination (no `mktemp` tempfile is needed — the wrapper reads only the staging file). Then invoke the wrapper **bare** — no pipe, no redirect, no args — so the classifier defers on the byte-exact allow match:
        ```bash
        .claude/ghjig-root/scripts/ghjig_file_review_post.sh
        ```
-       The wrapper reads the staged body from the `ghjig_state_dir_cli()` fixed path under a 60s TTL + one-shot unlink (fail-closed on empty / absent / stale / malformed), resolves the current-branch PR + head itself, **fails closed unless the acting identity == the PR author**, and hardcodes `event=COMMENT` — so it needs no positional args and its allow entry is the exact wildcard-free `Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh)`. Use the direct `gh api` REST call above **only** for another author's PR, or a manual self-review of a **non-current** PR (not the classifier-blocked own-current-PR shape).
+
+       - **Path agreement (the condition, and the fallback).** The literal above is **project-dir-relative** (the `Write` tool takes an **absolute** path — prefix the project dir), while the wrapper resolves its own path via `ghjig_state_dir_cli()`. With **no** `GHJIG_STATE_DIR_OVERRIDE` set, and because a Bash-tool subprocess **often runs with `CLAUDE_PROJECT_DIR` unset** (`.claude/hooks/hookrt.sh:95-97`), the wrapper commonly takes the `git rev-parse --show-toplevel` branch — so the two paths agree **iff the project dir equals the git top level**. In **any** other case (an override is set, `CLAUDE_PROJECT_DIR` points elsewhere, or the session runs in a worktree whose top level differs from the project dir) do **not** trust the literal: **resolve the path by running the helper** and write there instead —
+         ```bash
+         . ".claude/ghjig-root/.claude/hooks/hookrt.sh"; printf '%s\n' "$(ghjig_state_dir_cli)/file-review/staging"
+         ```
+         The wrapper's absent-staging failure message **names the absolute path it looked in**, so a divergence surfaces as a diagnosable error rather than a silent park.
+       - **The directory must exist.** Nothing else on this path creates `<state-dir>/file-review/` (the deleted stage writer's `mkdir -p` was its only creator). The `Write` tool **creates missing parent directories**, so a plain `Write` to the staging path suffices; if you instead assemble the file with a shell command, `mkdir -p "$(dirname …)"` first.
+       - **Exactly one marker.** The staged body **must** carry **exactly one** canonical marker (step 6 appends it as the last line). The wrapper counts markers with the byte-identical regex the merge gate uses and fails closed on **0 or ≥2** (SPEC §5.29) — so when the review body needs to *talk about* a marker, quote the **placeholder** form (`verdict=<approve|block>`, which the regex does not match) or describe it in prose. Pasting a second **concrete** marker instance anywhere in the body makes the wrapper (correctly) refuse to post.
+
+       The wrapper reads the staging file under a **60s TTL bound to its mtime** + one-shot unlink and fails closed with **no POST** on: absent / unreadable / empty / future-dated / stale body; a symlinked staging leaf or `file-review` directory component; an mtime that differs between the pre-slurp and post-slurp `stat`; a marker count other than one; a marker `head=` ≠ the `headRefOid` it resolves; a local `git rev-parse HEAD` that is unresolvable or ≠ that same head. It resolves the current-branch PR + head itself, **fails closed unless the acting identity == the PR author**, and hardcodes `event=COMMENT` — so it needs no positional args and its allow entry is the exact wildcard-free `Bash(.claude/ghjig-root/scripts/ghjig_file_review_post.sh)`. Every **staging-validation** reject is audited as `file-review` / `rejected` carrying the arm name only, never body content; the preflight and identity arms that run before the staging read refuse without an audit line, because the state dir the record needs is not resolved yet. Use the direct `gh api` REST call above **only** for another author's PR, or a manual self-review of a **non-current** PR (not the classifier-blocked own-current-PR shape).
 
    `gh pr review` is **deliberately not used** — it cannot pin a `commit_id`, so a push concurrent with the review would rebind the verdict to an unreviewed head (the §4.5 head-pin failure). Binding `commit_id` to the blind-confirmed head means a racing push leaves the review pinned to a now-stale commit, which #586 correctly reads as not-current. Do **not** submit via an inline body argument — the body always travels via `--field body=@<tempfile>` (direct call) or the staged state file (wrapper).
 

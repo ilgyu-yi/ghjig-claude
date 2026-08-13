@@ -32,7 +32,6 @@ if false; then . "$(dirname "${BASH_SOURCE[0]}")/_preamble.sh"; fi
 S610_GATE="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
 S610_SHIPMODE="$SHELL_ROOT/.claude/hooks/helpers/ship_mode.sh"
 S610_WRAP_FILE="$SHELL_ROOT/scripts/ghjig_file_review_post.sh"
-S610_STAGE_FILE="$SHELL_ROOT/scripts/ghjig_file_review_stage.sh"
 S610_CMD="$SHELL_ROOT/.claude/commands/file-review.md"
 
 # Hard tooling deps — fail LOUD (never a silent skip) so a missing tool cannot
@@ -117,8 +116,9 @@ exit 0
 SHIM
   chmod +x "$S610_BIN/gh"
 
-  # A throwaway git repo the wrapper's stage writer reads (`git rev-parse HEAD`)
-  # and whose HEAD the shim reports as the PR headRefOid (head-bind must match).
+  # A throwaway git repo whose HEAD the wrapper reads (`git rev-parse HEAD`, the
+  # local-checkout head arm) and which the shim reports as the PR headRefOid — both
+  # head-bind arms must match for the positive cases to reach the POST (#633).
   ( cd "$S610_PROJ" && git init -q && git config user.email t@t && git config user.name t \
       && git config commit.gpgsign false && git checkout -q -b smoke/fix/610-ghes \
       && git commit --allow-empty -q -m init ) >/dev/null 2>&1 || true
@@ -128,7 +128,8 @@ SHIM
   # is reachable (default is deny/fail-closed).
   printf 'allow\n' > "$S610_GCWD/.claude/state/self-review"
 
-  # A fresh, valid staged body (created=now, head=current) for the wrapper.
+  # A fresh, valid review body for the wrapper — marker head= the current head, no header
+  # stamps (#633: the caller writes the staging file itself; there is no writer script).
   S610_BODY="$S610_DIR/body.txt"
   printf '<!-- file-review verdict=approve head=%s reviewer=code-reviewer -->\nlgtm\n' "$S610_GHEAD" > "$S610_BODY"
 
@@ -172,10 +173,10 @@ SHIM
   S610_FRDIR="$S610_PROJ/.claude/ghjig-state/file-review"
   s610_reset() { rm -f "$1/post_log" 2>/dev/null; rm -rf "$S610_FRDIR" 2>/dev/null; }
   s610_posts() { if [ -f "$1/post_log" ]; then wc -l < "$1/post_log" | tr -d ' '; else echo 0; fi; }
-  s610_stage() { ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S610_PROJ" \
-                      && CLAUDE_PROJECT_DIR="$S610_PROJ" PATH="$S610_BIN:$PATH" \
-                         GH_SHIM_STATE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
-                         bash "$S610_STAGE_FILE" "$S610_BODY" ) >/dev/null 2>&1 || true; }
+  # #633: the producer is ONE link — the caller writes the staging file itself. No writer
+  # script and no argv; the harness therefore writes the body straight to the fixed leaf the
+  # wrapper resolves under CLAUDE_PROJECT_DIR/.claude/ghjig-state/.
+  s610_stage() { mkdir -p "$S610_FRDIR" && cp "$S610_BODY" "$S610_FRDIR/staging"; }
   s610_post()  { ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S610_PROJ" \
                       && CLAUDE_PROJECT_DIR="$S610_PROJ" PATH="$S610_BIN:$PATH" \
                          GH_SHIM_STATE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
