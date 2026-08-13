@@ -57,7 +57,7 @@ fail() { printf 'ghjig_file_review_post: %s\n' "$1" >&2; exit 1; }
 deny() {
   local arm="$1" msg="$2"
   if command -v audit_log >/dev/null 2>&1; then
-    ( export GHJIG_STATE_DIR_OVERRIDE="${esd:-}"; audit_log info file-review rejected "reason=$arm" ) >/dev/null 2>&1 || true
+    ( export CLAUDE_PROJECT_DIR="${esd%/.claude/ghjig-state}"; audit_log info file-review rejected "reason=$arm" ) >/dev/null 2>&1 || true
   fi
   printf 'ghjig_file_review_post: %s — fail closed, no POST\n' "$msg" >&2
   exit 1

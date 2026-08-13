@@ -855,7 +855,7 @@ if [ -f "$S148_WRAP_FILE" ]; then
   grep -qE 'audit_log.*file-review' "$S148_WRAP_FILE" 2>/dev/null \
     && grep -qF 'rejected' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_dec=1
   grep -qE '\|\|[[:space:]]*true' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_guard=1
-  grep -qE 'GHJIG_STATE_DIR_OVERRIDE=|GHJIG_ROOT=' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_prefix=1
+  grep -qE 'CLAUDE_PROJECT_DIR=' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_prefix=1
 fi
 if [ "$s148i_au_call$s148i_au_dec$s148i_au_guard$s148i_au_prefix" = 1111 ]; then
   ok "148i-audit: wrapper audits file-review/rejected with an explicit state-dir env prefix and a non-aborting guard (#633)"
