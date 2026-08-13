@@ -47,7 +47,7 @@ fail() { printf 'ghjig_file_review_post: %s\n' "$1" >&2; exit 1; }
 # it every arm below is an invisible block. Two mechanism details are
 # load-bearing. (a) `audit_log` resolves its log via `ghjig_state_dir`, NOT
 # `ghjig_state_dir_cli` — and a Bash-tool subprocess commonly runs with
-# CLAUDE_PROJECT_DIR unset, so without the explicit override prefix the record
+# CLAUDE_PROJECT_DIR unset, so without the explicit prefix below the record
 # would land on the legacy shared path (or nowhere) instead of the per-project
 # log this wrapper just resolved (SPEC §3.2.2). (b) The call is subshelled and
 # `|| true`-guarded: under `set -euo pipefail` a non-zero `audit_log` must never
@@ -171,7 +171,13 @@ rm -f "$sf"
 # Freshness — the TTL rides the staging file's mtime, since the caller IS the
 # writer and mtime therefore IS write time (#633). A future-dated mtime is its
 # OWN reject arm: `now - mt <= 60` alone passes for one.
-case "$mt1" in ''|*[!0-9]*) deny mtime-malformed "implausible staging file mtime ($mt1)" ;; esac
+# The `0*` arm is load-bearing, not defensive: a leading-zero epoch makes the
+# TTL's $(( )) raise "value too great for base", and an arithmetic expansion
+# failure SKIPS the whole `[ … ] || deny` list instead of failing it — so the
+# freshness check is never evaluated and execution falls through to the POST.
+# Reasoning that `stat` never emits a leading zero is not a substitute for the
+# guard: the guard is what makes that assumption non-load-bearing.
+case "$mt1" in ''|0*|*[!0-9]*) deny mtime-malformed "implausible staging file mtime ($mt1) — re-stage the body so its mtime is a plain epoch" ;; esac
 [ "${#mt1}" -le 11 ] || deny mtime-malformed "implausible staging file mtime ($mt1)"
 now=$(date +%s)
 [ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now)"
