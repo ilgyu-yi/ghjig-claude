@@ -1171,7 +1171,7 @@ rm -rf "$S120_F10"
 # token "SPEC §6.0" (not a sentence — robust to future rewordings of the lens);
 # collect every missing reviewer before reporting (no first-failure short-circuit).
 S92_FAIL=""
-for r in issue-reviewer plan-reviewer code-reviewer; do
+for r in issue-reviewer plan-reviewer code-reviewer finding-judge; do
   rf="$SHELL_ROOT/.claude/agents/$r.md"
   if [ -f "$rf" ] && grep -qF 'SPEC §6.0' "$rf"; then
     : # references the enforcement-style principle — wired
@@ -1180,7 +1180,7 @@ for r in issue-reviewer plan-reviewer code-reviewer; do
   fi
 done
 if [ -z "$S92_FAIL" ]; then
-  ok "92: issue/plan/code-reviewer prompts reference SPEC §6.0 (enforcement-style lens) (#354)"
+  ok "92: issue/plan/code-reviewer + finding-judge prompts reference SPEC §6.0 (enforcement-style lens) (#354, +finding-judge #645)"
 else
   ng "92: reviewer prompts missing SPEC §6.0 reference:$S92_FAIL (#354)"
 fi

@@ -2186,7 +2186,7 @@ fi
 # parent's uncommitted work when sharing the tree. Belt-and-suspenders to the
 # canonical worktree-isolation invocation (SPEC §1.5).
 s77_missing=""
-for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer plan-challenger planner explorer; do
+for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan-reviewer plan-challenger finding-judge planner explorer; do
   f="$SHELL_ROOT/.claude/agents/$a.md"
   if ! { [ -f "$f" ] \
          && grep -qiF 'Working-tree discipline' "$f" \
@@ -2195,7 +2195,7 @@ for a in code-reviewer security-reviewer activation-reviewer issue-reviewer plan
   fi
 done
 if [ -z "$s77_missing" ]; then
-  ok "77: all 8 read-only Bash subagents carry the read-only-git working-tree constraint (#285, +plan-challenger #530, +planner #552)"
+  ok "77: all 9 read-only Bash subagents carry the read-only-git working-tree constraint (#285, +plan-challenger #530, +planner #552, +finding-judge #645)"
 else
   ng "77: working-tree-discipline constraint missing from:$s77_missing (#285/#552)"
 fi
