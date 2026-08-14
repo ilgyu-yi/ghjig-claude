@@ -571,13 +571,19 @@ fi
 
 # Driver: run the PreToolUse hook against a Bash command FROM the protected repo,
 # with the isolated state override inherited. Echoes the hook exit code.
+# The optional $2 is a case-private shim directory prepended to PATH for THIS CALL ONLY (#647),
+# mirroring esc_pyfree_hook_run's prepend below. A positional PARAMETER, not an ambient variable:
+# a parameter has no lifetime past the call, so a shim cannot leak into a later case and answer
+# for a guard the case does not name. Every pre-#647 call site passes one argument, so `${2:-}`
+# is empty and PATH is byte-identical to the pre-seam form.
 esc_hook_run() {
   local _cmd="$1"
+  local _shim="${2:-}"
   (
     cd "$ESC_REPO" || exit 1
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$_cmd" | jq -Rs .)" \
-      | GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+      | PATH="${_shim:+$_shim:}$PATH" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$ESC_HOOK" >/dev/null 2>&1
     printf '%s' "$?"
   )
@@ -839,6 +845,89 @@ if [ "$esc_rc10a" = "2" ] && [ "$esc_rc10b" = "2" ]; then
 else
   ng "125-10: out-of-range created wrongly honored (octal rc=$esc_rc10a overflow rc=$esc_rc10b) (#479)"
 fi
+
+# 125-11. The TTL's OTHER operand — the CLOCK (#647, AC 8). §125-10 above guards `created`; the
+# value it is compared against, `now=$(date +%s)` in `escape.sh`, feeds the same
+# `$(( now - t_created ))` just below the comment explaining why `created` must be guarded.
+# SPEC §7 states the rule both TTLs rest on: the check validates BOTH of its operands, and an
+# out-of-range value on either fail-safe-blocks AND consumes the token. A comparison against an
+# unvalidated clock is not a TTL.
+#
+# WHY TWO CASES rather than §125-10's fold-two-inputs-into-one shape: the PRE-fix observables
+# differ, so one case cannot carry both. The empty clock is HONORED and audit-logged as an
+# ordinary `escape/skip` — a defeated TTL that reads in the log like a routine one. The
+# leading-zero clock is a TRACELESS allow: the token is left on disk and ZERO audit records are
+# written, because the arithmetic error abandons the enclosing compound command — the honor path's
+# `audit_log` and its `rm -f "$tok"` both sit past the abort. Scope of that abort, MEASURED (a
+# sibling statement after the aborted `if` still runs): it unwinds the function, the `&&`/`||`
+# list and the enclosing `if`, and stops there. It does NOT abandon the whole matcher umbrella —
+# a later sibling arm such as `commit-format` still fires.
+# The POST-fix assertions are identical, which is the point — the split is for the two distinct
+# failure signatures, not for the fix.
+#
+# Script-file mode is load-bearing: `bash "$ESC_HOOK"` is a script file, where the arithmetic
+# error prints and control continues. The identical statements under `bash -c` abort and report
+# the SAFE answer, which is exactly how this defect class was cleared twice by probing (#635).
+ESC_CLK=$(mktemp -d); mkdir -p "$ESC_CLK/empty" "$ESC_CLK/octal" "$ESC_CLK/plain"
+esc_real_date=$(command -v date 2>/dev/null || echo /bin/date)
+# `+%s` ONLY — audit_log stamps records with `date -u +%FT%TZ`, and shimming that too would make
+# the audit half of these assertions unobservable for a reason they do not name.
+esc_mk_date() {  # $1=shim dir  $2=what `date +%s` emits (a literal, or a prefix + real epoch)
+  cat > "$1/date" <<DATESHIM
+#!/bin/sh
+[ "\$1" = "+%s" ] && { $2; exit 0; }
+exec "$esc_real_date" "\$@"
+DATESHIM
+  chmod +x "$1/date"
+}
+esc_mk_date "$ESC_CLK/empty" 'echo ""'
+esc_mk_date "$ESC_CLK/octal" "echo \"0\$(\"$esc_real_date\" +%s)\""
+esc_mk_date "$ESC_CLK/plain" "exec \"$esc_real_date\" +%s"
+#   (a) empty clock reading + a token past the 60s TTL → blocked AND consumed.
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_write_token branch \
+  "category=branch" \
+  "reason=empty clock probe" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(( $(date +%s) - 120 ))"
+esc_rc11=$(esc_hook_run "$ESC_CMD" "$ESC_CLK/empty")
+esc_left11=0; [ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_left11=1
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc_rc11" = "2" ] && [ "$esc_left11" = 0 ]; then
+  ok "125-11: an empty clock reading fail-safe-blocks a past-TTL token and consumes it — the TTL validates the clock it compares against (#647)"
+else
+  ng "125-11: an empty clock reading must block a past-TTL token and consume it (rc=$esc_rc11 left=$esc_left11) (#647)"
+fi
+#   (b) leading-zero clock reading + the same past-TTL token → blocked AND consumed.
+esc_write_token branch \
+  "category=branch" \
+  "reason=octal clock probe" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(( $(date +%s) - 120 ))"
+esc_rc11b=$(esc_hook_run "$ESC_CMD" "$ESC_CLK/octal")
+esc_left11b=0; [ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_left11b=1
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc_rc11b" = "2" ] && [ "$esc_left11b" = 0 ]; then
+  ok "125-11b: a leading-zero clock reading fail-safe-blocks a past-TTL token and consumes it — no traceless allow, no token left at rest (#647)"
+else
+  ng "125-11b: a leading-zero clock reading must block a past-TTL token and consume it (rc=$esc_rc11b left=$esc_left11b) (#647)"
+fi
+#   (c) non-vacuity half: the identical shim mechanism emitting a plain epoch, with a token
+#   INSIDE the TTL, is still honored — the clock guard rejects the shape, not the shim.
+esc_write_token branch \
+  "category=branch" \
+  "reason=plain clock probe" \
+  "cmd_fingerprint=$ESC_FP" \
+  "created=$(date +%s)"
+esc_rc11c=$(esc_hook_run "$ESC_CMD" "$ESC_CLK/plain")
+esc_left11c=0; [ -e "$ESC_TOKEN_DIR/branch.token" ] && esc_left11c=1
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc_rc11c" = "0" ] && [ "$esc_left11c" = 0 ]; then
+  ok "125-11-ok: a plain clock reading still honors an in-TTL token once and consumes it (#647)"
+else
+  ng "125-11-ok: an in-TTL token under a plain clock reading must be honored and consumed (rc=$esc_rc11c left=$esc_left11c) (#647)"
+fi
+rm -rf "$ESC_CLK"
 
 # ---------- §125-NOOVERRIDE: writer/reader state-dir alignment in LIVE (no GHJIG_STATE_DIR_OVERRIDE) (#483) ----------
 # Phase B (Test), RED-first against current Code. The §125-1..10 arms above pin
