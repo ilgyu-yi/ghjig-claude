@@ -61,17 +61,54 @@ _escape_token_honored() {
      || [ -z "$bind" ]; then
     rm -f "$tok"; return 1
   fi
-  # `created` must be a plausible base-10 epoch BEFORE it reaches arithmetic, or
-  # the TTL/future-date guards below silently fall through to HONOR (#479 N=3
-  # security review): a LEADING ZERO makes `$(( ))` parse it as octal (8/9 → an
-  # arithmetic error that reads as "not stale"), and a value >= 2^63 (≈20 digits)
-  # overflows bash 3.2 arithmetic and wraps negative (also "not stale"). Reject
-  # both here — digits only, no leading zero, <=11 digits (good past year 5138) —
-  # so any out-of-range created is fail-safe-to-block, never a spurious skip.
+  # BOTH operands of the TTL must be a plausible base-10 epoch BEFORE they reach
+  # arithmetic, or the TTL/future-date guards below silently fall through to HONOR
+  # (#479 N=3 security review; the clock operand #647): a LEADING ZERO makes
+  # `$(( ))` parse it as octal (8/9 → an arithmetic error that reads as "not
+  # stale"), and a value >= 2^63 (≈20 digits) overflows bash 3.2 arithmetic and
+  # wraps negative (also "not stale"). Reject both shapes on both operands —
+  # digits only, no leading zero, <=11 digits (good past year 5138) — so any
+  # out-of-range operand is fail-safe-to-block, never a spurious skip.
+  #
+  # `created` and `now` take the SAME pair rather than a shape-specific patch,
+  # because the two TTL sites in this repo fail open on COMPLEMENTARY shapes and
+  # neither shape is inferable from the other's rationale. Measured, script-file
+  # mode (`bash <hook>`; under `bash -c` the arithmetic error aborts and reports
+  # the SAFE answer, which is how this class was cleared twice by probing, #635):
+  #   `0<epoch>` clock — here a TRACELESS allow. Measured against the pre-guard
+  #     helper: the arithmetic error aborts the ENCLOSING COMPOUND COMMAND, so
+  #     the honored/blocked decision is never reached at all — the calling
+  #     matcher's arm is silently skipped, ZERO audit records are written, the
+  #     token is LEFT at rest, and the hook still exits 0. An escape granted with
+  #     no evidence it was taken (§125-11b). Scope, stated as measured and not
+  #     wider: control resumes at the statement AFTER the aborted compound, so
+  #     sibling arms below the skipped one still run. At the
+  #     wrapper's own `now=$(date +%s)` read the same shape POSTS a stale body.
+  #   empty / non-numeric clock — here fail-open in the ordinary way: `[` reports
+  #     "integer expression expected", the token is honored and CONSUMED, and the
+  #     record reads as a routine `escape/skip` (§125-11). At the wrapper this
+  #     shape blocks, but under the misleading `mtime-future` arm name.
+  #   `0x<hex>` clock — a THIRD mechanism, not a variant of the two above: hex is
+  #     VALID bash arithmetic, so nothing errors. `$(( ))` evaluates it, the delta
+  #     comes out NEGATIVE, that reads as "not stale", and the token is honored
+  #     and consumed with a routine record. Measured pre-guard. It is the shape
+  #     that refutes any fix framed as "catch the arithmetic error".
+  # Threat model, stated honestly: NEITHER site is reachable without a broken or
+  # shimmed `date` — a real `date +%s` emits none of these shapes (measured across
+  # 6 locales x 4 timezones). This is defense in depth in the #635 sense (the
+  # guard is what makes that assumption non-load-bearing), not a live
+  # vulnerability. Read "broken" as covering ACCIDENTS, not only a deliberate
+  # shim: `date` ABSENT from PATH (exit 127 -> empty) and a `date` without `%s`
+  # support both reach these arms with no adversary at all, and both were live
+  # fail-opens before this guard. Leaving the accident paths implicit is how a
+  # later round reads this back as "it needed a deliberate shim, so the guard was
+  # optional".
   case "$t_created" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
   [ "${#t_created}" -le 11 ] || { rm -f "$tok"; return 1; }
   case "$bind" in *"$t_fp"*) : ;; *) rm -f "$tok"; return 1 ;; esac  # fingerprint not a substring → block
   now=$(date +%s)
+  case "$now" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
+  [ "${#now}" -le 11 ] || { rm -f "$tok"; return 1; }
   if [ "$t_created" -gt "$now" ] || [ "$(( now - t_created ))" -gt 60 ]; then
     rm -f "$tok"; return 1   # future-dated or stale (TTL 60s) → block
   fi
