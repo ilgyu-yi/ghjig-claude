@@ -93,14 +93,16 @@ ghjig_state_dir() {
 
 # ghjig_state_dir_cli — the single shared per-project state-dir resolver for the
 # CLI/Bash-tool context (#602). A hook always has CLAUDE_PROJECT_DIR set, but a
-# Claude Code Bash-tool subprocess (the /file-review stage writer + the retargeted
-# review-post wrapper) often runs with it UNSET, so ghjig_state_dir alone would
+# Claude Code Bash-tool subprocess (the retargeted /file-review review-post
+# wrapper) often runs with it UNSET, so ghjig_state_dir alone would
 # yield empty. When the override seam or CLAUDE_PROJECT_DIR is present, defer to
 # ghjig_state_dir (identical resolution). Otherwise derive CLAUDE_PROJECT_DIR from
 # the git top-level — mirroring ghjig_skip.sh — so a writer and a reader run from
 # the same repo agree on the path; last resort is the aligned shell-root fallback.
-# The stage writer and the review-post wrapper BOTH call this one definition; it
-# is defined here exactly once and re-defined by neither endpoint.
+# The review-post wrapper is now this resolver's ONLY /file-review-side caller:
+# the deleted stage writer (#633) once shared it, and SPEC §5.7.1 records that
+# there is no separate writer script. Defined here exactly once, re-defined by
+# no endpoint.
 ghjig_state_dir_cli() {
   if [ -n "${GHJIG_STATE_DIR_OVERRIDE:-}" ] || [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     ghjig_state_dir; return 0
