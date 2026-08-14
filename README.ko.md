@@ -87,7 +87,7 @@ export PATH="$PWD/bin:$PATH"            # 선택 — 아무 디렉터리에서�
 
 ## Subagents
 
-모두 열 개입니다. `explorer`, `planner`, `plan-challenger`, `doc-writer`, `test-writer`, `code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`. 이 가운데 다섯 reviewer(`code-`, `security-`, `issue-`, `plan-`, `activation-`)는 `unattended` 모드에서 사람이 확인하던 단계를 대신하고, `plan-challenger`(×2, 서로 다른 축)는 planner의 기준 plan을 적대적으로 공격해 `plan-reviewer`가 판정하게 합니다. 각각 언제 쓰는지는 [docs/SUBAGENTS.md](docs/SUBAGENTS.md)를 보세요.
+모두 열두 개입니다. `explorer`, `planner`, `plan-challenger`, `doc-writer`, `test-writer`, `implementer`, `code-reviewer`, `finding-judge`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `activation-reviewer`. 이 가운데 다섯 reviewer(`code-`, `security-`, `issue-`, `plan-`, `activation-`)는 `unattended` 모드에서 사람이 확인하던 단계를 대신하고, `plan-challenger`(×2, 서로 다른 축)는 planner의 기준 plan을 적대적으로 공격해 `plan-reviewer`가 판정하게 합니다. `implementer`는 Phase C(Code)의 기본 작성자이고, `finding-judge`는 작성자가 손대기 전에 `code-reviewer`의 finding을 판정합니다(게이트가 아니며 어떤 확인 단계도 대신하지 않습니다). 각각 언제 쓰는지는 [docs/SUBAGENTS.md](docs/SUBAGENTS.md)를 보세요.
 
 ## What the hooks enforce
 

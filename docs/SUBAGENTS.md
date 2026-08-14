@@ -2,7 +2,7 @@
 
 Full specs in [SPEC.md §4](../SPEC.md). This page is the practitioner's index — what each subagent does, when to call it, what it expects as input, and what comes back. Subagents protect the main session's context by running specialised work in isolated windows; the main assistant integrates the result.
 
-Subagents fall into three roles. **Explorers** read the codebase. **Builders** produce new artifacts (plans, docs, tests). **Reviewers** judge artifacts and emit a `ship` / `refine` / `block` verdict (SPEC §1.5 operating-mode coupling — in `unattended` runs the verdict gates directly, replacing the human checkpoint).
+Subagents fall into three roles. **Explorers** read the codebase. **Builders** produce new artifacts (plans, docs, tests, the Phase-C implementation). **Reviewers** judge artifacts. Most emit a verdict token that gates directly in `unattended` runs, replacing the human checkpoint (SPEC §1.5); `finding-judge` and `plan-challenger` are the exceptions — the judge rules on a reviewer's findings and the challenger produces a rival plan; neither emits a verdict token and neither gates. The per-reviewer verdict grammars are enumerated once, under **Reviewers** below.
 
 ## Explorers
 
@@ -45,9 +45,18 @@ Phase B. Translates the Phase A doc into a failing test, confirms the failure is
 - **Output**: a test that fails with the expected message; the failure is confirmed before commit.
 - **Spec**: SPEC §4.4.
 
+### implementer
+
+Phase C. The default Code-phase author, routed via `/implement` — it implements strictly from a supplied manifest and has no knowledge of the main assistant's conversation. Trivial / one-line / glue edits opt out to the main loop.
+
+- **When**: after Phase B, by default (Directive #477 default-flip). Opt out for trivial edits and the orchestrator's own glue.
+- **Input**: the manifest — Plan, the failing Phase-B test and how to run it, the named file paths, and (optional) directive-level learnings.
+- **Output**: the commit / diff ref(s), plan-deviations, and discoveries. The authoring churn stays in its own context.
+- **Spec**: SPEC §4.12 (and §5.28 for the caller side).
+
 ## Reviewers
 
-Reviewers never author content. Each emits a `VERDICT:` line whose values vary per reviewer — `issue-reviewer` / `plan-reviewer` use `ship` / `refine: <one-line>` / `block: <reason>`; `code-reviewer` uses `ship` / `ship after fix` / `block (blocker)` (SPEC §4.5); `activation-reviewer` uses `pass` / `revise` / `reject` with structured refile fields (SPEC §4.9.1, #172). Per SPEC §1.5 operating-mode coupling: in `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly.
+Reviewers never author content. Most emit a `VERDICT:` line whose values vary per reviewer — `issue-reviewer` / `plan-reviewer` use `ship` / `refine: <one-line>` / `block: <reason>`; `code-reviewer` uses `ship` / `ship after fix` / `block (blocker)` (SPEC §4.5); `activation-reviewer` uses `pass` / `revise` / `reject` with structured refile fields (SPEC §4.9.1, #172). Per SPEC §1.5 operating-mode coupling: in `attended` mode the verdict surfaces to the user; in `unattended` mode it gates directly. `finding-judge` emits no `VERDICT:` line at all — it returns a judged list, is not a vote, and gates nothing (SPEC §4.13).
 
 ### code-reviewer
 
@@ -58,6 +67,15 @@ Pre-commit / pre-PR review. Auto-invoked by `/review` and `/ship`.
 - **Output**: `ship` / `ship after fix` / `block (blocker)` with `path:line` anchors on findings.
 - **Readability / language-idiom axis**: for a language with a rubric at `.claude/rubrics/<lang>.md`, the reviewer reads it (only for languages in the diff) and applies it as **advisory idiom-notes that never block** — full details in SPEC §4.5.1.
 - **Spec**: SPEC §4.5.
+
+### finding-judge
+
+Judges `code-reviewer`'s findings before the author acts on them — the code-side counterpart of what `plan-reviewer` is to `plan-challenger`. It judges; it does not author the fix. Not a vote, not a merge gate.
+
+- **When**: `/review` step 3.5 and `/ship` step 1.5, after the reviewer and before the author. Skipped when the review produced no findings.
+- **Input**: the reviewer's findings verbatim, the source at the resolved PR head, the issue AC, and the prior round's judged list (which the judge fetches itself).
+- **Output**: a per-finding judged list — verdict with the command run, action, whether the reviewer's remedy survives, and for `fix-now` the axis / target position / justification / swing. Posted durably before the fix is written.
+- **Spec**: SPEC §4.13. Contract SSOT for the output schema, the anti-swing rules, and the axis menu: `.claude/agents/finding-judge.md`.
 
 ### security-reviewer
 

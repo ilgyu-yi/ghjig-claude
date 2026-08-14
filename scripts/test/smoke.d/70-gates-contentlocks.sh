@@ -2237,3 +2237,410 @@ else
   fi
 fi
 
+# ---------- §157: finding-judge contract + routing (SPEC §4.13, #645) ----------
+# MIXED by design, and deliberately so.
+#
+#   CONTRACT arms (157a–157u) are GREEN-AT-DOC — the same shape §156 states at :2066,
+#   NOT red-first. `.claude/agents/finding-judge.md` IS the deliverable contract SSOT
+#   (SPEC §9: SPEC references the agent prompt, it does not restate it), so the Doc phase
+#   already satisfies them. They exist so a later edit cannot rename a record field, drop
+#   one of the three anti-swing rules, weaken a closed menu into a free-text hatch, or
+#   dilute one of the load-bearing negative results.
+#   ROUTING arms (157v–157x) are LOAD-BEARING RED at this commit: `/review` step 3.5 and
+#   `/ship` step 1.5 are the Code phase.
+#
+# ANTI-VACUITY. 157a count-guards the contract file — a lock over an absent or gutted file
+# passes vacuously, anti-pattern #2 in the smoke.sh header. Every anti-swing arm reads a
+# fixture SLICE bounded by the PAIRED literal markers `<!-- fixture:<name>:start -->` /
+# `<!-- fixture:<name>:end -->`, count-guarded at 157m. A paired literal terminator needs
+# no fence tracking: §156's terminator is heading-SHAPED, so a fenced `# ` comment line is
+# indistinguishable from it; an HTML-comment marker pair has no such collision, and a
+# fenced line cannot forge one.
+#
+# TWO-SIDED (Issue #645 AC "a two-sided pair per assertion"). Each of the three anti-swing
+# rules carries BOTH a must-fail and a must-pass side, and all three ship together — a
+# subset is not the contract. The swing-vacuity rule is paired the same way.
+S157_AGENT="$SHELL_ROOT/.claude/agents/finding-judge.md"
+S157_REVIEW="$SHELL_ROOT/.claude/commands/review.md"
+S157_SHIP="$SHELL_ROOT/.claude/commands/ship.md"
+S157_HOOK="$SHELL_ROOT/.claude/hooks/pre_tool_use.sh"
+
+s157_n=0
+[ -f "$S157_AGENT" ] && s157_n=$(grep -c . "$S157_AGENT")
+
+# Fixed-string / ERE probes over the contract file.
+s157_fx() { grep -qF "$1" "$S157_AGENT"; }
+s157_re() { grep -qE "$1" "$S157_AGENT"; }
+# Slice one fixture body out by its paired literal markers. `i` is set on EVERY matching
+# start line and cleared on EVERY matching end line — it re-opens freely, so a stray or
+# forged second marker pair DOES extend the slice. That is why §157m asserts each of the
+# six markers occurs exactly once; the slice-length window alone does not catch it.
+s157_slice() {
+  awk -v n="$1" '
+    $0 == "<!-- fixture:" n ":start -->" { i = 1; next }
+    $0 == "<!-- fixture:" n ":end -->"   { i = 0 }
+    i' "$S157_AGENT"
+}
+s157_sfx() { printf '%s\n' "$1" | grep -qF "$2"; }
+s157_cnt() { printf '%s\n' "$1" | grep -c .; }
+
+if [ ! -f "$S157_AGENT" ]; then
+  ng "157: .claude/agents/finding-judge.md must exist — it is the finding-judge contract SSOT (SPEC §4.13) (#645)"
+elif [ "$s157_n" -lt 120 ]; then
+  # 156 non-blank lines at this commit; floor 120 catches a gutted or truncated contract
+  # while tolerating ordinary prose tightening. No ceiling, and that is safe here: the
+  # count spans the WHOLE file (no terminator to run away), so growth cannot make any
+  # lock below vacuous — only shrinkage can (anti-swing rule 2's unbounded-end clause).
+  ng "157a: the finding-judge contract file must be a whole contract (non-blank lines=$s157_n, floor=120) — the locks below would pass VACUOUSLY (#645)"
+else
+  ok "157a: finding-judge contract file resolves whole (non-blank lines=$s157_n) — the locks below are load-bearing (#645)"
+
+  # §157b: the per-finding RECORD GRAMMAR, every field line-anchored to its code form
+  # inside the Output fence — not a backticked prose mention. An author parses exactly
+  # these lines, so a renamed or dropped field must trip here. Count-guarded: the loop
+  # asserts it actually iterated all 12 patterns.
+  s157_gn=0
+  s157_gmiss=""
+  while IFS= read -r s157_pat; do
+    [ -z "$s157_pat" ] && continue
+    s157_gn=$((s157_gn + 1))
+    s157_re "$s157_pat" || s157_gmiss="$s157_gmiss [$s157_pat]"
+  done <<'S157_GRAMMAR'
+^finding: <short id> — <one-line restatement of the reviewer's finding>$
+^site: <path>#<stable-anchor>$
+^axis-key: <site>::<kind>$
+^verdict: confirmed \| refuted$
+^evidence: executed=<cmd> mode=<\.\.\.> matches-artifact-mode=<yes\|no> result=<\.\.\.>$
+^action: fix-now \| defer-to-issue \| drop$
+^remedy-survives: yes \| no \| n/a$
+^axis: <token from the menu> \| none — discrete \(<why it is discrete>\)$
+^target-position: low \| high \| interior \| n/a$
+^justification: <the independent ground, or `unjustified — needs measurement`>$
+^prior-round: <N>@<sha> \| none \(first round\) \| unresolved — <reason>$
+^swing: none \| opposite-end \| not-evaluated \| n/a$
+S157_GRAMMAR
+  if [ "$s157_gn" = 12 ] && [ -z "$s157_gmiss" ]; then
+    ok "157b: the judged-list record grammar carries all 12 field lines in code form (verdict/confirmed/refuted, evidence, action/fix-now/defer-to-issue/drop, remedy-survives, axis, target-position, justification, prior-round, swing) (#645)"
+  else
+    ng "157b: the judged-list record grammar must carry all 12 field lines in code form (patterns checked=$s157_gn expected=12, missing:$s157_gmiss) (#645)"
+  fi
+
+  # §157c: the MODE-AWARE evidence grammar. The mode enumeration and the
+  # matches-artifact-mode field are the #633 lesson made structural: a wrong-mode
+  # reproduction is not a measurement, so `=no` must not resolve a finding.
+  if s157_fx 'mode=<script-file|bash -c|function-sourced|hook-fired|CI>' \
+     && s157_fx 'matches-artifact-mode=<yes|no>' \
+     && s157_fx 'A wrong-mode measurement is not a measurement' \
+     && s157_fx 'matches-artifact-mode=no'; then
+    ok "157c: the evidence grammar is mode-aware — mode enumeration + matches-artifact-mode, and a wrong-mode measurement resolves nothing (#645)"
+  else
+    ng "157c: the evidence grammar must state the mode enumeration, matches-artifact-mode, and that a wrong-mode measurement resolves nothing (#645)"
+  fi
+
+  # §157d: a refuted finding is retained, excluded from the fix list, and NEVER converted
+  # into defer-to-issue — filing an issue for a false positive launders it into durable
+  # memory. Locked on both the prose sentence and the Rules bullet that repeats it.
+  if s157_fx 'never convertible to `defer-to-issue`' \
+     && s157_fx 'Do **NOT** convert a `refuted` finding into `defer-to-issue`' \
+     && s157_fx 'excluded from the fix list'; then
+    ok "157d: a refuted finding is retained, excluded from the fix list, and never convertible to defer-to-issue (#645)"
+  else
+    ng "157d: the contract must keep refuted findings retained, fix-list-excluded, and never convertible to defer-to-issue (#645)"
+  fi
+
+  # §157e: VERDICT NON-INTERFERENCE (invariant 4) — code-reviewer's verdict grammar is
+  # not the judge's to change, even when every finding under it is refuted.
+  if s157_fx "You never alter \`code-reviewer\`'s verdict token" \
+     && s157_fx 'A `block` stays a `block`' \
+     && s157_fx "Do **NOT** alter, restate, or reinterpret \`code-reviewer\`'s verdict token"; then
+    ok "157e: the judge never alters code-reviewer's verdict token — a block stays a block even when every finding in it is refuted (#645)"
+  else
+    ng "157e: the contract must state verdict non-interference — a block stays a block and the verdict token is never altered (#645)"
+  fi
+
+  # §157f: the axis vocabulary is a CLOSED menu whose every token names BOTH ends, which
+  # is what makes target-position and "opposite end of the same axis" expressible at all.
+  # Row count is measured, not assumed, so a silently emptied table fails loud.
+  # Floor 8, ceiling deliberately UNBOUNDED: a ninth both-ends token would be a legitimate
+  # menu extension and a ceiling would false-red on it. Safe because extra rows cannot make
+  # this lock vacuous — the arm also requires the closed-menu, both-ends and discrete-hatch
+  # strings, which more rows do not satisfy. (Rule 2 of the contract this file locks, applied
+  # to the lock itself: a bound states both ends, or says why one end is open and why that is safe.)
+  s157_axis=$(grep -cE '^\| `[a-z-]+↔[a-z-]+` \| [a-z-]+ \| [a-z-]+ \|$' "$S157_AGENT")
+  if [ "$s157_axis" -ge 8 ] && s157_fx 'a closed menu' && s157_fx 'Every token names both ends' \
+     && s157_fx 'no free-text axis field' && s157_fx 'axis: none — discrete'; then
+    ok "157f: the axis vocabulary is a closed both-ends menu (rows=$s157_axis, low/high columns), with no free-text hatch and one discrete escape (#645)"
+  else
+    ng "157f: the axis vocabulary must be a closed both-ends menu with no free-text field and the discrete hatch (both-ends rows=$s157_axis, floor=8) (#645)"
+  fi
+
+  # §157g: the axis KEY is <site>::<kind> on a stable named anchor and NEVER a line
+  # number — lines move between rounds, so a line-numbered key breaks cross-round matching
+  # exactly when swing detection needs it.
+  if s157_fx '`<site>::<kind>`' && s157_fx 'stable named anchor' && s157_fx 'Never a line number'; then
+    ok "157g: the axis key is <site>::<kind> on a stable named anchor, never a line number (#645)"
+  else
+    ng "157g: the contract must key axes as <site>::<kind> on a stable named anchor and exclude line numbers (#645)"
+  fi
+
+  # §157h: prior-round is TRI-STATE. Collapsing it to a boolean is what makes a vacuous
+  # `swing: none` possible, so all three productions are load-bearing.
+  if s157_fx '`<N>@<sha>` — resolved' && s157_fx '`none (first round)` — no prior canonical marker' \
+     && s157_fx '`unresolved — <reason>`'; then
+    ok "157h: prior-round is tri-state — <N>@<sha> resolved / none (first round) / unresolved — <reason> (#645)"
+  else
+    ng "157h: prior-round must stay tri-state (<N>@<sha> / none (first round) / unresolved — <reason>) (#645)"
+  fi
+
+  # §157i: zero findings pays no judgment (invariant 8 — the acting context does not grow).
+  if s157_fx 'Zero findings → stop' && s157_fx 'Return immediately'; then
+    ok "157i: a review with no findings costs no judgment — the judge returns immediately (#645)"
+  else
+    ng "157i: the contract must skip judgment entirely on a zero-finding review (#645)"
+  fi
+
+  # §157j: DURABLE-BEFORE-FIX (invariant 15) plus the no-PR mode. The ordering binds
+  # list-vs-fix; a PR-less review declares `durable: none (<mode>)` explicitly rather than
+  # silently dropping the ordering.
+  if s157_fx 'before the author writes any fix' && s157_fx 'may not be relaxed' \
+     && s157_fx 'durable: none (<mode>)' && s157_fx 'durable: none (--staged)'; then
+    ok "157j: the judged list is durable before the fix, and a no-PR mode declares durable: none (<mode>) explicitly (#645)"
+  else
+    ng "157j: the contract must keep durable-before-fix unrelaxable and require an explicit durable: none (<mode>) where there is no PR (#645)"
+  fi
+
+  # §157k: FAIL-OPEN, LOUDLY (invariant 14). An unavailable advisory layer degrades to
+  # today's direct-to-author path; parking on it would convert an aid into a blocker.
+  if s157_fx 'judgment: unavailable' && s157_fx 'Never park' && s157_fx 'audit_log warn'; then
+    ok "157k: an unjudgeable round returns judgment: unavailable, the caller proceeds on the raw findings, and the judge never parks (#645)"
+  else
+    ng "157k: the contract must fail open with judgment: unavailable + audit_log warn and never park (#645)"
+  fi
+
+  # §157l: the enforcement-face lens is cited where it does work — P1 grounds an extreme
+  # anti-swing position, P3 makes the discrete hatch observe-only. §92 asserts the bare
+  # token's presence across the reviewer roster; this asserts the two principles it uses.
+  if s157_fx 'SPEC §6.0 P1' && s157_fx 'SPEC §6.0 P3'; then
+    ok "157l: the contract grounds its enforcement face in SPEC §6.0 — P1 for an extreme position, P3 for the observe-only discrete hatch (#645)"
+  else
+    ng "157l: the contract must cite SPEC §6.0 P1 (extreme-position ground) and P3 (observe-only discrete hatch) (#645)"
+  fi
+
+  # §157m: the three anti-swing FIXTURES resolve as distinct non-empty slices. BOUNDED
+  # BOTH ENDS (15 lines each at this commit): the floor catches a collapsed or renamed
+  # marker pair, the ceiling catches a runaway end marker that would swallow the rest of
+  # the file and make every slice-scoped arm below read the whole contract instead.
+  # MARKER UNIQUENESS is the load-bearing half: the length window alone passes a forged
+  # duplicate pair (measured — a gutted fixture plus a forged pair at EOF left every arm
+  # green, reading the forgery). Each of the six markers must occur EXACTLY once — floor
+  # and ceiling both 1, because a fixture is delimited by exactly one pair by definition,
+  # so a second pair is a forgery, not a variant.
+  s157_mk() { grep -cxF "<!-- fixture:$1:$2 -->" "$S157_AGENT"; }
+  s157_mkok=1; s157_mkwhy=""
+  for s157_fxname in directional-only both-endpoints extreme-justified; do
+    s157_ms=$(s157_mk "$s157_fxname" start); s157_me=$(s157_mk "$s157_fxname" end)
+    if [ "$s157_ms" != 1 ] || [ "$s157_me" != 1 ]; then
+      s157_mkok=0; s157_mkwhy="$s157_mkwhy $s157_fxname(start=$s157_ms,end=$s157_me)"
+    fi
+  done
+  s157_d=$(s157_slice directional-only)
+  s157_b=$(s157_slice both-endpoints)
+  s157_x=$(s157_slice extreme-justified)
+  s157_dn=$(s157_cnt "$s157_d"); s157_bn=$(s157_cnt "$s157_b"); s157_xn=$(s157_cnt "$s157_x")
+  if [ "$s157_dn" -ge 10 ] && [ "$s157_dn" -le 40 ] \
+     && [ "$s157_bn" -ge 10 ] && [ "$s157_bn" -le 40 ] \
+     && [ "$s157_xn" -ge 10 ] && [ "$s157_xn" -le 40 ] \
+     && [ "$s157_d" != "$s157_b" ] && [ "$s157_b" != "$s157_x" ] && [ "$s157_d" != "$s157_x" ] \
+     && [ "$s157_mkok" = 1 ]; then
+    ok "157m: each of the six fixture markers occurs exactly once, and the three fixtures slice out non-empty, bounded (10..40 lines: $s157_dn/$s157_bn/$s157_xn) and mutually distinct (#645)"
+  else
+    ng "157m: the three anti-swing fixtures must carry exactly one marker pair each and slice out bounded (10..40) and mutually distinct — got directional-only=$s157_dn both-endpoints=$s157_bn extreme-justified=$s157_xn marker-dupes=[${s157_mkwhy:- none}] (#645)"
+  fi
+
+  # ---- anti-swing rule 1 (directional-only justification) — two-sided ----
+  # §157n MUST-FAIL side: a justification that is only the previous failure's direction
+  # is marked unjustified and sent back for measurement, never passed through.
+  if s157_sfx "$s157_d" 'unjustified — needs measurement' \
+     && s157_fx 'An item whose only justification is directional is marked'; then
+    ok "157n: rule 1 must-fail — a purely directional justification is marked unjustified — needs measurement and is measured, not passed through (#645)"
+  else
+    ng "157n: rule 1's must-fail fixture must mark a purely directional justification unjustified — needs measurement (#645)"
+  fi
+  # §157o MUST-PASS side: the independently-justified fixture is NOT swept up by rule 1.
+  # Slice-scoped by necessity — the token is present elsewhere in the file, so a
+  # whole-file negative grep could never distinguish the two sides.
+  if ! s157_sfx "$s157_x" 'unjustified — needs measurement'; then
+    ok "157o: rule 1 must-pass — an independently justified item carries no unjustified marker (#645)"
+  else
+    ng "157o: rule 1's must-pass fixture must NOT carry unjustified — needs measurement; an independent ground satisfies rule 1 (#645)"
+  fi
+
+  # ---- anti-swing rule 2 (a bound states both endpoints) — two-sided ----
+  # §157p MUST-FAIL side: the rule itself states the rejection, so a one-endpoint bound
+  # with no unbounded-and-safe statement has a stated verdict rather than a silent pass.
+  if s157_fx 'A floor with no ceiling (or a ceiling with no floor) and no such statement fails this rule' \
+     && s157_fx 'why one end is unbounded'; then
+    ok "157p: rule 2 must-fail — a one-endpoint bound with no unbounded-and-safe statement fails the stated rule (#645)"
+  else
+    ng "157p: rule 2 must state that a one-endpoint bound lacking an unbounded-and-safe statement fails (#645)"
+  fi
+  # §157q MUST-PASS side: the conforming fixture states both endpoints, each with the
+  # measurement it comes from, and therefore occupies the interior.
+  if s157_sfx "$s157_b" 'both endpoints' && s157_sfx "$s157_b" 'floor' \
+     && s157_sfx "$s157_b" 'ceiling' && s157_sfx "$s157_b" 'target-position: interior'; then
+    ok "157q: rule 2 must-pass — the conforming fixture states both endpoints (floor and ceiling) and passes as fix-now (#645)"
+  else
+    ng "157q: rule 2's must-pass fixture must state both endpoints — floor and ceiling — of its bound (#645)"
+  fi
+
+  # ---- anti-swing rule 3 (an extreme position is permitted when justified) — two-sided ----
+  # Both fixtures sit at the SAME extreme (target-position: high); only the justification
+  # differs, which is precisely the distinction rule 3 draws. This is the pair invariant 16
+  # names: rule 3 is not optional, and the menu of three grounds is closed.
+  # §157r MUST-FAIL side: an extreme reached by the last failure's direction is unjustified.
+  if s157_sfx "$s157_d" 'target-position: high' \
+     && printf '%s\n' "$s157_d" | grep '^justification: ' | grep -qF 'unjustified' \
+     && s157_fx "because of the last failure's direction"; then
+    ok "157r: rule 3 must-fail — an extreme position justified only by the previous failure's direction is unjustified (#645)"
+  else
+    ng "157r: rule 3's must-fail fixture must show an extreme position reached directionally and marked unjustified (#645)"
+  fi
+  # §157s MUST-PASS side: the same extreme, reached by one of the three sanctioned
+  # independent grounds, is permitted — the rule is not "never go to the end of the axis".
+  # The `unjustified` exclusion is load-bearing, not belt-and-braces: the rule-1 marker
+  # `unjustified — needs measurement` itself contains "measurement", so a ground-matching
+  # grep alone would accept the very text this side must reject (caught by mutation).
+  s157_xj=$(printf '%s\n' "$s157_x" | grep '^justification: ')
+  if s157_sfx "$s157_x" 'target-position: high' \
+     && printf '%s\n' "$s157_xj" | grep -qE 'SPEC §6\.0 P1|definitional absolute|measur' \
+     && ! s157_sfx "$s157_xj" 'unjustified' \
+     && s157_fx 'cost-asymmetry, a definitional absolute, or a measurement'; then
+    ok "157s: rule 3 must-pass — the same extreme is permitted when justified independently (SPEC §6.0 P1 cost-asymmetry, definitional absolute, or measurement) (#645)"
+  else
+    ng "157s: rule 3's must-pass fixture must justify its extreme by one of the three independent grounds (#645)"
+  fi
+
+  # ---- swing vacuity — two-sided ----
+  # §157t PERMITTED side: swing: none is legal only over a RESOLVED prior round, and the
+  # conforming fixture pairs a resolved <N>@<sha> with it.
+  if s157_fx 'is legal **only** when the prior round resolved' \
+     && s157_sfx "$s157_b" 'prior-round: 2@a1b2c3d' && s157_sfx "$s157_b" 'swing: none'; then
+    ok "157t: swing: none is legal only over a resolved prior round, and the fixture pairs it with prior-round: 2@a1b2c3d (#645)"
+  else
+    ng "157t: the contract must permit swing: none only over a resolved prior round, with a fixture pairing the two (#645)"
+  fi
+  # §157u FORBIDDEN side: over an unresolved prior round the verdict is not-evaluated, and
+  # a swing: none there is the named vacuous pass. Asserted on the fixture too — its
+  # record carries no bare `swing: none` line at all.
+  if s157_fx 'is a vacuous pass' && s157_fx 'and it is forbidden' \
+     && s157_sfx "$s157_x" 'prior-round: none (first round)' \
+     && s157_sfx "$s157_x" 'swing: not-evaluated' \
+     && ! printf '%s\n' "$s157_x" | grep -qx 'swing: none'; then
+    ok "157u: an unresolved prior round yields swing: not-evaluated — a swing: none there is the forbidden vacuous pass (#645)"
+  else
+    ng "157u: the contract must forbid swing: none over an unresolved prior round and require swing: not-evaluated (#645)"
+  fi
+fi
+
+# §157v (LOAD-BEARING RED): /review routes the findings through the judge at step 3.5 —
+# after the head-pin blind-compare resolves which artifact was reviewed (step 3) and
+# before the results are combined and reported to the author (step 4).
+if [ ! -f "$S157_REVIEW" ]; then
+  ng "157v: .claude/commands/review.md must exist to carry the step-3.5 finding-judge dispatch (#645)"
+else
+  s157_rv3=$(grep -n '^3\. ' "$S157_REVIEW" | head -1 | cut -d: -f1)
+  s157_rv35=$(grep -n '^3\.5\. ' "$S157_REVIEW" | head -1 | cut -d: -f1)
+  s157_rv4=$(grep -n '^4\. ' "$S157_REVIEW" | head -1 | cut -d: -f1)
+  s157_rvblk=$(awk '/^3\.5\. /{i=1} i&&/^4\. /{exit} i' "$S157_REVIEW")
+  if [ -n "$s157_rv3" ] && [ -n "$s157_rv35" ] && [ -n "$s157_rv4" ] \
+     && [ "$s157_rv3" -lt "$s157_rv35" ] && [ "$s157_rv35" -lt "$s157_rv4" ] \
+     && s157_sfx "$s157_rvblk" 'finding-judge'; then
+    ok "157v: /review dispatches finding-judge at step 3.5, between the head-pin blind-compare (3) and combine-and-report (4) (#645)"
+  else
+    ng "157v: /review must dispatch finding-judge at step 3.5, between the head-pin blind-compare and combine-and-report (line 3=[$s157_rv3] 3.5=[$s157_rv35] 4=[$s157_rv4]) (#645)"
+  fi
+fi
+
+# §157w (LOAD-BEARING RED): /ship routes the findings through the judge at step 1.5 —
+# after code-reviewer produces them (step 1) and BEFORE the blocker stop is acted on, which
+# is the whole point: judged first, then acted on.
+# §157x (LOAD-BEARING RED): and the call site states the non-conversion contract — the
+# judge never converts code-reviewer's verdict token, so a block still stops the ship
+# however many findings under it are refuted (invariant 4).
+if [ ! -f "$S157_SHIP" ]; then
+  ng "157w: .claude/commands/ship.md must exist to carry the step-1.5 finding-judge dispatch (#645)"
+  ng "157x: .claude/commands/ship.md must exist to carry the non-conversion contract at the judge call site (#645)"
+else
+  s157_sh1=$(grep -n '^1\. ' "$S157_SHIP" | head -1 | cut -d: -f1)
+  s157_sh15=$(grep -n '^1\.5\. ' "$S157_SHIP" | head -1 | cut -d: -f1)
+  s157_sh2=$(grep -n '^2\. ' "$S157_SHIP" | head -1 | cut -d: -f1)
+  s157_shblk=$(awk '/^1\.5\. /{i=1} i&&/^2\. /{exit} i' "$S157_SHIP")
+  if [ -n "$s157_sh1" ] && [ -n "$s157_sh15" ] && [ -n "$s157_sh2" ] \
+     && [ "$s157_sh1" -lt "$s157_sh15" ] && [ "$s157_sh15" -lt "$s157_sh2" ] \
+     && s157_sfx "$s157_shblk" 'finding-judge'; then
+    ok "157w: /ship dispatches finding-judge at step 1.5, after code-reviewer and before the blocker stop is acted on (#645)"
+  else
+    ng "157w: /ship must dispatch finding-judge at step 1.5, between code-reviewer (1) and the security surface check (2), before the blocker stop is acted on (line 1=[$s157_sh1] 1.5=[$s157_sh15] 2=[$s157_sh2]) (#645)"
+  fi
+  # THREAT MODEL — read this before hardening it again. Like every content lock in §157,
+  # this is a DRIFT guard, not an adversarial gate: it fires when a later edit deletes the
+  # sentence or changes its meaning by accident. An author who deliberately writes the
+  # inverse is NOT in scope and cannot be — a presence lock proves a sentence is there, and
+  # can never prove no neighbouring sentence contradicts it (measured: appending a
+  # contradicting section to the contract file leaves 157e green — an arm no round of
+  # this hardening touched; 157e and this arm landed together in the Phase-B commit). Earlier rounds hardened this line against invented
+  # adversarial text; that was a category error, not a defect found. Do not repeat it.
+  #
+  # Shape: ONE whole-sentence match, not a pile of weak probes. A four-conjunct form here
+  # was measured to discriminate nothing on two of its four probes (`block` and `verdict`
+  # are matched by the step-1.5 HEADER line alone), which is the accretion the bash rubric's
+  # criterion 6 names. The literal runs THROUGH the terminating period — a bound with one
+  # stated end and one arbitrary end is the floor-without-ceiling shape rule 2 forbids, and
+  # an earlier form stopped mid-sentence. `tr -d '*'` normalizes markdown emphasis away, so
+  # a cosmetic `**` move does not red; the drift this guards is semantic, not typographic.
+  # Known cost, kept deliberately: a contract-preserving REWORD reds. For a drift guard that
+  # is the point — the sentence is the contract, and rewording it should draw a reader.
+  # That surface grew with the literal when it was extended to the terminating period
+  # (90 -> 194 bytes); the trade was taken knowingly, not discovered.
+  s157_shnorm=$(printf '%s\n' "$s157_shblk" | tr -d '*')
+  if s157_sfx "$s157_shnorm" 'verdict token is untouched — the judge never converts it. A `block` still stops the ship, however many findings under that verdict the judge refutes; a `ship after fix` still requires the fix.'; then
+    ok "157x: the /ship judge call site states the non-conversion contract — a block still stops the ship, and the judge never converts code-reviewer's verdict token (#645)"
+  else
+    ng "157x: the /ship step-1.5 call site must state that the judge never converts code-reviewer's verdict token and that a block still stops the ship (#645)"
+  fi
+fi
+
+# §157y: inserting a fractional step RENUMBERS NOTHING — the fractional-step idiom
+# (/ship's own 7.5/7.6/7.7/7.8/10.5) exists precisely so the successor numbers other
+# SSOT prose cites stay valid. Every /ship step 2..11 and /review step 4 survive.
+s157_renum=""
+if [ -f "$S157_SHIP" ]; then
+  for s157_s in 2 3 4 5 6 7 8 9 10 11; do
+    grep -qE "^$s157_s\. " "$S157_SHIP" || s157_renum="$s157_renum ship:$s157_s"
+  done
+else
+  s157_renum="$s157_renum ship:MISSING"
+fi
+if [ -f "$S157_REVIEW" ]; then
+  grep -qE '^4\. ' "$S157_REVIEW" || s157_renum="$s157_renum review:4"
+else
+  s157_renum="$s157_renum review:MISSING"
+fi
+if [ -z "$s157_renum" ]; then
+  ok "157y: the judge steps renumber no successor — /ship keeps steps 2..11 and /review keeps step 4 (#645)"
+else
+  ng "157y: the judge steps must renumber no successor — missing:$s157_renum (#645)"
+fi
+
+# §157z (NEGATIVE arm, invariant 3): the judge is an authoring aid, NOT a merge gate. It
+# appears in no PreToolUse matcher, and the should_skip category set is unchanged — §5.29
+# and the §6.1 matchers keep sole ownership of the merge gates. Both halves are measured
+# (a bare absence grep would green on a missing hook file, so presence is required too).
+s157_hookhit=$(grep -c 'finding-judge' "$S157_HOOK" 2>/dev/null || true)
+s157_cats=$(grep -oE 'should_skip [a-z-]+' "$S157_HOOK" 2>/dev/null | awk '{print $2}' | sort -u | grep -c .)
+if [ -f "$S157_HOOK" ] && [ "$s157_hookhit" = 0 ] && [ "$s157_cats" = 20 ]; then
+  ok "157z: finding-judge adds no merge gate — absent from pre_tool_use.sh, should_skip categories unchanged at $s157_cats (#645)"
+else
+  ng "157z: finding-judge must add no merge gate — pre_tool_use.sh mentions=$s157_hookhit (expected 0), should_skip categories=$s157_cats (expected 20) (#645)"
+fi
+

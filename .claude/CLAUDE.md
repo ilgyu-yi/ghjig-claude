@@ -47,19 +47,20 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 | Test writing (Phase B) | `test-writer` |
 | Code-phase implementation (Phase C), default route | `implementer` (#477) |
 | Pre-commit / pre-PR review | `code-reviewer` |
+| Judgment on a reviewer's findings | `finding-judge` (§4.13) |
 | Auth/input/deps/crypto changes | `security-reviewer` |
 | Rationale check on a proposed issue body | `issue-reviewer` |
 | Contest judgment on a planner output | `plan-reviewer` |
 | Adversarial plan challenge (2×, distinct axes) | `plan-challenger` |
 | Quality check on a proposed Directive or completion claim | `activation-reviewer` (dir-mode, §4.9) |
 
-In `unattended` mode, the reviewers above substitute for human review at their respective checkpoints (SPEC §1.5 operating-mode coupling).
+In `unattended` mode the five reviewers above (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human review at their checkpoints (SPEC §1.5); `finding-judge` and `plan-challenger` gate nothing.
 
 **Session-restart caveat** (SPEC §4.9.3): Claude Code enumerates `subagent_type` values from `.claude/agents/*.md` at session start. A reviewer added mid-session falls back to `general-purpose` routing until the next session restart — file presence is necessary but not sufficient. The fallback is functionally complete (the agent's prompt instructs `general-purpose` to behave as the new reviewer); restart canonical.
 
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
-**Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `planner`, `explorer`) share the parent's working tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage the parent's uncommitted work. Invoke them with **worktree isolation** (canonical); their prompts also constrain them to read-only git. Post-push reviewers pin to the PR head (isolation checks out base) and report `reviewed-head:`; a mismatch is a fail-closed invalid vote (SPEC §4.5, #544). Run `git status` before commit/merge. The **write-capable `implementer`** is **not** isolated (Code commit lands on the PR branch) — it uses a **path-scoped-add discipline** (never `git add -A`/`-u`), and the caller surfaces a dirty tree before dispatch (SPEC §4.12, §5.28).
+**Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `finding-judge`, `planner`, `explorer`) share the parent's tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage uncommitted work — invoke them with **worktree isolation** (canonical) and run `git status` before commit/merge. The write-capable `implementer` is **not** isolated; it substitutes a **path-scoped-add discipline** (never `git add -A`/`-u`). Full contract — read-only-git prompts, the fail-closed `reviewed-head:` pin, the dispatch-time dirty-tree check: SPEC §4.5, §4.12, §5.28.
 
 ## Branch & commit convention
 - Branch: `<gh-username>/<type>/[<issue#>-]<slug>`
