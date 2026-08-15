@@ -1622,6 +1622,235 @@ else
   ok "16o: no UTF-8 locale on host — codepoint-fallback locale test skipped (#554)"
 fi
 
+# ---------- 16p–16t (#654): unmeasurable subject length FAILS CLOSED ----------
+# SPEC §6.1.1. Pre-fix, check_commit_subject read `len=$(_codepoint_len "$rest")`
+# and went straight into `[ "$len" -lt 1 ] || [ "$len" -gt 72 ]`: when $len was not
+# an intmax_t-representable decimal BOTH tests errored (`integer expression
+# expected`, rc 2), the `||` chain collapsed to false, the range-check body was
+# SKIPPED, and the gate reported the subject VALID — a wrong ALLOW whose output
+# lands in durable git history. These arms run in the suite's own script-file
+# `set -uo pipefail` context on purpose: that is the shape all four
+# check_commit_subject call sites have (none sets `set -e`), and the shape in which
+# the wrong-allow reproduces.
+#
+# Fixtures, mirroring the 16n/16o curated-PATH subshell pattern:
+#   * a python3 SHIM that EXITS 0 while emitting output the ladder must reject —
+#     the live selection is `command -v python3` (PRESENCE, not output validity),
+#     so a successfully-exiting-but-useless python3 strands the ladder on a rung
+#     that never produced a length;
+#   * a `wc` shim that rewrites `-m` to `-c` — a host whose selected locale
+#     BYTE-counts, which is exactly the `wc -m == wc -c` relation the measurability
+#     guard must key on (a relation, not a hardcoded constant).
+# Every arm carries a fixture guard (shim resolved on PATH + shim actually
+# INVOKED, via a marker file) so a shim that never fires, or a curated PATH that
+# does not take effect, fails LOUD instead of greening (smoke.sh Theme E).
+S654_DIR="$TMP/len654"                      # under $TMP → cleaned by the §4 EXIT trap
+S654_BIN="$S654_DIR/bin"; S654_WCBIN="$S654_DIR/wcbin"
+S654_NOWC="$S654_DIR/nowc"; S654_STATE="$S654_DIR/state"
+mkdir -p "$S654_BIN" "$S654_WCBIN" "$S654_NOWC" "$S654_STATE"
+S654_REAL_WC=$(command -v wc)
+s654_tools=0
+for t in sed awk grep head tr wc cat locale; do
+  s654_src=$(command -v "$t" 2>/dev/null) || continue
+  ln -sf "$s654_src" "$S654_BIN/$t"; ln -sf "$s654_src" "$S654_WCBIN/$t"
+  # $S654_NOWC deliberately omits `wc`: with the python rung yielding nothing and
+  # no wc to fall back to, the ladder EXHAUSTS — the only fixture in which
+  # "measurement produced nothing" is a stable state rather than one rung's miss.
+  [ "$t" = wc ] || ln -sf "$s654_src" "$S654_NOWC/$t"
+  s654_tools=$((s654_tools+1))
+done
+
+cat > "$S654_BIN/python3" <<'S654PY'
+#!/bin/sh
+# #654 fixture: a python3 that EXITS 0 but never yields a usable length.
+: "${S654_STATE:?}"
+echo call >> "$S654_STATE/py_calls"     # invocation marker (anti-vacuity)
+cat >/dev/null 2>&1                     # drain the subject on stdin
+case "${S654_PY_MODE:?}" in
+  # A site/venv banner ahead of the number. The trailing digits are deliberately
+  # WRONG (999 ≠ 5): an implementation that salvages digits out of a rejected
+  # rung instead of ADVANCING the ladder is caught by that mismatch.
+  banner)    printf 'Python 3.12.0 site banner on stdout\n999\n' ;;
+  huge)      printf '9223372036854775808\n' ;;        # INTMAX_MAX+1: all digits, still outside `[`
+  bigdigits) printf '99999999999999999999999999\n' ;;
+  empty)     : ;;                                     # rung produced nothing at all
+esac
+exit 0
+S654PY
+chmod +x "$S654_BIN/python3"
+cp "$S654_BIN/python3" "$S654_NOWC/python3"
+
+# rm -f FIRST: the loop above already linked `wc` here, and `>` follows a symlink
+# — writing through it would target the real /usr/bin/wc (and silently leave the
+# shim uninstalled where the filesystem allows it).
+rm -f "$S654_WCBIN/wc"
+cat > "$S654_WCBIN/wc" <<'S654WC'
+#!/bin/sh
+# #654 fixture: a host whose selected locale byte-counts — `wc -m` returns BYTES.
+# Rewrite every -m to -c and delegate to the real wc, so `wc -m` == `wc -c` on
+# non-ASCII input.
+: "${S654_STATE:?}"; : "${S654_REAL_WC:?}"
+echo call >> "$S654_STATE/wc_calls"
+s654_args=""
+for a in "$@"; do
+  [ "$a" = "-m" ] && a=-c
+  s654_args="$s654_args $a"
+done
+exec "$S654_REAL_WC" $s654_args
+S654WC
+chmod +x "$S654_WCBIN/wc"
+
+# Fixture count-guard: `locale` may legitimately be absent (16r skips then), but
+# the 7 coreutils the ladder and the shims need must all be linked.
+# `! -L` on the wc shim: a symlink there means the heredoc wrote THROUGH the
+# coreutils link instead of installing the shim (the real wc would then answer).
+if [ "$s654_tools" -ge 7 ] && [ -x "$S654_BIN/python3" ] \
+   && [ -x "$S654_WCBIN/wc" ] && [ ! -L "$S654_WCBIN/wc" ] \
+   && [ -x "$S654_NOWC/python3" ] && [ ! -e "$S654_NOWC/wc" ]; then
+  ok "16-fixture: #654 curated-PATH shims built ($s654_tools tools linked)"
+else
+  ng "16-fixture: #654 shim setup incomplete (tools=$s654_tools) — 16p–16t below are not trustworthy"
+fi
+
+# 16p (#654): _codepoint_len is a TOTAL function — exactly two outcomes. On rc 0
+# its output is a DECIMAL-only string; on non-zero it emits NOTHING. There is no
+# third outcome for a caller to trip over.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = non-decimal on
+# rc 0, 6 = output emitted alongside a failure rc.
+: > "$S654_STATE/py_calls"
+if (
+    . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+    export PATH="$S654_BIN" S654_STATE S654_PY_MODE=banner
+    [ "$(command -v python3)" = "$S654_BIN/python3" ] || exit 3
+    s654_out=$(_codepoint_len "abcde"); s654_rc=$?
+    [ -s "$S654_STATE/py_calls" ] || exit 4
+    if [ "$s654_rc" -eq 0 ]; then
+      case "$s654_out" in ""|*[!0-9]*) exit 5 ;; esac
+    else
+      [ -z "$s654_out" ] || exit 6
+    fi
+  ) 2>/dev/null; then
+  ok "16p: _codepoint_len emits a decimal or nothing — no third outcome (#654)"
+else
+  ng "16p: _codepoint_len returned a non-decimal length on rc 0 (rc=$?; 3=shim off PATH, 4=shim never ran, 5=non-decimal on rc 0, 6=output on failure) (#654)"
+fi
+
+# 16q (#654): the ladder advances on OUTPUT VALIDITY, not on presence or exit
+# status. The banner shim exits 0, so a `command -v python3`-keyed selection never
+# reaches the wc rung; the wc rung must take over and return the TRUE length.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = wrong length.
+: > "$S654_STATE/py_calls"
+if (
+    . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+    export PATH="$S654_BIN" S654_STATE S654_PY_MODE=banner
+    [ "$(command -v python3)" = "$S654_BIN/python3" ] || exit 3
+    s654_len=$(_codepoint_len "abcde")
+    [ -s "$S654_STATE/py_calls" ] || exit 4
+    [ "$s654_len" = 5 ] || exit 5
+  ) 2>/dev/null; then
+  ok "16q: banner-printing python3 exiting 0 advances the ladder to the wc rung (#654)"
+else
+  ng "16q: ladder stranded on a rung that produced no length (rc=$?; 3=shim off PATH, 4=shim never ran, 5=wrong length) (#654)"
+fi
+
+# 16r (#654): the wc fallback's measurability guard. Under a byte-counting locale
+# `wc -m` returns bytes — the forbidden measurement arriving by degradation — so
+# on NON-ASCII input the fallback must refuse (emit nothing, non-zero) rather than
+# hand back a byte count. ASCII still measures exactly under any locale, so a
+# degraded host keeps committing. Guarded on a UTF-8 locale existing, mirroring
+# 16o: the skip is reported LOUD and named, never a silent pass.
+# Subshell exits: 3 = python3 present, 4 = shim not byte-counting, 5 = shim never
+# ran, 6 = non-ASCII byte count accepted, 7 = output alongside the refusal,
+# 8/9 = ASCII no longer measures exactly.
+s654_avail=$(locale -a 2>/dev/null || true)
+if command -v locale >/dev/null 2>&1 && grep -qiE '^(C|en_US)\.(UTF-8|utf8)$' <<<"$s654_avail"; then
+  if (
+      . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+      export PATH="$S654_WCBIN" S654_STATE S654_REAL_WC
+      command -v python3 >/dev/null 2>&1 && exit 3
+      : > "$S654_STATE/wc_calls"
+      s654_m=$(printf '가나다' | wc -m | tr -d ' ')
+      s654_c=$(printf '가나다' | wc -c | tr -d ' ')
+      [ "$s654_m" = "$s654_c" ] || exit 4
+      [ -s "$S654_STATE/wc_calls" ] || exit 5
+      s654_out=$(_codepoint_len "가나다"); s654_rc=$?
+      [ "$s654_rc" -ne 0 ] || exit 6
+      [ -z "$s654_out" ] || exit 7
+      s654_ascii=$(_codepoint_len "abcde") || exit 8
+      [ "$s654_ascii" = 5 ] || exit 9
+    ) 2>/dev/null; then
+    ok "16r: byte-counting locale — wc fallback refuses non-ASCII, still exact on ASCII (#654)"
+  else
+    ng "16r: wc fallback handed back a BYTE count for non-ASCII input (rc=$?; 3=python3 present, 4=shim not byte-counting, 5=shim never ran, 6=byte count accepted, 7=output on refusal, 8/9=ASCII mismeasured) (#654)"
+  fi
+else
+  ok "16r: SKIPPED — no UTF-8 locale on this host, byte-counting-guard fixture not runnable (#654)"
+fi
+
+# 16s (#654): check_commit_subject REFUSES an unmeasurable length instead of
+# reporting the subject valid. Three fixture values, each outside `[`'s domain:
+# the empty string (the ladder EXHAUSTED — run on the wc-less PATH, so "nothing
+# measured" is the ladder's final answer and not merely one rung's miss) and TWO
+# all-digit values past intmax_t — `9223372036854775808` (INTMAX_MAX+1) and a
+# 26-digit one. The digit pair is the point: they are legitimate decimal OUTPUT,
+# so the ladder admits them and the refusal has to come from check_commit_subject
+# — a `*[!0-9]*` digit-SHAPE test alone passes them and then errors in `[` exactly
+# as the empty string does.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 9 = subject ACCEPTED.
+s654_refused=0; s654_bad=""
+for s654_mode in empty huge bigdigits; do
+  : > "$S654_STATE/py_calls"
+  case "$s654_mode" in empty) s654_pathdir="$S654_NOWC" ;; *) s654_pathdir="$S654_BIN" ;; esac
+  if (
+      . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+      export PATH="$s654_pathdir" S654_STATE S654_PY_MODE="$s654_mode"
+      [ "$(command -v python3)" = "$s654_pathdir/python3" ] || exit 3
+      check_commit_subject "test: hello" >/dev/null 2>&1; s654_rc=$?
+      [ -s "$S654_STATE/py_calls" ] || exit 4
+      [ "$s654_rc" -ne 0 ] || exit 9
+    ) 2>/dev/null; then
+    s654_refused=$((s654_refused+1))
+  else
+    s654_bad="$s654_bad $s654_mode(rc=$?)"
+  fi
+done
+if [ "$s654_refused" -eq 3 ]; then
+  ok "16s: unmeasurable length refuses — empty and both past-intmax_t digit strings (3/3) (#654)"
+else
+  ng "16s: unmeasurable length reported the subject VALID — only $s654_refused/3 refused, failed:$s654_bad (9=ACCEPTED, 3=shim off PATH, 4=shim never ran) (#654)"
+fi
+
+# 16t (#654): the rejection message reports the RAW measured length. The fix
+# saturates the operand it FEEDS to `[` (so `[` cannot error at all); saturating
+# the value it PRINTS would report a fictional length. Two fixtures: a genuinely
+# long 500-codepoint subject must report its own 500 — never a 3-digit ceiling —
+# and the out-of-domain measurement must both refuse AND name the raw value it
+# could not compare.
+# Subshell exits: 3 = long subject not refused, 4 = reported length not raw,
+# 5 = shim not on PATH, 6 = shim never ran, 7 = unmeasurable not refused,
+# 8 = raw value missing from the message.
+s654_long=$(printf 'x%.0s' {1..500})
+if [ "${#s654_long}" -ne 500 ]; then
+  ng "16t-fixture: 500-codepoint subject fixture built ${#s654_long} chars — 16t not trustworthy (#654)"
+fi
+if (
+    . "$SHELL_ROOT/.claude/hooks/helpers/conventional_commit.sh"
+    s654_err=$(check_commit_subject "test: $s654_long" 2>&1 >/dev/null); s654_rc=$?
+    [ "$s654_rc" -ne 0 ] || exit 3
+    case "$s654_err" in *"got 500"*) ;; *) exit 4 ;; esac
+    export PATH="$S654_BIN" S654_STATE S654_PY_MODE=huge
+    [ "$(command -v python3)" = "$S654_BIN/python3" ] || exit 5
+    : > "$S654_STATE/py_calls"
+    s654_err2=$(check_commit_subject "test: hello" 2>&1 >/dev/null); s654_rc2=$?
+    [ -s "$S654_STATE/py_calls" ] || exit 6
+    [ "$s654_rc2" -ne 0 ] || exit 7
+    case "$s654_err2" in *9223372036854775808*) ;; *) exit 8 ;; esac
+  ) 2>/dev/null; then
+  ok "16t: rejection reports the RAW measured length, not a saturated operand (#654)"
+else
+  ng "16t: rejection message lost the raw measured length (rc=$?; 3=long subject allowed, 4=reported length not raw, 5=shim off PATH, 6=shim never ran, 7=unmeasurable allowed, 8=raw value absent from the message) (#654)"
+fi
+
 # ---------- 22. git option-prefix matcher tolerance (#37) ----------
 # Every `git <subcommand>` matcher must accept the `git -c <opt>=<val>`,
 # `git -C <path>`, and `git --no-pager` prefixes between `git` and the
