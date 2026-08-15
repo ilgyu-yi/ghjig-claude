@@ -72,31 +72,51 @@ _escape_token_honored() {
   #
   # `created` and `now` take the SAME pair rather than a shape-specific patch,
   # because the two TTL sites in this repo fail open on COMPLEMENTARY shapes and
-  # neither shape is inferable from the other's rationale. Measured, script-file
-  # mode (`bash <hook>`; under `bash -c` the arithmetic error aborts and reports
-  # the SAFE answer, which is how this class was cleared twice by probing, #635):
-  #   `0<epoch>` clock — here a TRACELESS allow. Measured against the pre-guard
-  #     helper: the arithmetic error aborts the ENCLOSING COMPOUND COMMAND, so
-  #     the honored/blocked decision is never reached at all — the calling
-  #     matcher's arm is silently skipped, ZERO audit records are written, the
-  #     token is LEFT at rest, and the hook still exits 0. An escape granted with
-  #     no evidence it was taken (§125-11b). Scope, stated as measured and not
-  #     wider: control resumes at the statement AFTER the aborted compound, so
-  #     sibling arms below the skipped one still run. At the
-  #     wrapper's own `now=$(date +%s)` read the same shape POSTS a stale body.
-  #   empty / non-numeric clock — here fail-open in the ordinary way: `[` reports
-  #     "integer expression expected", the token is honored and CONSUMED, and the
-  #     record reads as a routine `escape/skip` (§125-11). At the wrapper this
-  #     shape blocks, but under the misleading `mtime-future` arm name.
-  #     `0x<hex>` BELOW `created` belongs to THIS row, not to a third mechanism.
-  #     Measured pre-guard: empty, `abc` and `0xff` produce IDENTICAL signatures —
-  #     `[` errors, `$(( ))` SUCCEEDS with a negative delta, honored + consumed +
-  #     routine record. It is called out because it is the example that refutes a
-  #     fix framed as "catch the arithmetic error": `[` DOES error on hex (rc=2),
-  #     so error-catching would not close it — the honor comes from the SECOND
-  #     condition's `$(( ))` yielding a negative delta, which reads as "not stale".
-  #     Hex ABOVE `created` is not a fall-open at all: the delta is large positive
-  #     and the token BLOCKS (measured, `now=0x1755000000` -> +98455311168).
+  # neither shape is inferable from the other's rationale.
+  #
+  # MEASUREMENT MODE, stated in full because naming only half of it is how the
+  # taxonomy below was got wrong once already: script-file mode (`bash <hook>`)
+  # AND `set -uo pipefail`, the preamble at `pre_tool_use.sh:2` (no `set +u`
+  # anywhere under `.claude/hooks/`). Both halves matter and neither implies the
+  # other. Under `bash -c` the arithmetic error aborts and reports the SAFE
+  # answer — how this class was cleared twice by probing (#635). With nounset
+  # OFF, `abc` reports the HONORED signature instead of the blocking one — how
+  # round 3 of #647's own review got its taxonomy wrong. A mode declaration that
+  # names only the invocation form is half a mode declaration.
+  #
+  # Two fall-open signatures, measured pre-guard:
+  #   `0<epoch>` octal / `%s` clock — a TRACELESS allow. The arithmetic error
+  #     aborts the ENCLOSING COMPOUND COMMAND, so the honored/blocked decision is
+  #     never reached at all — the calling matcher's arm is silently skipped,
+  #     ZERO audit records are written, the token is LEFT at rest, and the hook
+  #     still exits 0. An escape granted with no evidence it was taken
+  #     (§125-11b). Scope, stated as measured and not wider: control resumes at
+  #     the statement AFTER the aborted compound, so sibling arms below the
+  #     skipped one still run. At the wrapper's own `now=$(date +%s)` read the
+  #     same shape POSTS a stale body.
+  #   empty / `0x<hex>` BELOW `created` — fail-open in the ordinary way: `[`
+  #     reports "integer expression expected", `$(( ))` SUCCEEDS with a negative
+  #     delta which reads as "not stale", and the token is honored and CONSUMED
+  #     with a routine `escape/skip` record (§125-11). At the wrapper this shape
+  #     blocks, but under the misleading `mtime-future` arm name. Measured: empty
+  #     and `0xff` produce IDENTICAL signatures, so hex is NOT a third mechanism.
+  #     Hex is called out because it is the example that refutes a fix framed as
+  #     "catch the arithmetic error": `[` DOES error on hex (rc=2), so
+  #     error-catching would not close it — the honor comes from the SECOND
+  #     condition. Hex ABOVE `created` is not a fall-open at all: the delta is
+  #     large positive and the token BLOCKS (`now=0x1755000000` -> +98455311168).
+  #
+  # NOT a fall-open, recorded so it is not mistaken for one: an alphabetic clock
+  # like `abc` is a valid bash identifier, so under `set -u` the arithmetic
+  # expansion resolves it as an unset variable and the shell DIES with exit 2 —
+  # which is this hook's own block signal (`pre_tool_use.sh` `block()`). Probed
+  # through the real `if should_skip …; then … else … fi` path, the sibling
+  # statement never runs. `abc` was already blocking pre-guard, silently and
+  # under no arm name. The guard below turns that into an explicit, consuming
+  # reject; it does not close a hole there, because there was none.
+  #
+  # So "non-numeric" was never one class — it spans all three signatures above,
+  # which is why the guard rejects on SHAPE rather than on any one mechanism.
   # Threat model, stated honestly: NEITHER site is reachable without a broken or
   # shimmed `date` — a real `date +%s` emits none of these shapes (measured across
   # 6 locales x 4 timezones). This is defense in depth in the #635 sense (the
