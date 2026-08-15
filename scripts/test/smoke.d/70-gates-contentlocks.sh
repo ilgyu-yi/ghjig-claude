@@ -875,17 +875,23 @@ fi
 # — the comment named the writer in prose, never by filename. The phrase arm exempts lines that
 # already qualify the reference as `retired`/`deleted`, which is how a comment is allowed to keep
 # explaining the history without asserting the writer still exists.
+# The phrase limb reads the SAME root set as the basename limb (`.claude/hooks`, recursive), not
+# `hookrt.sh` alone. It was hard-scoped to that one file while the basename roots were being
+# widened, so a present-tense description in any OTHER hook file was invisible to both limbs even
+# though the case comment claimed both closed the blind spot. Deliberately NOT widened past
+# `.claude/hooks` to `SPEC.md`/`scripts/`: "stage writer" appears there in legitimate historical
+# narration, where the `retired|deleted` exemption would be carrying the entire load.
 s148i_del_gone=0; [ -e "$S148_STAGE_FILE" ] || s148i_del_gone=1
 s148i_del_refs=$(grep -rlF "$S148_STAGE_BASE" \
                    "$SHELL_ROOT/SPEC.md" "$SHELL_ROOT/.claude/commands" "$SHELL_ROOT/scripts" \
                    "$SHELL_ROOT/.claude/hooks" \
                    2>/dev/null | grep -c . || true)
-s148i_del_phrase=$(grep -niE 'stage writer' "$SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null \
+s148i_del_phrase=$(grep -rniE 'stage writer' "$SHELL_ROOT/.claude/hooks" 2>/dev/null \
                      | grep -viE 'retired|deleted' | grep -c . || true)
 if [ "$s148i_del_gone" = 1 ] && [ "$s148i_del_refs" = 0 ] && [ "$s148i_del_phrase" = 0 ]; then
-  ok "148i-del: the retired stage writer is deleted, referenced nowhere in SPEC.md / .claude/commands / scripts / .claude/hooks, and hookrt.sh describes it only in the past tense (refs=$s148i_del_refs) (#633, #647)"
+  ok "148i-del: the retired stage writer is deleted, referenced nowhere in SPEC.md / .claude/commands / scripts / .claude/hooks, and no file under .claude/hooks describes it in the present tense (refs=$s148i_del_refs) (#633, #647)"
 else
-  ng "148i-del: the stage writer must be deleted with no surviving reference and no present-tense hookrt.sh description (present=$((1 - s148i_del_gone)) refs=$s148i_del_refs unqualified-phrases=$s148i_del_phrase) (#647)"
+  ng "148i-del: the stage writer must be deleted with no surviving reference and no present-tense description anywhere under .claude/hooks (present=$((1 - s148i_del_gone)) refs=$s148i_del_refs unqualified-phrases=$s148i_del_phrase) (#647)"
 fi
 
 # §148i-set (LOAD-BEARING RED — allow-surface parity + anti-return lock): NEITHER settings file
