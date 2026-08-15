@@ -811,7 +811,10 @@ fi
 # evaluation-order list and count which deletions this limb cannot see.
 #   whole-file grep    -> 6 of 17 invisible. Five (`staging-irregular`, `staging-unreadable`,
 #                         `staging-empty`, `now-malformed`, `stale`) are also backticked in the
-#                         §5.29 recovery sentence and §6.0 P4; `mtime-malformed` is the sixth.
+#                         §5.29 recovery sentence; `mtime-malformed` is the sixth. (This measurement
+#                         predates #647's Doc commit, which removed the same five names from §6.0
+#                         P4 — the count still holds via the §5.29 sentence alone, but P4 is no
+#                         longer one of the surfaces carrying them.)
 #   whole-LINE grep    -> 2 of 17 invisible (`staging-irregular`, `mtime-malformed`). The anchor
 #                         line NARRATES those two as backticked spans in addition to enumerating
 #                         them, so the line carries its own neighbour. That is also why
