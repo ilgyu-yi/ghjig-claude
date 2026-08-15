@@ -3101,3 +3101,498 @@ else
   rm -rf "$S119_FSR"
 fi
 
+# ---------- §159 (#660): interpreter helpers key on OUTPUT VALIDITY (SPEC §6.1.2) ----------
+# `strip_command_data` and `space_glued_separators` (helpers/git_matcher.sh) both
+# declare a FAIL-CLOSED contract while selecting their python3 result by EXIT
+# STATUS behind a `command -v python3` presence gate. Those two answer "did
+# something run?", not "is this a result I may use?" — so a python3 that exits 0
+# with a site/venv banner on stdout takes the SUCCESS branch and its banner is
+# returned AS the stripped command. The caller's arm-entry grep then misses and
+# the arm never runs. At the second site the write is IN-PLACE
+# (`space_glued_separators "$cmd" cmd`, pre_tool_use.sh:157) into the arm-entry
+# variable with 74 references, so the junk replaces the command every downstream
+# arm greps — which is why fixing only the first site leaves the force-push,
+# protected-push and gh-pr-merge gates wide open (measured).
+#
+# SPEC §6.1.2 enumerates the fail-closed set by OUTCOME: interpreter ABSENT,
+# NON-ZERO exit, EXIT-0-WITH-JUNK, EXIT-0-PARTIAL, and payload on STDERR with
+# stdout empty. Fail-closed MEANS returning the command UNCHANGED (the arm's grep
+# then runs against the full text): an unstripped command can only make an arm
+# match MORE — a recoverable false-trip of the #403/#440/#605 shape — while junk
+# makes it match LESS, and on these arms less means no match at all, i.e. a silent
+# wrong-allow on irreversible gates.
+#
+# Arms. 159a/159c/159f/159h are the RED propositions (the defect); 159b/159d/159g
+# are no-under-block / no-blinding guards that pass today and must keep passing.
+#   159-fixture  curated-PATH shim farm + registered target repo (count-guarded)
+#   159a  strip_command_data fails closed under all 5 pathologies × 3 modes  RED
+#   159b  stderr-only NOISE beside a correct stdout must still STRIP (2>/dev/null
+#         already handles it) — an over-eager fix reds here                 GREEN
+#   159c  space_glued_separators fails closed under the same pathologies    RED
+#   159d  no blinding: a 44-record differential over the #340/#367/#403/#440 +
+#         trailing-newline shapes is byte-identical to recorded behaviour   GREEN
+#   159e  in_scope control BOTH ways — proves an rc=0 below is a real ALLOW and
+#         not "the guard never ran"                                         GREEN
+#   159f  end-to-end: 5 irreversible gates block (rc=2) under a banner python3 RED
+#   159g  end-to-end: the §108 heredoc-DATA-only command still allowed (rc=0)
+#         under a HEALTHY python3                                          GREEN
+#   159h  end-to-end: that same command BLOCKS (rc=2) under a banner python3 —
+#         fail-closed leaves it UNSTRIPPED, so the arm runs; pre-fix it is rc=0
+#         for the wrong reason (the arm grepped the banner)                 RED
+#
+# Anti-vacuity (smoke.sh Theme E): every arm carries a fixture guard — the shim
+# resolved on PATH *and* actually INVOKED (marker file) — and every aggregate
+# carries a count-guard, so a shim that never fires or a curated PATH that does
+# not take effect fails LOUD instead of greening. Each failure mode gets its own
+# subshell exit code so a fixture miss can never masquerade as the intended
+# failure. `command -v` results are path-filtered before linking: under a shell
+# that wraps a tool (e.g. `grep`) as a FUNCTION, `command -v` prints the bare
+# name, and symlinking that would silently produce a dangling link.
+S660_DIR="$TMP/iv660"                    # under $TMP → cleaned by the shared EXIT trap
+S660_BIN="$S660_DIR/bin"                 # curated PATH + mode-driven python3 shim
+S660_NOPY="$S660_DIR/nopy"               # same, with NO python3 at all (absent leg)
+S660_E2E="$S660_DIR/e2e"                 # curated PATH + always-banner python3 shim
+S660_STATE="$S660_DIR/state"             # shim invocation markers
+S660_REG_ON="$S660_DIR/state-on"         # isolated ghjig state dir, registry POPULATED
+S660_REG_OFF="$S660_DIR/state-off"       # isolated ghjig state dir, registry EMPTY
+mkdir -p "$S660_BIN" "$S660_NOPY" "$S660_E2E" "$S660_STATE" "$S660_REG_ON" "$S660_REG_OFF"
+
+# The real python3, by ABSOLUTE path — the `noisy` shim mode execs it, and 159b/159d
+# need it for their reference/golden legs. Empty ⇒ those two arms skip LOUD.
+S660_REAL_PY=$(command -v python3 2>/dev/null || true)
+case "$S660_REAL_PY" in /*) ;; *) S660_REAL_PY="" ;; esac
+
+# `gh` is deliberately NOT linked into the farm: the five §159f rows were measured
+# to reach rc=2 with no `gh` on PATH, so omitting it keeps the fixture off the
+# network and off gh-auth state entirely.
+s660_missing=""
+for s660_t in sed awk grep head tail tr wc cat cut sort uniq git jq date mkdir rm ls env sh bash id find dirname basename mktemp touch chmod xargs od; do
+  s660_src=$(command -v "$s660_t" 2>/dev/null) || { s660_missing="$s660_missing $s660_t"; continue; }
+  case "$s660_src" in /*) ;; *) s660_missing="$s660_missing $s660_t(not-a-path)"; continue ;; esac
+  ln -sf "$s660_src" "$S660_BIN/$s660_t"
+  ln -sf "$s660_src" "$S660_NOPY/$s660_t"
+  ln -sf "$s660_src" "$S660_E2E/$s660_t"
+done
+
+cat > "$S660_BIN/python3" <<'S660PY'
+#!/bin/sh
+# #660 fixture: a python3 that EXITS 0 while producing output the caller must
+# REJECT. Every mode exits 0 on purpose — that is the whole point: rc says
+# "something ran", which is not the question a fail-closed contract asks.
+: "${S660_STATE:?}"
+echo call >> "$S660_STATE/py_calls"          # invocation marker (anti-vacuity)
+case "${S660_PY_MODE:?}" in
+  # exit-0-with-junk: a site/venv/PYTHONSTARTUP banner INSTEAD OF the payload.
+  banner)  cat >/dev/null 2>&1; printf 'Python 3.12.0 (venv site banner on stdout)\n' ;;
+  # exit-0-partial: a truncated/interrupted write — a genuine PREFIX of the payload,
+  # so a naive "non-empty output" test would admit it.
+  partial) head -c 12 ;;
+  # exit-0 with nothing at all.
+  empty)   cat >/dev/null 2>&1 ;;
+  # payload on STDERR, stdout empty. Shaped like a real answer so the only thing
+  # rejecting it is the channel it arrived on.
+  stderr)  cat >/dev/null 2>&1; printf 'gh issue edit 1 --body \n' >&2 ;;
+  # NOT a pathology (159b): correct stdout from the real interpreter PLUS noise on
+  # stderr, which the helper's existing `2>/dev/null` already handles.
+  noisy)   printf 'DeprecationWarning: fixture noise\n' >&2; exec "${S660_REAL_PY:?}" "$@" ;;
+esac
+exit 0
+S660PY
+chmod +x "$S660_BIN/python3"
+cp "$S660_BIN/python3" "$S660_E2E/python3"
+
+# The corpus. `printf -v` (not `$( )`) so the trailing-newline shape keeps its
+# trailing newlines all the way into the helper — the one shape where the frame's
+# disclosed residual is observable on the RAW return.
+s660_corpus_cmd() {
+  local _id="$1" _ov="$2" sq="'"
+  case "$_id" in
+    # A heredoc body AND a -m value AND quoted literals: all three strip modes
+    # change it when the interpreter is healthy, so "returned unchanged" is a
+    # meaningful assertion rather than a tautology.
+    failclosed)  printf -v "$_ov" '%s' "gh issue edit 1 --body \"\$(cat <<${sq}EOF${sq}
+git commit --no-verify and git push --force origin main
+EOF
+)\" -m \"note\"" ;;
+    340-quoted)  printf -v "$_ov" '%s' 'gh pr merge 7 --squash --body "prose that says gh pr merge"' ;;
+    367-heredoc) printf -v "$_ov" '%s' "gh issue edit 1 --body \"\$(cat <<${sq}EOF${sq}
+git push origin main
+EOF
+)\"" ;;
+    403-commit)  printf -v "$_ov" '%s' "gh issue edit 1 --body \"\$(cat <<${sq}EOF${sq}
+prose that mentions a git commit invocation
+EOF
+)\"" ;;
+    440-msg)     printf -v "$_ov" '%s' 'git commit -m "docs(#440): git push --force origin main documented"' ;;
+    440-eq)      printf -v "$_ov" '%s' 'git commit --message="git push origin main"' ;;
+    440-target)  printf -v "$_ov" '%s' 'git push origin "main"' ;;
+    unclosed)    printf -v "$_ov" '%s' 'git commit -m "unclosed quote' ;;
+    trailnl)     printf -v "$_ov" '%s' 'git status
+
+' ;;
+    plain)       printf -v "$_ov" '%s' 'git commit -m x && git push origin feat/y' ;;
+    glued)       printf -v "$_ov" '%s' 'git commit -m "x"&&git push --force origin main' ;;
+    *) return 1 ;;
+  esac
+}
+s660_hex() { printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n'; }
+# OUT-PARAMS: both are written indirectly (`printf -v`) by s660_corpus_cmd and by
+# space_glued_separators, so pre-declare them for shellcheck (SC2154).
+s660_in=""; s660_out=""
+
+# Recorded differential (159d): `<corpus-id>|<mode>|<hex of the output>`, captured
+# at Phase-B time from the CURRENT implementation under a healthy python3. `mode`
+# ∈ heredoc/message/full is strip_command_data measured AT THE `$( )` CALLER
+# BOUNDARY (all 8 of its call sites wrap it in `$( )`); `sgs` is
+# space_glued_separators measured RAW, because its sole call site is a `printf -v`
+# in-place write and raw IS its caller boundary. Hex, not text, so a stray newline
+# or trailing space cannot be silently normalized away by the comparison.
+S660_GOLDEN=$(cat <<'S660GOLD'
+failclosed|heredoc|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922202d6d20226e6f746522
+failclosed|message|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922202d6d20
+failclosed|full|676820697373756520656469742031202d2d626f647920202d6d20
+failclosed|sgs|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a67697420636f6d6d6974202d2d6e6f2d76657269667920616e64206769742070757368202d2d666f726365206f726967696e206d61696e0a454f460a2922202d6d20226e6f746522
+340-quoted|heredoc|6768207072206d657267652037202d2d737175617368202d2d626f6479202270726f736520746861742073617973206768207072206d6572676522
+340-quoted|message|6768207072206d657267652037202d2d737175617368202d2d626f6479202270726f736520746861742073617973206768207072206d6572676522
+340-quoted|full|6768207072206d657267652037202d2d737175617368202d2d626f647920
+340-quoted|sgs|6768207072206d657267652037202d2d737175617368202d2d626f6479202270726f736520746861742073617973206768207072206d6572676522
+367-heredoc|heredoc|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922
+367-heredoc|message|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922
+367-heredoc|full|676820697373756520656469742031202d2d626f647920
+367-heredoc|sgs|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a6769742070757368206f726967696e206d61696e0a454f460a2922
+403-commit|heredoc|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922
+403-commit|message|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a2922
+403-commit|full|676820697373756520656469742031202d2d626f647920
+403-commit|sgs|676820697373756520656469742031202d2d626f647920222428636174203c3c27454f46270a70726f73652074686174206d656e74696f6e7320612067697420636f6d6d697420696e766f636174696f6e0a454f460a2922
+440-msg|heredoc|67697420636f6d6d6974202d6d2022646f63732823343430293a206769742070757368202d2d666f726365206f726967696e206d61696e20646f63756d656e74656422
+440-msg|message|67697420636f6d6d6974202d6d20
+440-msg|full|67697420636f6d6d6974202d6d20
+440-msg|sgs|67697420636f6d6d6974202d6d2022646f63732823343430293a206769742070757368202d2d666f726365206f726967696e206d61696e20646f63756d656e74656422
+440-eq|heredoc|67697420636f6d6d6974202d2d6d6573736167653d226769742070757368206f726967696e206d61696e22
+440-eq|message|67697420636f6d6d6974202d2d6d6573736167653d
+440-eq|full|67697420636f6d6d6974202d2d6d6573736167653d
+440-eq|sgs|67697420636f6d6d6974202d2d6d6573736167653d226769742070757368206f726967696e206d61696e22
+440-target|heredoc|6769742070757368206f726967696e20226d61696e22
+440-target|message|6769742070757368206f726967696e20226d61696e22
+440-target|full|6769742070757368206f726967696e20
+440-target|sgs|6769742070757368206f726967696e20226d61696e22
+unclosed|heredoc|67697420636f6d6d6974202d6d2022756e636c6f7365642071756f7465
+unclosed|message|67697420636f6d6d6974202d6d2022756e636c6f7365642071756f7465
+unclosed|full|67697420636f6d6d6974202d6d2022756e636c6f7365642071756f7465
+unclosed|sgs|67697420636f6d6d6974202d6d2022756e636c6f7365642071756f7465
+trailnl|heredoc|67697420737461747573
+trailnl|message|67697420737461747573
+trailnl|full|67697420737461747573
+trailnl|sgs|67697420737461747573
+plain|heredoc|67697420636f6d6d6974202d6d2078202626206769742070757368206f726967696e20666561742f79
+plain|message|67697420636f6d6d6974202d6d20202626206769742070757368206f726967696e20666561742f79
+plain|full|67697420636f6d6d6974202d6d2078202626206769742070757368206f726967696e20666561742f79
+plain|sgs|67697420636f6d6d6974202d6d2078202626206769742070757368206f726967696e20666561742f79
+glued|heredoc|67697420636f6d6d6974202d6d2022782226266769742070757368202d2d666f726365206f726967696e206d61696e
+glued|message|67697420636f6d6d6974202d6d2026266769742070757368202d2d666f726365206f726967696e206d61696e
+glued|full|67697420636f6d6d6974202d6d2026266769742070757368202d2d666f726365206f726967696e206d61696e
+glued|sgs|67697420636f6d6d6974202d6d20227822202626206769742070757368202d2d666f726365206f726967696e206d61696e
+S660GOLD
+)
+
+# Target repo for the end-to-end arms: on the protected branch `main`, registered
+# in $S660_REG_ON's registry (a per-§159 isolated ghjig state dir, so nothing here
+# perturbs $SMOKE_REG or the §357 live-sink backstop).
+S660_TARGET="$S660_DIR/target"
+mkdir -p "$S660_TARGET"
+S660_TARGET=$(cd "$S660_TARGET" && pwd -P)
+(cd "$S660_TARGET" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; })
+ git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+printf '%s\n' "$S660_TARGET" > "$S660_REG_ON/registry.txt"
+: > "$S660_REG_OFF/registry.txt"
+
+# Fixture count-guard. `! -L` on the shims: a symlink there would mean the heredoc
+# wrote THROUGH a coreutils link instead of installing the shim.
+if [ -z "$s660_missing" ] \
+   && [ -x "$S660_BIN/python3" ] && [ ! -L "$S660_BIN/python3" ] \
+   && [ -x "$S660_E2E/python3" ] && [ ! -L "$S660_E2E/python3" ] \
+   && [ ! -e "$S660_NOPY/python3" ] \
+   && [ -d "$S660_TARGET/.git" ] && [ -s "$S660_REG_ON/registry.txt" ]; then
+  ok "159-fixture: #660 curated-PATH shim farm + registered main-branch target built"
+else
+  ng "159-fixture: #660 shim setup incomplete (missing:${s660_missing:- none}) — 159a–159g below are not trustworthy"
+fi
+
+# 159a (#660): strip_command_data FAILS CLOSED — returns the command BYTE-IDENTICAL
+# to its input — under every enumerated pathology (SPEC §6.1.2) in every mode. RED
+# pre-fix on the four exit-0 pathologies (rc-keyed selection returns the junk); the
+# `absent` leg is the only one the pre-fix `command -v` gate happens to cover.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = RETURN ≠ INPUT (the
+# defect), 6 = python3 still resolvable on the no-python3 PATH, 7 = corpus builder failed.
+s660_closed=0; s660_bad=""
+for s660_mode in banner partial empty stderr; do
+  for s660_m in heredoc message full; do
+    : > "$S660_STATE/py_calls"
+    if (
+        . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+        export PATH="$S660_BIN" S660_STATE S660_PY_MODE="$s660_mode"
+        [ "$(command -v python3)" = "$S660_BIN/python3" ] || exit 3
+        s660_corpus_cmd failclosed s660_in || exit 7
+        s660_out=$(strip_command_data "$s660_in" "$s660_m")
+        [ -s "$S660_STATE/py_calls" ] || exit 4
+        [ "$s660_out" = "$s660_in" ] || exit 5
+      ) 2>/dev/null; then
+      s660_closed=$((s660_closed+1))
+    else
+      s660_bad="$s660_bad $s660_mode/$s660_m(rc=$?)"
+    fi
+  done
+done
+for s660_m in heredoc message full; do
+  if (
+      . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+      export PATH="$S660_NOPY"
+      command -v python3 >/dev/null 2>&1 && exit 6
+      s660_corpus_cmd failclosed s660_in || exit 7
+      s660_out=$(strip_command_data "$s660_in" "$s660_m")
+      [ "$s660_out" = "$s660_in" ] || exit 5
+    ) 2>/dev/null; then
+    s660_closed=$((s660_closed+1))
+  else
+    s660_bad="$s660_bad absent/$s660_m(rc=$?)"
+  fi
+done
+if [ "$s660_closed" -eq 15 ]; then
+  ok "159a: strip_command_data fails closed on all 5 pathologies × 3 modes (15/15) (#660)"
+else
+  ng "159a: strip_command_data returned interpreter JUNK as the stripped command — only $s660_closed/15 failed closed, failed:$s660_bad (5=return≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed) (#660)"
+fi
+
+# 159b (#660, no-blinding at the unit level): noise on STDERR beside a CORRECT
+# stdout is NOT a pathology — the helper's existing `2>/dev/null` already handles
+# it, so the strip must still happen. A fix that keys on "anything on stderr" or
+# otherwise over-rejects reds here. Reference = the same call under the real
+# python3, and the reference must DIFFER from the input or the arm would be vacuous.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = result ≠ reference,
+# 6 = reference == input (corpus stopped discriminating), 7 = corpus builder failed.
+if [ -z "$S660_REAL_PY" ]; then
+  ok "159b: SKIPPED — no python3 on this host, the stderr-noise reference leg is not runnable (#660)"
+else
+  s660_stripped=0; s660_bad=""
+  for s660_m in heredoc message full; do
+    : > "$S660_STATE/py_calls"
+    if (
+        . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+        s660_corpus_cmd failclosed s660_in || exit 7
+        s660_ref=$(strip_command_data "$s660_in" "$s660_m")     # ambient real python3
+        [ "$s660_ref" != "$s660_in" ] || exit 6
+        export PATH="$S660_BIN" S660_STATE S660_REAL_PY S660_PY_MODE=noisy
+        [ "$(command -v python3)" = "$S660_BIN/python3" ] || exit 3
+        s660_got=$(strip_command_data "$s660_in" "$s660_m")
+        [ -s "$S660_STATE/py_calls" ] || exit 4
+        [ "$s660_got" = "$s660_ref" ] || exit 5
+      ) 2>/dev/null; then
+      s660_stripped=$((s660_stripped+1))
+    else
+      s660_bad="$s660_bad $s660_m(rc=$?)"
+    fi
+  done
+  if [ "$s660_stripped" -eq 3 ]; then
+    ok "159b: stderr-only NOISE beside correct stdout still strips (3/3 modes) (#660)"
+  else
+    ng "159b: an over-eager validity test BLINDED the stripper on harmless stderr noise — only $s660_stripped/3 stripped, failed:$s660_bad (5=result≠reference, 6=reference==input, 3=shim off PATH, 4=shim never ran, 7=corpus builder failed) (#660)"
+  fi
+fi
+
+# 159c (#660): the SECOND site. space_glued_separators fails closed under the same
+# pathologies — and this is the one that fixing only strip_command_data leaves
+# broken (measured: force-push / protected-push / gh-pr-merge stay rc=0). Compared
+# RAW, not through `$( )`: its sole call site is `space_glued_separators "$cmd" cmd`
+# (pre_tool_use.sh:157), an in-place write into the arm-entry variable.
+# Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = WRITTEN ≠ INPUT
+# (the defect), 6 = python3 still resolvable on the no-python3 PATH, 7 = corpus failed.
+s660_closed=0; s660_bad=""
+for s660_mode in banner partial empty stderr; do
+  : > "$S660_STATE/py_calls"
+  if (
+      . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+      export PATH="$S660_BIN" S660_STATE S660_PY_MODE="$s660_mode"
+      [ "$(command -v python3)" = "$S660_BIN/python3" ] || exit 3
+      s660_corpus_cmd glued s660_in || exit 7
+      space_glued_separators "$s660_in" s660_out
+      [ -s "$S660_STATE/py_calls" ] || exit 4
+      [ "$s660_out" = "$s660_in" ] || exit 5
+    ) 2>/dev/null; then
+    s660_closed=$((s660_closed+1))
+  else
+    s660_bad="$s660_bad $s660_mode(rc=$?)"
+  fi
+done
+if (
+    . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+    export PATH="$S660_NOPY"
+    command -v python3 >/dev/null 2>&1 && exit 6
+    s660_corpus_cmd glued s660_in || exit 7
+    space_glued_separators "$s660_in" s660_out
+    [ "$s660_out" = "$s660_in" ] || exit 5
+  ) 2>/dev/null; then
+  s660_closed=$((s660_closed+1))
+else
+  s660_bad="$s660_bad absent(rc=$?)"
+fi
+if [ "$s660_closed" -eq 5 ]; then
+  ok "159c: space_glued_separators fails closed on all 5 pathologies (5/5) (#660)"
+else
+  ng "159c: space_glued_separators wrote interpreter JUNK into the arm-entry \$cmd — only $s660_closed/5 failed closed, failed:$s660_bad (5=written≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed) (#660)"
+fi
+
+# 159d (#660, no blinding): under a HEALTHY python3, the whole 44-record
+# differential — 11 command shapes (#340 quoted literal, #367/#403 heredoc bodies,
+# #440 message-value in `-m`, `=`-glued and quoted-TARGET forms, an unclosed quote,
+# a TRAILING-NEWLINE command, a plain multi-segment command, a glued separator)
+# × strip_command_data's 3 modes + space_glued_separators — must be BYTE-IDENTICAL
+# to the recorded behaviour. This is the guard against "fail closed by always
+# returning the command unchanged": 23 of the 44 records differ from their input,
+# so such a fix reds on 23 of them. The trailing-newline shape is compared at the
+# `$( )` caller boundary for the strip modes (the frame's disclosed residual is
+# only observable on a RAW return, and no strip call site reads raw) and raw for
+# `sgs` (whose call site IS raw).
+if [ -z "$S660_REAL_PY" ]; then
+  ok "159d: SKIPPED — no python3 on this host, the healthy-interpreter differential is not runnable (#660)"
+else
+  s660_gres=$(
+    . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
+    s660_gm=0; s660_gt=0; s660_gd=0; s660_gb=""
+    while IFS='|' read -r s660_gid s660_gmode s660_ghex; do
+      [ -n "$s660_gid" ] || continue
+      s660_gt=$((s660_gt+1))
+      if ! s660_corpus_cmd "$s660_gid" s660_in; then
+        s660_gb="$s660_gb $s660_gid/$s660_gmode(no-corpus)"; continue
+      fi
+      if [ "$s660_gmode" = sgs ]; then
+        space_glued_separators "$s660_in" s660_out
+      else
+        s660_out=$(strip_command_data "$s660_in" "$s660_gmode")
+      fi
+      s660_outhex=$(s660_hex "$s660_out")
+      [ "$s660_outhex" = "$(s660_hex "$s660_in")" ] || s660_gd=$((s660_gd+1))
+      if [ "$s660_outhex" = "$s660_ghex" ]; then
+        s660_gm=$((s660_gm+1))
+      else
+        s660_gb="$s660_gb $s660_gid/$s660_gmode"
+      fi
+    done <<< "$S660_GOLDEN"
+    printf '%s|%s|%s|%s' "$s660_gm" "$s660_gt" "$s660_gd" "$s660_gb"
+  ) 2>/dev/null
+  IFS='|' read -r s660_gm s660_gt s660_gd s660_gb <<< "$s660_gres"
+  if [ "${s660_gt:-0}" -eq 44 ] && [ "${s660_gm:-0}" -eq 44 ] && [ "${s660_gd:-0}" -ge 23 ]; then
+    ok "159d: healthy-python3 differential byte-identical over 44 records, 23+ of them non-trivial (#660)"
+  else
+    ng "159d: the differential DRIFTED (or the fix blinded the stripper) — matched ${s660_gm:-?}/${s660_gt:-?} records, ${s660_gd:-?} differ from their input (want 44/44 and >=23), drifted:${s660_gb:- none} (#660)"
+  fi
+fi
+
+# 159e (#660): the in_scope control, BOTH ways, inside this very fixture (curated
+# PATH, banner python3, same target repo). Without it an rc=0 in 159f–159h would be
+# indistinguishable from "the guard never ran at all" — a green-looking
+# no-measurement. Uses an out-of-registry Edit/Write — a matcher that does NOT go
+# through either interpreter site — so the control's verdict is independent of #660
+# in both directions.
+if ! command -v jq >/dev/null 2>&1; then
+  ng "159e: jq missing — cannot drive the in_scope control (#660)"
+  ng "159f: jq missing (#660)"
+  ng "159g: jq missing (#660)"
+  ng "159h: jq missing (#660)"
+else
+  s660_hook_run() {   # $1 = ghjig state dir, $2 = tool JSON, $3 = shim|real python3
+    ( cd "$S660_TARGET" || exit 99
+      if [ "$3" = shim ]; then export PATH="$S660_E2E" S660_STATE S660_PY_MODE=banner; fi
+      printf '%s' "$2" \
+        | GHJIG_STATE_DIR_OVERRIDE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+          bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+    return $?
+  }
+  s660_bash_json() { jq -nc --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}'; }
+
+  s660_ctl_json=$(jq -nc --arg p "$S660_DIR/outside-the-registry.txt" \
+    '{tool_name:"Write",tool_input:{file_path:$p,content:"x"}}')
+  s660_hook_run "$S660_REG_ON"  "$s660_ctl_json" shim; s660_ctl_on=$?
+  s660_hook_run "$S660_REG_OFF" "$s660_ctl_json" shim; s660_ctl_off=$?
+  if [ "$s660_ctl_on" = 2 ] && [ "$s660_ctl_off" = 0 ]; then
+    ok "159e: in_scope control both ways — registry populated blocks (2), emptied allows (0) (#660)"
+  else
+    ng "159e: the fixture's guard is not measuring — registry-populated rc=$s660_ctl_on (want 2), registry-emptied rc=$s660_ctl_off (want 0); every rc below is unmeasured (#660)"
+  fi
+
+  # 159f: the five irreversible gates, end-to-end, with the banner python3 on the
+  # curated PATH and cwd inside the registered repo on `main`. All five must block
+  # (rc=2). RED pre-fix: measured rc=0 for all five, because the junk return makes
+  # every arm-entry grep miss. `git commit` and `--no-verify` recover once
+  # strip_command_data alone is fixed; force-push, protected-push and `gh pr merge`
+  # need the space_glued_separators site fixed too.
+  s660_blocked=0; s660_bad=""
+  for s660_row in \
+    "commit|git commit -m 'fix(#660): real subject'" \
+    "no-verify|git commit -m 'fix(#660): real subject' --no-verify" \
+    "force-push|git push --force origin main" \
+    "protected-push|git push origin main" \
+    "pr-merge|gh pr merge 1 --squash" \
+    ; do
+    s660_name=${s660_row%%|*}; s660_cmd=${s660_row#*|}
+    : > "$S660_STATE/py_calls"
+    s660_hook_run "$S660_REG_ON" "$(s660_bash_json "$s660_cmd")" shim; s660_rc=$?
+    if [ ! -s "$S660_STATE/py_calls" ]; then
+      s660_bad="$s660_bad $s660_name(shim-never-ran)"
+    elif [ "$s660_rc" = 2 ]; then
+      s660_blocked=$((s660_blocked+1))
+    else
+      s660_bad="$s660_bad $s660_name(rc=$s660_rc)"
+    fi
+  done
+  if [ "$s660_blocked" -eq 5 ]; then
+    ok "159f: all 5 irreversible gates still block under a banner python3 (5/5) (#660)"
+  else
+    ng "159f: a banner python3 SILENTLY ALLOWED an irreversible gate — only $s660_blocked/5 blocked, allowed:$s660_bad (want rc=2 each; 159e proves an rc=0 here is a real ALLOW) (#660)"
+  fi
+
+  # The §108 (#403) heredoc-DATA-only command: `git commit` appearing SOLELY inside
+  # a heredoc body. Its verdict is interpreter-dependent by design, so it is pinned
+  # in BOTH interpreter states — and the pair is the sharpest statement of what
+  # fail-closed means here.
+  s660_sq="'"
+  s660_data_cmd="gh issue edit 1 --body \"\$(cat <<${s660_sq}EOF${s660_sq}
+prose that merely mentions a git commit invocation inside a heredoc body
+EOF
+)\""
+
+  # 159g (no blinding / no #403 regression): with a HEALTHY python3 the strip
+  # succeeds, so the command must still be ALLOWED (rc=0) — §108's own guarantee,
+  # re-measured here inside the #660 fixture so a fix that mis-frames a legitimate
+  # payload (and thus fails closed even when the interpreter worked) is caught.
+  # Runs on the AMBIENT PATH, so it is guarded on a real python3 rather than on the
+  # shim marker; no python3 ⇒ LOUD named skip, never a silent pass.
+  if [ -z "$S660_REAL_PY" ]; then
+    ok "159g: SKIPPED — no python3 on this host, the healthy-interpreter §108 row is not runnable (#660)"
+  else
+    s660_hook_run "$S660_REG_ON" "$(s660_bash_json "$s660_data_cmd")" real; s660_ok_rc=$?
+    if [ "$s660_ok_rc" = 0 ]; then
+      ok "159g: under a healthy python3 the §108 heredoc-DATA-only command is still allowed (#403, #660)"
+    else
+      ng "159g: the fix BLINDED a healthy strip — the §108 heredoc-DATA-only command now false-trips (rc=$s660_ok_rc, want 0) (#403, #660)"
+    fi
+  fi
+
+  # 159h (#660): the same command under the BANNER python3 must BLOCK (rc=2). This
+  # is the direction SPEC §6.1.2 prescribes and docs/TROUBLESHOOTING.md indexes:
+  # fail-closed returns the command UNSTRIPPED, so the arm's grep runs against the
+  # full text and the #403-shape false-trip legitimately returns — a recoverable,
+  # §7-escapable cost whose recovery is "make python3 runnable". RED pre-fix, where
+  # this row is rc=0 for the WRONG reason: the arm greps the banner and matches
+  # nothing. Pairing it with 159g is what distinguishes "fail closed to unstripped"
+  # from "returned junk", which the rc alone cannot tell apart pre-fix.
+  : > "$S660_STATE/py_calls"
+  s660_hook_run "$S660_REG_ON" "$(s660_bash_json "$s660_data_cmd")" shim; s660_data_rc=$?
+  if [ ! -s "$S660_STATE/py_calls" ]; then
+    ng "159h: the banner python3 shim never ran — the fail-closed-means-unstripped row is unmeasured (#660)"
+  elif [ "$s660_data_rc" = 2 ]; then
+    ok "159h: a banner python3 leaves the command UNSTRIPPED, so the arm still runs (rc=2) (#660)"
+  else
+    ng "159h: a banner python3 made the commit arm grep JUNK instead of the unstripped command (rc=$s660_data_rc, want 2; 159e proves this rc is measured) (#660)"
+  fi
+fi
+
