@@ -104,11 +104,14 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 # not adversary.
 # RESIDUAL (disclosed): the frame changes the RAW (non-`$( )`) return for a
 # command ending in newlines — the tags protect trailing newlines that command
-# substitution used to eat. All 8 call sites (pre_tool_use.sh ×7,
-# ac_closeout_gate.sh ×1) wrap this helper in `$( )`, which strips them again, so
-# behaviour at the caller boundary is byte-identical (30/30 measured). A future
-# caller that reads the return WITHOUT `$( )` is the one place that residual is
-# observable.
+# substitution used to eat. SEVEN of the 8 call sites wrap this helper in `$( )`,
+# which strips them again, so behaviour at those caller boundaries is
+# byte-identical (30/30 measured). The EIGHTH (pre_tool_use.sh, the force-push
+# arm) pipes the return straight into `awk` instead, so the extra newlines DO
+# survive there — harmlessly: `awk` renders them as blank lines and
+# `push_segments`' own `grep -E` drops blank lines. Named rather than rounded
+# off, because a future caller that neither wraps nor filters is where this
+# residual first becomes observable.
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
   local cmd="$1" mode="${2:-full}" out tag='__ghjig_frame_660__'
