@@ -858,10 +858,11 @@ fi
 # ordinary `escape/skip` — a defeated TTL that reads in the log like a routine one. The
 # leading-zero clock is a TRACELESS allow: the token is left on disk and ZERO audit records are
 # written, because the arithmetic error abandons the enclosing compound command — the honor path's
-# `audit_log` and its `rm -f "$tok"` both sit past the abort. Scope of that abort, MEASURED (a
-# sibling statement after the aborted `if` still runs): it unwinds the function, the `&&`/`||`
-# list and the enclosing `if`, and stops there. It does NOT abandon the whole matcher umbrella —
-# a later sibling arm such as `commit-format` still fires.
+# `audit_log` and its `rm -f "$tok"` both sit past the abort. Scope of that abort, MEASURED against
+# the real hook with a registry entry present: the unwind discards the function frame AND every
+# enclosing compound, resuming at the next TOP-LEVEL statement. The shell does not die; the hook
+# still exits 0. So a later sibling arm in the same matcher umbrella does NOT fire — control
+# `branch/skip` + `commit-format/deny` = 2 audit records, this shape = 0.
 # The POST-fix assertions are identical, which is the point — the split is for the two distinct
 # failure signatures, not for the fix.
 #
