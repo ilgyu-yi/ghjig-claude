@@ -2893,15 +2893,29 @@ fi
 # returns NOTHING; the extraction below then finds no command, the K runs of `mktemp -d ""`
 # all fail, and 158a fails with `collected 0 of 5` naming `extracted template=<none: ...>` —
 # a LOUD count-guard failure, not a silent skip on an absent target (smoke.sh:25, anti-pattern
-# #2). Reproduce without touching the working tree:
-#   git worktree add /tmp/predoc-646 269323c~1
-#   /tmp/predoc-646/scripts/test/smoke.sh 2>&1 | grep 158
+# #2). Reproducing the RED needs a HYBRID tree, and the obvious recipe does NOT work:
+# running the suite at `269323c~1` yields SILENCE, not a red, because that tree predates the
+# Test commit and so contains no §158 at all — which is itself the silent-skip shape this
+# comment argues against. What reproduces it is the head's smoke file over the PRE-DOC
+# contracts, in a private scratch dir (never the shared scratchpad root, per this very arm's
+# subject):
+#   S=$(mktemp -d "<scratch-root>/ghjig-s158-repro-XXXXXXXX")
+#   git archive HEAD | tar -x -C "$S"                      # head tree, incl. this arm
+#   git show 269323c~1:.claude/agents/code-reviewer.md     > "$S/.claude/agents/code-reviewer.md"
+#   git show 269323c~1:.claude/agents/security-reviewer.md > "$S/.claude/agents/security-reviewer.md"
+#   bash "$S/scripts/test/smoke.sh" 2>&1 | grep 158
 #
 # MUTATION-CHECKED (both against a tree materialised from the Doc commit, both went red):
 #   template → `<scratch-root>/../ghjig-escapes-XXXXXXXX`  → 158c (physical-path residency)
 #   template → `<scratch-root>/ghjig-code-reviewer` (no X) → 158a `collected 1 of 5`; BSD
 #     mktemp accepts an X-less template, so the first run wins the name and the other four
 #     lose the mkdtemp race — the partial collection is exactly the drift 158a exists to name.
+# Both execution-verifying contracts are locked, not just one: #646 AC2 names
+# `security-reviewer` and `code-reviewer` by name, and §4.6 calls the security reviewer's
+# approve the highest-cost one — so its copy of the recipe must not be silently deletable.
+# Deliberately NOT a glob over `.claude/agents/*.md`: the other contracts carry no scratch
+# recipe by design, and a glob would red on every future agent that legitimately has none.
+S158_AGENTS="$SHELL_ROOT/.claude/agents/code-reviewer.md $SHELL_ROOT/.claude/agents/security-reviewer.md"
 S158_AGENT="$SHELL_ROOT/.claude/agents/code-reviewer.md"
 S158_ROOT="$TMP/s158-scratch-root"   # stands in for <scratch-root>; the ONLY dir written to
 S158_OUT="$TMP/s158-collect"         # per-invocation stdout, kept OUT of the minted root
@@ -2984,5 +2998,34 @@ S158_PATHS
   else
     ng "158c: every minted path must be a mode-700 directory under $S158_ROOT — checked $s158_seen of $S158_K, offenders:$s158_bad (#646)"
   fi
+fi
+
+# §158d (coverage lock — the recipe must be present in BOTH execution-verifying contracts).
+# 158a-c extract from code-reviewer.md only, so before this arm the ENTIRE `## Scratch
+# discipline (#646)` section could be deleted from security-reviewer.md and the suite stayed
+# green — measured on PR #657. #646 AC2 names both contracts by name, and §4.6 calls the
+# security reviewer's approve the highest-cost one, so the higher-stakes copy was the
+# unguarded one. Per-file count-guard: each named contract must carry exactly one heading and
+# exactly one extractable template. An absent file fails LOUDLY (named in the ng) rather than
+# grepping to zero and passing.
+s158d_miss=""
+s158d_n=0
+for s158d_f in $S158_AGENTS; do
+  s158d_n=$(( s158d_n + 1 ))
+  s158d_base=$(basename "$s158d_f")
+  if [ ! -f "$s158d_f" ]; then
+    s158d_miss="$s158d_miss ${s158d_base}=ABSENT"
+    continue
+  fi
+  s158d_h=$(grep -c '^## Scratch discipline (#646)$' "$s158d_f" 2>/dev/null || true)
+  s158d_t=$(awk '/^## Scratch discipline \(#646\)$/{f=1;next} /^## /{f=0} f' "$s158d_f" 2>/dev/null \
+              | grep -cE '^S=\$\(mktemp -d "[^"]+"\)$' || true)
+  [ "$s158d_h" = 1 ] || s158d_miss="$s158d_miss ${s158d_base}=headings:${s158d_h}"
+  [ "$s158d_t" = 1 ] || s158d_miss="$s158d_miss ${s158d_base}=templates:${s158d_t}"
+done
+if [ "$s158d_n" -eq 2 ] && [ -z "$s158d_miss" ]; then
+  ok "158d: both execution-verifying contracts carry the scratch recipe — one heading and one extractable template each, checked $s158d_n of 2 (#646)"
+else
+  ng "158d: every execution-verifying contract must carry exactly one '## Scratch discipline (#646)' heading and one mktemp -d template — checked $s158d_n of 2, offenders:$s158d_miss (#646)"
 fi
 
