@@ -111,11 +111,11 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 # observable.
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
-  local cmd="$1" mode="${2:-full}" out
-  command -v python3 >/dev/null 2>&1 || { printf '%s' "$cmd"; return 0; }
-  if out=$(printf '%s' "$cmd" | python3 -c '
+  local cmd="$1" mode="${2:-full}" out tag='__ghjig_frame_660__'
+  out=$(printf '%s' "$cmd" | python3 -c '
 import sys, re
 mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+tag = sys.argv[2] if len(sys.argv) > 2 else ""
 cmd = sys.stdin.read()
 # 1. Strip heredoc bodies (always). Opener is << or <<- + optionally-quoted
 #    delimiter word; <<< is a here-string (same-line operand), not a heredoc.
@@ -184,10 +184,10 @@ if mode == "message":
                     i += 1
             continue
         res.append(s[i]); i += 1
-    sys.stdout.write("".join(res))
+    sys.stdout.write(tag + "".join(res) + tag)
     sys.exit(0)
 if mode != "full":
-    sys.stdout.write(stripped)
+    sys.stdout.write(tag + stripped + tag)
     sys.exit(0)
 # 2. full mode: remove quoted string literals (interior can never be a command word).
 def strip_quotes(s):
@@ -220,13 +220,17 @@ def strip_quotes(s):
 residue = strip_quotes(stripped)
 if residue is None:
     sys.exit(2)                            # ambiguous → caller fail-closes (prints original)
-sys.stdout.write(residue)
+sys.stdout.write(tag + residue + tag)
 sys.exit(0)
-' "$mode" 2>/dev/null); then
-    printf '%s' "$out"
-  else
-    printf '%s' "$cmd"                     # fail-closed: parse error / ambiguity → original
-  fi
+' "$mode" "$tag" 2>/dev/null)
+  # The ONE selector (SPEC §6.1.2): a framed read is the only admissible result.
+  # Its two literal arms consume disjoint positions, so a bare tag, an empty read,
+  # a banner, a truncated write, a stderr-only write and an absent/crashed
+  # interpreter all land on the fall-through — no length test, no presence probe.
+  case $out in
+    "$tag"*"$tag") out=${out#"$tag"}; printf '%s' "${out%"$tag"}" ;;
+    *)             printf '%s' "$cmd" ;;   # fail-closed: unusable output → original
+  esac
 }
 
 # space_glued_separators <cmd> <outvar> — re-separate a GLUED unquoted command
@@ -260,13 +264,10 @@ sys.exit(0)
 # file — so a junk return does not degrade one arm, it replaces the command every
 # downstream arm greps. Pass-through is the only safe failure.
 space_glued_separators() {
-  local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"
-    return
-  fi
-  if _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -c '
+  local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out _sgs_tag='__ghjig_frame_660__'
+  _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -c '
 import sys
+tag = sys.argv[1] if len(sys.argv) > 1 else ""
 s = sys.stdin.read()
 out = []
 i, n = 0, len(s)
@@ -313,12 +314,17 @@ while i < n:
         while i < n and s[i] == " ": i += 1
         continue
     out.append(c); i += 1
-sys.stdout.write("".join(out).strip())
-' 2>/dev/null); then
-    printf -v "$_sgs_outvar" '%s' "$_sgs_out"
-  else
-    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"   # fail-CLOSED: unusable output → unchanged
-  fi
+sys.stdout.write(tag + "".join(out).strip() + tag)
+' "$_sgs_tag" 2>/dev/null)
+  # Same ONE selector as strip_command_data (SPEC §6.1.2). The in-place write makes
+  # the fall-through the only safe answer: $cmd is the arm-entry variable.
+  case $_sgs_out in
+    "$_sgs_tag"*"$_sgs_tag")
+      _sgs_out=${_sgs_out#"$_sgs_tag"}
+      printf -v "$_sgs_outvar" '%s' "${_sgs_out%"$_sgs_tag"}" ;;
+    *)
+      printf -v "$_sgs_outvar" '%s' "$_sgs_cmd" ;;   # fail-CLOSED: unusable → unchanged
+  esac
 }
 
 # push_segments <cmd> — split <cmd> on unquoted command separators
