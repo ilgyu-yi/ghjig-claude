@@ -74,59 +74,48 @@ _escape_token_honored() {
   # because the two TTL sites in this repo fail open on COMPLEMENTARY shapes and
   # neither shape is inferable from the other's rationale.
   #
-  # MEASUREMENT MODE, stated in full because naming only half of it is how the
-  # taxonomy below was got wrong once already: script-file mode (`bash <hook>`)
-  # AND `set -uo pipefail`, the preamble at `pre_tool_use.sh:2` (no `set +u`
-  # anywhere under `.claude/hooks/`). Both halves matter and neither implies the
-  # other. Under `bash -c` the arithmetic error aborts and reports the SAFE
-  # answer — how this class was cleared twice by probing (#635). With nounset
-  # OFF, `abc` reports the HONORED signature instead of the blocking one — how
-  # round 3 of #647's own review got its taxonomy wrong. A mode declaration that
-  # names only the invocation form is half a mode declaration.
+  # MEASUREMENT MODE — both halves, because naming one is how this taxonomy was
+  # got wrong twice: script-file mode (`bash <hook>`) AND `set -uo pipefail`
+  # (`pre_tool_use.sh:2`; no `set +u` under `.claude/hooks/`). Under `bash -c`
+  # the arithmetic error reports the SAFE answer (#635 cleared this class twice
+  # that way); with nounset OFF, `abc` reports HONORED instead of blocking.
+  # Reproduce with a registry entry present — without one `pre_tool_use.sh:37`
+  # `in_scope || exit 0` returns 0 for every input, a green-looking no-measurement.
   #
-  # Two fall-open signatures, measured pre-guard:
-  #   `0<epoch>` octal / `%s` clock — a TRACELESS allow. The arithmetic error
-  #     aborts the ENCLOSING COMPOUND COMMAND, so the honored/blocked decision is
-  #     never reached at all — the calling matcher's arm is silently skipped,
-  #     ZERO audit records are written, the token is LEFT at rest, and the hook
-  #     still exits 0. An escape granted with no evidence it was taken
-  #     (§125-11b). Scope, stated as measured and not wider: control resumes at
-  #     the statement AFTER the aborted compound, so sibling arms below the
-  #     skipped one still run. At the wrapper's own `now=$(date +%s)` read the
-  #     same shape POSTS a stale body.
-  #   empty / `0x<hex>` BELOW `created` — fail-open in the ordinary way: `[`
-  #     reports "integer expression expected", `$(( ))` SUCCEEDS with a negative
-  #     delta which reads as "not stale", and the token is honored and CONSUMED
-  #     with a routine `escape/skip` record (§125-11). At the wrapper this shape
-  #     blocks, but under the misleading `mtime-future` arm name. Measured: empty
-  #     and `0xff` produce IDENTICAL signatures, so hex is NOT a third mechanism.
-  #     Hex is called out because it is the example that refutes a fix framed as
-  #     "catch the arithmetic error": `[` DOES error on hex (rc=2), so
-  #     error-catching would not close it — the honor comes from the SECOND
-  #     condition. Hex ABOVE `created` is not a fall-open at all: the delta is
-  #     large positive and the token BLOCKS (`now=0x1755000000` -> +98455311168).
+  # Three signatures pre-guard, measured:
+  #   `0<epoch>` octal / `%s` — TRACELESS allow. The arithmetic error unwinds
+  #     every enclosing compound AND the function frame, resuming at the next
+  #     TOP-LEVEL statement; the shell does NOT die and the hook still exits 0.
+  #     Token LEFT at rest, ZERO audit records (§125-11b). Here that means the
+  #     honored/blocked decision is never reached AND no later arm in the same
+  #     matcher umbrella fires: control `branch/skip` + `commit-format/deny` = 2
+  #     records; this shape = 0. At the wrapper the same shape POSTS a stale body.
+  #   empty / `0x<hex>` BELOW `created` — HONORED and consumed with a routine
+  #     `escape/skip` record (§125-11): `[` errors, `$(( ))` SUCCEEDS with a
+  #     negative delta that reads as "not stale". Empty and `0xff` are byte-
+  #     identical here, so hex is NOT a third mechanism — it is the example that
+  #     refutes "just catch the arithmetic error", since `[` DOES error on hex
+  #     (rc=2) and the honor comes from the SECOND condition. Hex ABOVE `created`
+  #     BLOCKS (`0x1755000000` -> +98455311168). At the wrapper this row blocks,
+  #     but under the misleading `mtime-future` arm name.
+  #   `abc` — NOT a fall-open. A valid bash identifier, so under `set -u` the
+  #     expansion resolves it as unset and the shell exits 2, which is this
+  #     hook's own block signal (`block()`). Already blocking pre-guard, silently
+  #     and under no arm name; the guard below only makes it explicit.
   #
-  # NOT a fall-open, recorded so it is not mistaken for one: an alphabetic clock
-  # like `abc` is a valid bash identifier, so under `set -u` the arithmetic
-  # expansion resolves it as an unset variable and the shell DIES with exit 2 —
-  # which is this hook's own block signal (`pre_tool_use.sh` `block()`). Probed
-  # through the real `if should_skip …; then … else … fi` path, the sibling
-  # statement never runs. `abc` was already blocking pre-guard, silently and
-  # under no arm name. The guard below turns that into an explicit, consuming
-  # reject; it does not close a hole there, because there was none.
+  # So "non-numeric" was never one class — it spans all three rows, which is why
+  # the guard rejects on SHAPE rather than on any one mechanism.
   #
-  # So "non-numeric" was never one class — it spans all three signatures above,
-  # which is why the guard rejects on SHAPE rather than on any one mechanism.
-  # Threat model, stated honestly: NEITHER site is reachable without a broken or
-  # shimmed `date` — a real `date +%s` emits none of these shapes (measured across
-  # 6 locales x 4 timezones). This is defense in depth in the #635 sense (the
-  # guard is what makes that assumption non-load-bearing), not a live
-  # vulnerability. Read "broken" as covering ACCIDENTS, not only a deliberate
-  # shim: `date` ABSENT from PATH (exit 127 -> empty) and a `date` without `%s`
-  # support both reach these arms with no adversary at all, and both were live
-  # fail-opens before this guard. Leaving the accident paths implicit is how a
-  # later round reads this back as "it needed a deliberate shim, so the guard was
-  # optional".
+  # Threat model: neither site is reachable without a broken or shimmed `date`.
+  # Defense in depth in the #635 sense — the guard is what makes that assumption
+  # non-load-bearing — not a live vulnerability. "Broken" covers ACCIDENTS, and
+  # the two accident paths differ BY SITE, so they are stated per site rather
+  # than merged: a `date` without `%s` support reaches the arms at BOTH. `date`
+  # ABSENT from PATH reaches them HERE (exit 127 -> empty -> the honored row),
+  # but NOT at the wrapper, whose `set -euo pipefail` kills at the assignment
+  # (rc=127) before `now-malformed` is evaluated. Leaving the accident paths
+  # implicit is how a later round reads this back as "it needed a deliberate
+  # shim, so the guard was optional".
   case "$t_created" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
   [ "${#t_created}" -le 11 ] || { rm -f "$tok"; return 1; }
   case "$bind" in *"$t_fp"*) : ;; *) rm -f "$tok"; return 1 ;; esac  # fingerprint not a substring → block
