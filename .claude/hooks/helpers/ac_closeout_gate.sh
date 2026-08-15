@@ -212,9 +212,10 @@ except ValueError:
 # this really is a merge invocation. Returns 1 when the words appear only as
 # DATA — a heredoc body, a quoted `--body`/`-m` value, a commit message — so the
 # merge gates (ac-closeout / merge-strategy) must NOT engage.
-#   FAIL-CLOSED: python3 absent, a strip/parse error, or an unclosed quote →
-#   return 0 (treat as a merge), so a real merge is never let through by a
-#   stripping failure. Deliberate residuals (contrived, and the gate is escapable
+#   FAIL-CLOSED: any strip failure — the enumerated §6.1.2 set (python3 absent,
+#   non-zero exit, exit-0-with-junk, exit-0-partial, stderr-only), a parse error,
+#   or an unclosed quote → return 0 (treat as a merge), so a real merge is never
+#   let through by a stripping failure. Deliberate residuals (contrived, and the gate is escapable
 #   anyway): a merge wrapped in an executed quoted string (`bash -c "gh pr merge
 #   …"`) and a quote-concatenated form (`gh' 'pr' 'merge`) are both stripped and
 #   thus not detected — neither was caught by the pre-#340 coarse grep either.
@@ -225,11 +226,17 @@ is_pr_merge_command() {
   local cmd="$1" stripped
   # Strip heredoc bodies + quoted literals (full mode) via the shared helper
   # (#366 factored this out of the former inline python; behavior preserved).
-  # strip_command_data is fail-closed: python3 absent / unclosed quote / parse
-  # error returns the cmd UNCHANGED, so the grep below still sees a genuine
-  # `gh pr merge` and the gate engages — a stripping failure never lets a real
-  # merge through (#340). If the helper itself is somehow absent, fall back to
-  # the raw cmd (same fail-closed direction).
+  # strip_command_data is fail-closed on OUTPUT VALIDITY, not on exit status or
+  # `command -v python3` presence (SPEC §6.1.2, #660): a degraded python3 in any
+  # of the enumerated forms — absent, non-zero exit, exit-0-with-junk (a banner),
+  # exit-0-partial, stderr-only — plus an unclosed quote or a parse error returns
+  # the cmd UNCHANGED, so the grep below still sees a genuine `gh pr merge` and
+  # the gate engages. Pre-#660 the selector was rc-only, so an exit-0 banner was
+  # returned AS the stripped command, the grep below missed, and this predicate
+  # reported a real merge as non-merge — every arm that gates on this predicate
+  # (ac-closeout, merge-strategy, push-parity, merge-review, merge-completeness)
+  # then allowed the merge instead of engaging. If the helper itself is
+  # somehow absent, fall back to the raw cmd (same fail-closed direction).
   if command -v strip_command_data >/dev/null 2>&1; then
     stripped=$(strip_command_data "$cmd")
   else

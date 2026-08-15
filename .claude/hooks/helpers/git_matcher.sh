@@ -77,11 +77,38 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 #   "full" (default) — strip heredoc bodies AND all quoted literals. For
 #     is_pr_merge_command (#340), which must see through a quoted
 #     `--body "…gh pr merge…"`; #340 already accepts the quote-obfuscation residual.
-# FAIL-CLOSED: python3 absent, an unclosed quote (full OR message mode), or any
-# parse error prints the cmd UNCHANGED (return 0) — the caller's grep then runs
+# FAIL-CLOSED — and the contract is keyed on OUTPUT VALIDITY, never on the
+# interpreter's exit status and never on a `command -v python3` presence probe
+# (SPEC §6.1.2, #660). One enumerated set, decided by one test: python3 ABSENT,
+# a NON-ZERO exit, EXIT-0-WITH-JUNK on stdout (a site/venv/PYTHONSTARTUP banner
+# printed ahead of or instead of the payload), an EXIT-0 PARTIAL write, output
+# on STDERR with stdout empty, an unclosed quote (full OR message mode), or any
+# parse error → print the cmd UNCHANGED (return 0). The caller's grep then runs
 # against the full command, so a token that should block is never stripped away
 # by a failure (a missed message-elision degrades to today's recoverable
-# false-trip; it never over-strips a genuine target).
+# false-trip; it never over-strips a genuine target). An rc-only selector decides
+# only the first two of those and RETURNS THE JUNK for the rest — that was the
+# #660 defect: the arm's entry-grep missed and the arm never ran at all.
+# HOW the validity test works: a stripper's output is arbitrary shell text, so no
+# predicate over the output alone can tell a legitimate result from a banner —
+# validity needs a PROTOCOL, not a shape test. The interpreter frames its payload
+# between a CONSTANT tag before and after; the single glob `case $out in
+# "$tag"*"$tag")` admits it and the tags are then stripped off. That one glob
+# subsumes a length test (its two literal arms consume disjoint positions, so a
+# bare tag or an empty read cannot match), and every enumerated outcome above
+# lands on the same fall-through branch — which is why there is deliberately NO
+# `command -v python3` gate here (a probe whose only distinct outcome the frame
+# check already rejects). Constant, not random: the tag is handed to the
+# interpreter as argv, so a hostile python3 can echo it back at any entropy while
+# a merely degraded one cannot forge it at zero — the modeled failure is ACCIDENT,
+# not adversary.
+# RESIDUAL (disclosed): the frame changes the RAW (non-`$( )`) return for a
+# command ending in newlines — the tags protect trailing newlines that command
+# substitution used to eat. All 8 call sites (pre_tool_use.sh ×7,
+# ac_closeout_gate.sh ×1) wrap this helper in `$( )`, which strips them again, so
+# behaviour at the caller boundary is byte-identical (30/30 measured). A future
+# caller that reads the return WITHOUT `$( )` is the one place that residual is
+# observable.
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
   local cmd="$1" mode="${2:-full}" out
@@ -217,9 +244,21 @@ sys.exit(0)
 # elision; no over-block). The separator set mirrors push_segments' awk regex.
 #
 # Idempotent: an already-spaced separator is normalized to single spaces, not
-# doubled. python3-absent → pass-through no-op: on that path parse_env_prefix
-# does NOT fold (it passes $cmd through unchanged), so the glued verb stays
-# intact for the entry-grep and there is nothing to repair.
+# doubled.
+#
+# FAIL-CLOSED on OUTPUT VALIDITY, same convention and same constant-tag frame as
+# strip_command_data above (SPEC §6.1.2, #660): the enumerated set — python3
+# absent, non-zero exit, exit-0-with-junk, exit-0-partial, stderr-only — all
+# write $_sgs_cmd through UNCHANGED, and none of them is decided by exit status
+# or by a `command -v python3` probe. The pre-#660 header argued safety from
+# python3 ABSENT only ("pass-through no-op: parse_env_prefix does not fold on
+# that path, so the glued verb stays intact and there is nothing to repair").
+# That argument is sound for absence and IRRELEVANT to exit-0-with-junk, which
+# takes the SUCCESS branch: the junk is written into the caller's variable. This
+# helper is invoked as `space_glued_separators "$cmd" cmd` (pre_tool_use.sh:157)
+# — an IN-PLACE write to $cmd, the arm-entry variable with 74 references in that
+# file — so a junk return does not degrade one arm, it replaces the command every
+# downstream arm greps. Pass-through is the only safe failure.
 space_glued_separators() {
   local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out
   if ! command -v python3 >/dev/null 2>&1; then
@@ -278,7 +317,7 @@ sys.stdout.write("".join(out).strip())
 ' 2>/dev/null); then
     printf -v "$_sgs_outvar" '%s' "$_sgs_out"
   else
-    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"   # fail-open: parse error → unchanged
+    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"   # fail-CLOSED: unusable output → unchanged
   fi
 }
 
