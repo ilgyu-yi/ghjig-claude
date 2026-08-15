@@ -744,28 +744,157 @@ else
   ng "148h-ord: contracted order must be stat→slurp→re-stat→unlink→POST (pre=$s148h_pre post-mt=$s148h_postmt slurp=$s148h_slurp_ln lastmt=$s148h_lastmt rm=$s148h_rm_ln post=$s148h_post_ln) (#633)"
 fi
 
-# §148h-fc (regression lock — must stay GREEN): a fail-closed guard naming the reject
-# conditions sits ABOVE the reviews POST. Fail-closed-before-POST is invariant across #602 and
-# #633; only the arm set grows.
-s148h_guard_ln=$(grep -nEi '(empty|absent|stale|malformed|symlink|mismatch).*(fail|deny|exit)|(fail|deny|exit).*(empty|absent|stale|malformed|symlink|mismatch)' "$S148_WRAP_FILE" 2>/dev/null | head -1 | cut -d: -f1)
-if [ -n "$s148h_guard_ln" ] && [ -n "$s148h_post_ln" ] && [ "$s148h_guard_ln" -lt "$s148h_post_ln" ]; then
-  ok "148h-fc: fail-closed guard (L$s148h_guard_ln) precedes the POST (L$s148h_post_ln) (#602, #633)"
+# §148h-fc (LOAD-BEARING RED until Code, #647): EVERY fail-closed guard line sits ABOVE the
+# reviews POST, and the wrapper's reject-arm INVENTORY is complete by name.
+#
+# The old form took only the FIRST match (`head -1`) and so could not detect the removal of any
+# arm but the first — the #635 deletion of the `0*` mtime arm left it green. Widened here on two
+# axes, and both limits are recorded honestly because a later round would otherwise rediscover
+# them by hand:
+#   (a) position — comment-filtered (`:146` is a full-line comment that matches the keyword set,
+#       so the unfiltered grep was reading prose as code), every match must precede the POST.
+#       Measured: predicate (a) ALONE stays green even with the entire staging-validation block
+#       deleted, because the surviving symlink/marker/head arms still precede the POST. It pins
+#       ORDER, not existence.
+#   (b) existence — each contracted arm name appears as a `deny <name>` call. This is the limb
+#       that reds when the block is deleted (10 of the 17 names vanish). It still cannot see the
+#       removal of the `0*` ALTERNATIVE from a surviving arm, because the arm NAME survives —
+#       only the behavioural §148j-oct-mt catches that. Source greps and behavioural locks are
+#       complementary here, not redundant.
+# The inventory is SPEC §5.29's, by name rather than by count: a count is what drifted (it read
+# "all three mtime arms" against five) and a count cannot say WHICH arm went missing.
+s148h_arms="symlink-dir symlink-leaf staging-absent staging-irregular staging-unreadable
+staging-empty mtime-unresolvable mtime-changed mtime-malformed now-malformed mtime-future stale
+marker-count marker-head-absent marker-head-mismatch local-head-unresolvable local-head-mismatch"
+s148h_guard_lns=$(grep -nEi '(empty|absent|stale|malformed|symlink|mismatch).*(fail|deny|exit)|(fail|deny|exit).*(empty|absent|stale|malformed|symlink|mismatch)' "$S148_WRAP_FILE" 2>/dev/null \
+                    | grep -vE '^[0-9]+:[[:space:]]*#' | cut -d: -f1)
+s148h_fc_n=0; s148h_fc_after=0
+for s148h_l in $s148h_guard_lns; do
+  s148h_fc_n=$((s148h_fc_n + 1))
+  { [ -n "$s148h_post_ln" ] && [ "$s148h_l" -lt "$s148h_post_ln" ]; } || s148h_fc_after=$s148h_l
+done
+s148h_fc_miss=""
+for s148h_arm in $s148h_arms; do
+  grep -nE "deny $s148h_arm " "$S148_WRAP_FILE" 2>/dev/null | grep -qvE '^[0-9]+:[[:space:]]*#' || s148h_fc_miss="$s148h_fc_miss $s148h_arm"
+done
+if [ "$s148h_fc_n" -gt 0 ] && [ "$s148h_fc_after" = 0 ] && [ -z "$s148h_fc_miss" ]; then
+  ok "148h-fc: all $s148h_fc_n fail-closed guard lines precede the POST (L$s148h_post_ln) and every contracted reject arm is present by name (#602, #633, #647)"
 else
-  ng "148h-fc: wrapper must fail closed before the reviews POST (guard=$s148h_guard_ln post=$s148h_post_ln) (#602, #633)"
+  ng "148h-fc: every fail-closed guard must precede the reviews POST and the SPEC §5.29 arm inventory must be complete (guards=$s148h_fc_n after-post=$s148h_fc_after post=$s148h_post_ln missing:$s148h_fc_miss) (#647)"
+fi
+
+# §148h-p4 (LOAD-BEARING RED until Code, #647): every reject arm reachable by a plausible HONEST
+# MISTAKE names its own recovery, in the shape the `stale` arm already uses — an em dash followed
+# by an imperative (SPEC §6.0 P4, arm-scoped). `stale` is included as the template anchor, so the
+# shape this lock demands cannot drift away from the one instance of it that exists.
+# The two symlink arms are EXEMPT by contract, not by oversight: a symlinked staging leaf is
+# hostile input, there is no honest recovery to name, and drafting one would only coach the
+# attempt (SPEC §5.29).
+s148h_p4_miss=""
+for s148h_arm in staging-irregular staging-unreadable staging-empty now-malformed stale; do
+  grep -nE "deny $s148h_arm " "$S148_WRAP_FILE" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | grep -q '—' \
+    || s148h_p4_miss="$s148h_p4_miss $s148h_arm"
+done
+if [ -z "$s148h_p4_miss" ]; then
+  ok "148h-p4: every honest-mistake reject arm carries its own recovery clause; the symlink arms stay terse as hostile input (#647)"
+else
+  ng "148h-p4: honest-mistake arms must name their recovery in the shape 'stale' uses (bare:$s148h_p4_miss) (#647)"
+fi
+
+# §148h-doc (Doc-phase-confirming — GREEN since the Doc commit): SPEC §5.29 states the wrapper's
+# reject set as the same inventory §148h-fc reads off the script, each name as a BACKTICKED code
+# span. The backticks are load-bearing: `stale` occurs bare on dozens of SPEC lines as ordinary
+# prose, so a bare-name grep would be satisfied by narration and this limb would be vacuous.
+# The command doc carries the three arms that were absent from both surfaces (#647 AC 4).
+# SCOPED TO THE ENUMERATION — not the file, and not the whole line either. Two narrowings, each
+# measured the only way that settles it: delete every one of the 17 names in turn from the
+# evaluation-order list and count which deletions this limb cannot see.
+#   whole-file grep    -> 6 of 17 invisible. Five (`staging-irregular`, `staging-unreadable`,
+#                         `staging-empty`, `now-malformed`, `stale`) are also backticked in the
+#                         §5.29 recovery sentence; `mtime-malformed` is the sixth. (This measurement
+#                         predates #647's Doc commit, which removed FOUR of those five from §6.0 P4.
+#                         `stale` is still there, deliberately, as the shape template. The count
+#                         holds via the §5.29 sentence alone either way.)
+#   whole-LINE grep    -> 2 of 17 invisible (`staging-irregular`, `mtime-malformed`). The anchor
+#                         line NARRATES those two as backticked spans in addition to enumerating
+#                         them, so the line carries its own neighbour. That is also why
+#                         `mtime-malformed` was invisible to the whole-file form: BOTH of its
+#                         occurrences are on this one line, so line-scoping removed nothing for it.
+#   enumeration only   -> 0 of 17. Measured, not argued.
+# A colour-only mutation check could not have caught the middle step: the five-name deletion went
+# RED there while naming only four, because `staging-irregular` was masked inside it. Assert WHICH
+# names the red reports, never just that it went red.
+# Two anchors, occurrence count 1 each, each failing closed with its own diagnostic token: the
+# sentence anchor locates the line, the `The arms, in evaluation order:` lead-in cuts the
+# enumeration out of it. Absent anchor => fail closed, never a silent whole-file fallback.
+# Neither anchor pins the sentence BODY — rewriting the narration clause wholesale leaves this limb
+# GREEN (measured). That is the ceiling: an anti-drift lock, not a rename tax.
+# Residual, accepted rather than papered over: when the lead-in anchor is absent the diagnostic
+# token leads the message but all 17 names still trail it as false "missing" entries. Fail-closed
+# and diagnostic-first, so it is noise on a run that is already red.
+s148h_bt='`'
+s148h_doc_miss=""
+s148h_inv_ln=$(grep -nF 'The inventory is stated by name, not by count' "$SHELL_ROOT/SPEC.md" 2>/dev/null | head -1 | cut -d: -f1)
+if [ -z "$s148h_inv_ln" ]; then
+  s148h_doc_miss=" <inventory-sentence-anchor-absent>"
+else
+  s148h_inv=$(sed -n "${s148h_inv_ln}p" "$SHELL_ROOT/SPEC.md" | sed -n 's/.*The arms, in evaluation order://p')
+  [ -n "$s148h_inv" ] || s148h_doc_miss=" <inventory-enumeration-lead-in-absent>"
+  for s148h_arm in $s148h_arms; do
+    printf '%s' "$s148h_inv" | grep -qF "$s148h_bt$s148h_arm$s148h_bt" \
+      || s148h_doc_miss="$s148h_doc_miss $s148h_arm"
+  done
+fi
+s148h_doc_cmd_miss=""
+for s148h_arm in staging-irregular mtime-malformed now-malformed; do
+  grep -qF "$s148h_arm" "$SHELL_ROOT/.claude/commands/file-review.md" 2>/dev/null \
+    || s148h_doc_cmd_miss="$s148h_doc_cmd_miss $s148h_arm"
+done
+if [ -z "$s148h_doc_miss" ] && [ -z "$s148h_doc_cmd_miss" ]; then
+  ok "148h-doc: SPEC §5.29 names every wrapper reject arm as a code span and the command doc names the staging-irregular / mtime-malformed / now-malformed arms (#647)"
+else
+  ng "148h-doc: the doc enumerations must name every arm (SPEC missing:$s148h_doc_miss command-doc missing:$s148h_doc_cmd_miss) (#647)"
+fi
+
+# §148h-ttl2 (Doc-phase-confirming — GREEN since the Doc commit): SPEC §7 records the rule BOTH
+# TTLs rest on — the check validates both of its operands, the stored timestamp AND the clock
+# reading it is compared against, and an out-of-range value on either fail-safe-blocks and
+# consumes the token. A comparison against an unvalidated clock is not a TTL (#647 AC 8).
+if grep -qF 'validates both of its operands' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qF 'an out-of-range value on **either** operand fail-safe-blocks **and consumes the token**' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "148h-ttl2: SPEC §7 binds the TTL to BOTH operands — an out-of-range clock reading blocks and consumes, like an out-of-range created (#647)"
+else
+  ng "148h-ttl2: SPEC §7 must state that the TTL validates both operands and that either out of range blocks + consumes (#647)"
 fi
 
 # §148i-del (LOAD-BEARING RED — the deletion is complete): the retired writer script is GONE
 # and its basename survives NOWHERE in the AC-named surfaces (SPEC.md, .claude/commands/,
 # scripts/, scripts/test/). A surviving reference is either a dangling doc pointer or a live
 # call site that would fail at runtime.
+#
+# `.claude/hooks` joins the roots, and a PHRASE lock joins the basename lock (#647). Both close
+# the same measured blind spot: `hookrt.sh` described the writer in the PRESENT TENSE for two
+# releases after it was deleted, and neither the old root set nor the basename grep could see it
+# — the comment named the writer in prose, never by filename. The phrase arm exempts lines that
+# already qualify the reference as `retired`/`deleted`, which is how a comment is allowed to keep
+# explaining the history without asserting the writer still exists.
+# The phrase limb reads the SAME root set as the basename limb (`.claude/hooks`, recursive), not
+# `hookrt.sh` alone. It was hard-scoped to that one file while the basename roots were being
+# widened, so a present-tense description in any OTHER hook file was invisible to both limbs even
+# though the case comment claimed both closed the blind spot. Deliberately NOT widened past
+# `.claude/hooks` to `SPEC.md`/`scripts/`: "stage writer" appears there in legitimate historical
+# narration, where the `retired|deleted` exemption would be carrying the entire load.
 s148i_del_gone=0; [ -e "$S148_STAGE_FILE" ] || s148i_del_gone=1
 s148i_del_refs=$(grep -rlF "$S148_STAGE_BASE" \
                    "$SHELL_ROOT/SPEC.md" "$SHELL_ROOT/.claude/commands" "$SHELL_ROOT/scripts" \
+                   "$SHELL_ROOT/.claude/hooks" \
                    2>/dev/null | grep -c . || true)
-if [ "$s148i_del_gone" = 1 ] && [ "$s148i_del_refs" = 0 ]; then
-  ok "148i-del: the retired stage writer is deleted and referenced nowhere in SPEC.md / .claude/commands / scripts (refs=$s148i_del_refs) (#633)"
+s148i_del_phrase=$(grep -rniE 'stage writer' "$SHELL_ROOT/.claude/hooks" 2>/dev/null \
+                     | grep -viE 'retired|deleted' | grep -c . || true)
+if [ "$s148i_del_gone" = 1 ] && [ "$s148i_del_refs" = 0 ] && [ "$s148i_del_phrase" = 0 ]; then
+  ok "148i-del: the retired stage writer is deleted, referenced nowhere in SPEC.md / .claude/commands / scripts / .claude/hooks, and no file under .claude/hooks describes it in the present tense (refs=$s148i_del_refs) (#633, #647)"
 else
-  ng "148i-del: the stage writer must be deleted with no surviving reference (present=$((1 - s148i_del_gone)) refs=$s148i_del_refs) (#633)"
+  ng "148i-del: the stage writer must be deleted with no surviving reference and no present-tense description anywhere under .claude/hooks (present=$((1 - s148i_del_gone)) refs=$s148i_del_refs unqualified-phrases=$s148i_del_phrase) (#647)"
 fi
 
 # §148i-set (LOAD-BEARING RED — allow-surface parity + anti-return lock): NEITHER settings file
@@ -952,15 +1081,24 @@ s148j_mtime() {  # $1=BSD offset (e.g. -120S)   $2=GNU phrase (e.g. '120 seconds
   s148j_ts=$(date -v"$1" +%Y%m%d%H%M.%S 2>/dev/null || date -d "$2" +%Y%m%d%H%M.%S)
   touch -t "$s148j_ts" "$S148J_SF" 2>/dev/null || true
 }
-s148j_post() { ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S148J_PROJ" \
-                   && CLAUDE_PROJECT_DIR="$S148J_PROJ" PATH="$S148J_BIN:$PATH" \
+# The optional $1 is a case-private shim directory prepended to PATH for THIS CALL ONLY (#647).
+# A positional PARAMETER, not an ambient variable, on purpose: a parameter has no lifetime past
+# the call, so shim leakage into a later case is structurally impossible rather than something a
+# future editor has to remember to clear. That is not theoretical — a leaked `stat`/`date` shim
+# was measured to turn a REAL guard deletion from red to green in the downstream cases, silently
+# defanging eight `posts==0` assertions. Every pre-#647 call site passes no argument, so `${1:-}`
+# is empty and PATH is byte-identical to the pre-seam form.
+s148j_post() { local _shim="${1:-}"; ( unset GHJIG_STATE_DIR_OVERRIDE; cd "$S148J_PROJ" \
+                   && CLAUDE_PROJECT_DIR="$S148J_PROJ" PATH="${_shim:+$_shim:}$S148J_BIN:$PATH" \
                       GH_SHIM_STATE="$S148J_ST" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
                       bash "$S148_WRAP_FILE" </dev/null ) >/dev/null 2>&1 || true; }
 # The same call with CLAUDE_PROJECT_DIR UNSET — the live Bash-tool shape (hookrt.sh:95-97),
 # where ghjig_state_dir_cli falls to the git-top-level branch and audit_log's own
 # ghjig_state_dir would resolve EMPTY without an explicit env prefix.
-s148j_post_nopd() { ( unset GHJIG_STATE_DIR_OVERRIDE CLAUDE_PROJECT_DIR; cd "$S148J_PROJ" \
-                        && PATH="$S148J_BIN:$PATH" GH_SHIM_STATE="$S148J_ST" \
+# It carries the same optional shim parameter for parity of the two drivers; no case uses it
+# today, so it is offered as a seam and claimed as nothing more.
+s148j_post_nopd() { local _shim="${1:-}"; ( unset GHJIG_STATE_DIR_OVERRIDE CLAUDE_PROJECT_DIR; cd "$S148J_PROJ" \
+                        && PATH="${_shim:+$_shim:}$S148J_BIN:$PATH" GH_SHIM_STATE="$S148J_ST" \
                            GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
                            bash "$S148_WRAP_FILE" </dev/null ) >/dev/null 2>&1 || true; }
 
@@ -998,6 +1136,99 @@ s148j_reset; s148j_write; s148j_mtime +120S '120 seconds'
 s148j_post; s148j_p=$(s148j_posts)
 if [ "$s148j_p" = 0 ]; then ok "148j-future: future-dated mtime → NO reviews POST (fail-closed) (#602, #633)"
 else ng "148j-future: a future-dated staging body must not POST (posts=$s148j_p) (#633)"; fi
+
+# ---------- §148j-oct: both operands of the TTL subtraction, locked behaviourally (#647) -------
+# The wrapper's freshness check is `[ "$(( now - mt1 ))" -le 60 ] || deny stale`. An operand that
+# is not a plain epoch makes that arithmetic expansion FAIL, and a failed expansion does not fail
+# the `[ … ] || deny` list — it SKIPS the list, so the freshness check is never evaluated and
+# execution reaches the POST. Both operands therefore need the same guard; one of them has had it
+# since #635 and the other has never had it.
+#
+# Script-file mode is load-bearing, not incidental: run as a script the arithmetic error prints
+# and control continues (the defect); the identical statements under `bash -c` abort and show the
+# SAFE behaviour, which is how the guard came to be cleared twice by probing (#635). The §148j
+# driver already invokes `bash "$S148_WRAP_FILE"`, which is the mode the defect lives in.
+#
+# The shim constants are BAKED at case setup rather than read live inside the shim: the wrapper
+# calls fr_mtime twice and requires mt1 == mt2, so a live-clock `stat` shim can flake into the
+# `mtime-changed` arm and green for a reason the case does not name. Each shim gets its own
+# directory, handed to the driver as a call-scoped positional parameter.
+S148J_OCT="$S148J_DIR/oct"
+mkdir -p "$S148J_OCT/mt-bad" "$S148J_OCT/mt-ok" "$S148J_OCT/now-bad" "$S148J_OCT/now-ok"
+s148j_real_stat=$(command -v stat 2>/dev/null || echo /usr/bin/stat)
+s148j_real_date=$(command -v date 2>/dev/null || echo /bin/date)
+# Answer only for the staging path and exec the real binary otherwise. That scoping is hardening,
+# not what makes the case valid (a blunt shim discriminates identically) — it keeps a future
+# `stat` consumer inside the wrapper subshell reading the truth.
+s148j_mk_stat() {  # $1=shim dir  $2=mtime string the shim reports for the staging file
+  cat > "$1/stat" <<STATSHIM
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = "$S148J_SF" ] && { echo "$2"; exit 0; }
+done
+exec "$s148j_real_stat" "\$@"
+STATSHIM
+  chmod +x "$1/stat"
+}
+# Intercept `+%s` ONLY: audit_log stamps its records with `date -u +%FT%TZ`, and a shim that also
+# captured that would make a reject unobservable for a reason the case does not name.
+s148j_mk_date() {  # $1=shim dir  $2=prefix prepended to the real epoch for `date +%s`
+  cat > "$1/date" <<DATESHIM
+#!/bin/sh
+[ "\$1" = "+%s" ] && { echo "$2\$("$s148j_real_date" +%s)"; exit 0; }
+exec "$s148j_real_date" "\$@"
+DATESHIM
+  chmod +x "$1/date"
+}
+
+# 148j-oct-mt (regression lock — must stay GREEN; AC 1): a leading-zero staging mtime is rejected
+# as `mtime-malformed` → NO POST. This is the behavioural lock the restored `0*` arm had none of:
+# with that one alternative removed, this exact input publishes a ten-minute-stale body. It has
+# to be behavioural, because a source grep is what failed — §148h-fc greens on a `0*`-removed
+# wrapper too, since the arm NAME survives the edit.
+s148j_mk_stat "$S148J_OCT/mt-bad" "0$(( $(date +%s) - 600 ))"
+s148j_reset; s148j_write
+s148j_post "$S148J_OCT/mt-bad"; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 0 ]; then ok "148j-oct-mt: a leading-zero staging mtime is rejected before the TTL arithmetic → NO reviews POST (#647)"
+else ng "148j-oct-mt: a leading-zero staging mtime must not reach the POST (posts=$s148j_p) (#647)"; fi
+
+# 148j-oct-mt-ok (non-vacuity half of §148j-oct-mt; AC 2): the identical shim mechanism reporting
+# a PLAIN epoch inside the TTL still posts, so the lock above cannot pass by blocking everything.
+s148j_mk_stat "$S148J_OCT/mt-ok" "$(( $(date +%s) - 5 ))"
+s148j_reset; s148j_write
+s148j_post "$S148J_OCT/mt-ok"; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 1 ]; then ok "148j-oct-mt-ok: the same stat shim reporting a plain in-TTL epoch still POSTs once — the mtime lock rejects the shape, not the shim (#647)"
+else ng "148j-oct-mt-ok: a plain in-TTL mtime must still POST under the stat shim (posts=$s148j_p) (#647)"; fi
+
+# 148j-oct-now (LOAD-BEARING RED until Code; AC 3): the TTL's OTHER operand. `now=$(date +%s)`
+# feeds the same subtraction, so a leading-zero CLOCK reading breaks it identically — and the
+# staging mtime here is an ordinary ten-minute-stale epoch that the `stale` arm exists to reject.
+# A guard on one operand and none on its twin is the asymmetry this lock closes: what the TTL
+# compares against has to be validated to the same standard as what it compares.
+s148j_mk_date "$S148J_OCT/now-bad" 0
+s148j_reset; s148j_write; s148j_mtime -600S '600 seconds ago'
+s148j_post "$S148J_OCT/now-bad"; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 0 ]; then ok "148j-oct-now: a leading-zero clock reading is rejected before the TTL arithmetic → a stale body gets NO reviews POST (#647)"
+else ng "148j-oct-now: a malformed clock reading must not carry a stale body past the TTL to the POST (posts=$s148j_p) (#647)"; fi
+
+# 148j-oct-now-ok (non-vacuity half of §148j-oct-now): the identical shim mechanism emitting a
+# plain epoch still posts a fresh body, so the clock lock rejects the shape, not the shim.
+s148j_mk_date "$S148J_OCT/now-ok" ""
+s148j_reset; s148j_write
+s148j_post "$S148J_OCT/now-ok"; s148j_p=$(s148j_posts)
+if [ "$s148j_p" = 1 ]; then ok "148j-oct-now-ok: the same date shim emitting a plain epoch still POSTs a fresh body once (#647)"
+else ng "148j-oct-now-ok: a plain clock reading must still POST a fresh body under the date shim (posts=$s148j_p) (#647)"; fi
+
+# 148j-canary (anti-vacuity backstop for the shim seam): the SHARED $S148J_BIN that every §148j
+# case reads still holds exactly the `gh` shim after the four cases above. Each of those handed
+# its shim to the driver as a call-scoped parameter; a shim that ever landed in the shared dir
+# instead would stay on PATH for the rest of the family, where a `stat`/`date` answer of its own
+# can turn a real guard deletion green and silently defang eight `posts == 0` assertions. Safe
+# against §148j-restat's transient `cat` shim below — nothing resets between its create and its
+# removal, so this canary never sees it.
+s148j_bin_ls=$(ls "$S148J_BIN" 2>/dev/null | sort | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+if [ "$s148j_bin_ls" = "gh" ]; then ok "148j-canary: the shared §148j shim dir holds exactly the gh shim — every case-private shim stayed call-scoped (#647)"
+else ng "148j-canary: a case-private shim leaked into the shared §148j shim dir (contents='$s148j_bin_ls') (#647)"; fi
 
 # 148j-restat (NEW): the freshness check must certify the bytes actually POSTED. A concurrent
 # rewrite between the pre-slurp stat and the read is simulated by a `cat` shim that bumps the

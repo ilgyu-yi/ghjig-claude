@@ -146,10 +146,15 @@ sf="$frdir/staging"
 # Fail closed BEFORE any read if the staging file is absent/irregular/unreadable/
 # empty. The absent message NAMES THE ABSOLUTE PATH so a caller/wrapper path
 # divergence is a diagnosable error rather than a silent park (SPEC §5.7.1).
+# The three arms below the absent one are reachable by an HONEST MISTAKE, so each names its
+# own recovery — em dash plus imperative, the shape `stale` below already uses
+# (SPEC §6.0 P4, arm-scoped). The two symlink arms above stay deliberately terse:
+# a symlinked staging leaf is hostile input, and drafting a recovery for it would
+# only coach the attempt.
 [ -e "$sf" ] || deny staging-absent "no staged review body at $sf (nothing was written there)"
-[ -f "$sf" ] || deny staging-irregular "staged review body is not a regular file ($sf)"
-[ -r "$sf" ] || deny staging-unreadable "staged review body is unreadable ($sf)"
-[ -s "$sf" ] || deny staging-empty "empty staged review body ($sf)"
+[ -f "$sf" ] || deny staging-irregular "staged review body is not a regular file ($sf) — re-stage the body as a plain file and re-invoke"
+[ -r "$sf" ] || deny staging-unreadable "staged review body is unreadable ($sf) — restore read permission on the staging file and re-invoke"
+[ -s "$sf" ] || deny staging-empty "empty staged review body ($sf) — re-write the staging file with the review body and re-invoke"
 
 # stat -> slurp -> stat (equal) -> one-shot unlink -> validate -> POST.
 # The mtime is read BEFORE the slurp and AGAIN after it, and the two must be
@@ -186,6 +191,16 @@ rm -f "$sf"
 case "$mt1" in ''|0*|*[!0-9]*) deny mtime-malformed "implausible staging file mtime ($mt1) — re-stage the body so its mtime is a plain epoch" ;; esac
 [ "${#mt1}" -le 11 ] || deny mtime-malformed "implausible staging file mtime ($mt1)"
 now=$(date +%s)
+# The TTL's OTHER operand, guarded to the SAME standard as `mt1` just above
+# (#647). `now` feeds the identical $(( now - mt1 )), so a malformed clock reading
+# breaks that expansion exactly as a malformed mtime does — and the fall-through
+# lands on the POST with a stale body. A comparison against an unvalidated clock
+# is not a TTL. This arm carries its OWN name rather than reusing `mtime-*`:
+# nothing about the staged body is wrong here, so a `mtime-*` reject would send
+# the author to re-stage a body that is already fine. It is also what an all-digit
+# over-length `now` used to report — fail-closed, but under a misleading name.
+case "$now" in ''|0*|*[!0-9]*) deny now-malformed "implausible clock reading ($now) — restore a plain-epoch 'date +%s' on PATH, re-stage the body, and re-invoke" ;; esac
+[ "${#now}" -le 11 ] || deny now-malformed "implausible clock reading ($now)"
 [ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now)"
 [ "$(( now - mt1 ))" -le 60 ] || deny stale "stale staged review body (mtime older than the 60s TTL) — re-write the staging file and re-invoke this wrapper within 60s"
 
@@ -209,7 +224,7 @@ marker_count=0
 # reads `commit_id` off the review object and only `verdict` from the marker.
 # Arm 1 — the marker's head= IS the remote head the review was performed against.
 marker_head=$(printf '%s' "$markers" | sed -nE 's/.*head=([^[:space:]]+) reviewer=.*/\1/p')
-[ -n "$marker_head" ] || deny marker-head-absent "could not read head= from the staged body's marker — re-write the marker in the canonical form and re-invoke"
+[ -n "$marker_head" ] || deny marker-head-absent "could not read head= from the staged body's marker — re-write the staging file with the marker in its canonical form and re-invoke"
 [ "$marker_head" = "$head_sha" ] \
   || deny marker-head-mismatch "marker head ($marker_head) != resolved PR head ($head_sha) — the PR head advanced since the review; re-run /file-review at the new head"
 # Arm 2 — the shell-authored belt: the local checkout must sit on that same head.
@@ -217,9 +232,9 @@ marker_head=$(printf '%s' "$markers" | sed -nE 's/.*head=([^[:space:]]+) reviewe
 # not anti-forge: the marker is agent-authored, so anti-forge integrity stays at
 # the `merge-review` gate.
 local_head=$(git rev-parse HEAD 2>/dev/null) || local_head=""
-[ -n "$local_head" ] || deny local-head-unresolvable "could not resolve the local git HEAD — run from inside the PR's checkout and re-invoke"
+[ -n "$local_head" ] || deny local-head-unresolvable "could not resolve the local git HEAD — run from inside the PR's checkout, re-stage the body, and re-invoke"
 [ "$local_head" = "$head_sha" ] \
-  || deny local-head-mismatch "local HEAD ($local_head) != resolved PR head ($head_sha) — check out the PR head (git pull --ff-only) and re-invoke"
+  || deny local-head-mismatch "local HEAD ($local_head) != resolved PR head ($head_sha) — check out the PR head (git pull --ff-only), re-stage the body, and re-invoke"
 
 # Post the self COMMENT review, pinned to the current head. `event=COMMENT` is
 # hardcoded; the in-memory body travels via `-F body=@-` (read as a string).
