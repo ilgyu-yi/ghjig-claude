@@ -2875,3 +2875,187 @@ else
   ng "157z: finding-judge must add no merge gate — pre_tool_use.sh mentions=$s157_hookhit (expected 0), should_skip categories=$s157_cats (expected 20) (#645)"
 fi
 
+# ---------- §158: the reviewer scratch recipe is a REAL isolation primitive (#646) ----------
+# SPEC §1.5 / §4.11 name a SECOND isolation axis: worktree isolation separates git TREES, it
+# does not separate the session SCRATCHPAD, which every subagent of a session shares by path.
+# What ships against that is a recipe inside the reviewer contracts — no helper script, by
+# measured decision — so the only thing that can rot is the recipe itself. This arm therefore
+# locks no PROSE: it EXTRACTS each contract's own `mktemp -d` command out of BOTH
+# `.claude/agents/code-reviewer.md` and `.claude/agents/security-reviewer.md` and RUNS it,
+# K-way concurrently, per contract, then asserts the property
+# the contract claims for it ("`mktemp -d`'s `O_EXCL` retry is what makes two concurrent
+# invocations unable to receive the same path"), plus 0700 and directory-ness. Doc↔behaviour,
+# not doc↔doc: the contract's own command must actually produce what the contract advertises.
+#
+# WHY A GREEN HERE IS NOT A VACUOUS PASS. Because the command is read FROM the contract, this
+# arm turns green the instant the Doc commit is in the tree — so its RED lives one commit
+# earlier, and was verified there rather than asserted. At the pre-Doc base (269323c~1),
+#   grep -n "mktemp\|scratch" .claude/agents/code-reviewer.md .claude/agents/security-reviewer.md
+# returns NOTHING; the extraction below then finds no command, the K runs of `mktemp -d ""`
+# all fail, and 158a fails with `collected 0 of 5` naming `extracted template=<none: ...>` —
+# a LOUD count-guard failure, not a silent skip on an absent target (smoke.sh:25, anti-pattern
+# #2). Reproducing the RED needs a HYBRID tree, and the obvious recipe does NOT work:
+# running the suite at `269323c~1` yields SILENCE, not a red, because that tree predates the
+# Test commit and so contains no §158 at all — which is itself the silent-skip shape this
+# comment argues against. What reproduces it is the head's smoke file over the PRE-DOC
+# contracts, in a private scratch dir (never the shared scratchpad root, per this very arm's
+# subject):
+#   S=$(mktemp -d "<scratch-root>/ghjig-s158-repro-XXXXXXXX")
+#   git archive HEAD | tar -x -C "$S"                      # head tree, incl. this arm
+#   git show 269323c~1:.claude/agents/code-reviewer.md     > "$S/.claude/agents/code-reviewer.md"
+#   git show 269323c~1:.claude/agents/security-reviewer.md > "$S/.claude/agents/security-reviewer.md"
+#   bash "$S/scripts/test/smoke.sh" 2>&1 | grep 158
+#
+# MUTATION-CHECKED (each against a tree materialised from the Doc commit; each went red):
+#   code-reviewer template → `<scratch-root>/../ghjig-escapes-XXXXXXXX` → 158c (physical-path
+#     residency — the printed string still prefixes the root; the resolved path does not).
+#   code-reviewer template → `<scratch-root>/ghjig-code-reviewer` (no X) → 158a `collected 1
+#     of 5`; BSD mktemp accepts an X-less template, so the first run wins the name and the
+#     other four lose the mkdtemp race — the partial collection is the drift 158a exists to name.
+#   SAME `../` escape planted in security-reviewer.md instead → 158c[security-reviewer].
+#     CONTROL, measured not assumed: that identical mutation against the PREVIOUS revision of
+#     this arm (which extracted from code-reviewer.md only) scored `pass=4 fail=0` — fully
+#     green on a contract telling its reviewer to escape the scratch root. Locking presence
+#     (158d) never covered this: the copy that could no longer be DELETED could still ROT.
+#   security-reviewer template → an ABSOLUTE path outside the test root → refused by the
+#     prefix gate below BEFORE execution, `find` confirming 0 directories created outside.
+#     `cd "$S158_ROOT"` bounds a RELATIVE template only; mktemp ignores cwd for an absolute
+#     one, so without the gate the K runs land wherever the doc says and 158c reports it only
+#     after the fact. Exactly one red per fault — the gate `continue`s past this contract's
+#     158a-c rather than also tripping the count-guard on the emptied template.
+# Both execution-verifying contracts are locked, not just one: #646 AC2 names
+# `security-reviewer` and `code-reviewer` by name, and §4.6 calls the security reviewer's
+# approve the highest-cost one — so its copy of the recipe must not be silently deletable.
+# Deliberately NOT a glob over `.claude/agents/*.md`: the other contracts carry no scratch
+# recipe by design, and a glob would red on every future agent that legitimately has none.
+S158_ALL_AGENTS=( "$SHELL_ROOT/.claude/agents/code-reviewer.md" \
+                  "$SHELL_ROOT/.claude/agents/security-reviewer.md" )
+S158_K=5
+
+# 158a-c run PER CONTRACT — each named contract's own template is extracted and executed.
+# The control that settles why (the same escape scoring 4/4 green when only code-reviewer.md
+# was executed) is recorded once, under MUTATION-CHECKED above; not restated here.
+for s158_agent in "${S158_ALL_AGENTS[@]}"; do
+s158_role=$(basename "$s158_agent" .md)
+S158_ROOT="$TMP/s158-scratch-root/$s158_role"  # stands in for <scratch-root>; ONLY dir written
+S158_OUT="$TMP/s158-collect/$s158_role"        # per-invocation stdout, kept OUT of the root
+mkdir -p "$S158_ROOT" "$S158_OUT"
+
+# Extraction, anchored twice over. The awk window opens only on the exact `## Scratch
+# discipline (#646)` heading and closes at the next `## ` heading, so no other section can
+# donate a match; inside it the grep is anchored to the CODE form of the whole line
+# (`^S=$(mktemp -d "…")$`), so the section's own PROSE mention of `mktemp -d` on the
+# rationale line cannot satisfy it either (smoke.sh:21, anti-pattern #1).
+s158_line=$(awk '/^## Scratch discipline \(#646\)$/ {i=1; next} /^## / {if (i) exit} i' \
+              "$s158_agent" 2>/dev/null | grep -E '^S=\$\(mktemp -d "[^"]+"\)$' | head -n 1)
+s158_tmpl=$(printf '%s\n' "$s158_line" | sed -E 's/^S=\$\(mktemp -d "([^"]+)"\)$/\1/')
+s158_show="$s158_tmpl"
+[ -n "$s158_show" ] || s158_show='<none: no S=$(mktemp -d "...") line under ## Scratch discipline (#646)>'
+# The contract writes the placeholder `<scratch-root>`; the test supplies its own root for it.
+# PREFIX GATE, before any execution: the template must be rooted at the literal placeholder.
+# `cd "$S158_ROOT"` bounds a RELATIVE template only, so an absolute one would execute outside
+# the test root (measured above). A legitimate contract template always starts with the
+# placeholder, so this refuses nothing real; 158c is retained for the relative-`..` escape.
+s158_rooted=1
+case "$s158_tmpl" in '<scratch-root>/'*) ;; *) s158_rooted=0 ;; esac
+if [ -n "$s158_tmpl" ] && [ "$s158_rooted" = 0 ]; then
+  ng "158a[$s158_role]: the extracted template must be rooted at the literal <scratch-root>/ before it is executed — got $s158_show; refusing to run it (#646)"
+  continue   # one red per fault: skip this contract's 158a-c rather than also red the count-guard
+fi
+s158_cmd="${s158_tmpl//<scratch-root>/$S158_ROOT}"
+
+# K concurrent invocations of exactly that command. Each subshell runs INSIDE $S158_ROOT, so
+# even a template that lost its placeholder (and would therefore resolve relative) cannot
+# write outside the test's own temp root; 158c then reports the relative path it produced.
+s158_i=1
+while [ "$s158_i" -le "$S158_K" ]; do
+  ( cd "$S158_ROOT" && mktemp -d "$s158_cmd" ) >"$S158_OUT/out.$s158_i" 2>/dev/null &
+  s158_i=$((s158_i + 1))
+done
+wait
+
+s158_got=$(cat "$S158_OUT"/out.* 2>/dev/null)
+s158_n=$(printf '%s\n' "$s158_got" | grep -c .)
+
+# §158a COUNT-GUARD. Without it an extraction that finds nothing collects nothing, and both
+# limbs below ("all distinct", "all 0700") are trivially true over the empty set.
+if [ "$s158_n" -ne "$S158_K" ]; then
+  ng "158a[$s158_role]: the mktemp -d command extracted from $s158_role.md '## Scratch discipline (#646)' must mint $S158_K paths under $S158_K concurrent runs — collected $s158_n of $S158_K; extracted template=$s158_show — 158b/158c below would pass VACUOUSLY (#646)"
+else
+  ok "158a[$s158_role]: the contract's own mktemp -d command ran $S158_K ways concurrently and collected $s158_n of $S158_K paths (template=$s158_show) — 158b/158c are load-bearing (#646)"
+
+  # §158b: the paired limb of the contract's own claim — two concurrent invocations do not
+  # receive the same path. The guarantee is mktemp's O_EXCL retry, which is exactly why the
+  # contract says to use the primitive rather than invent a name; this measures it under
+  # contention, where a hand-rolled `$$`/timestamp name is at its weakest.
+  s158_u=$(printf '%s\n' "$s158_got" | sort -u | grep -c .)
+  if [ "$s158_u" -eq "$S158_K" ]; then
+    ok "158b[$s158_role]: $S158_K concurrent invocations received $s158_u distinct paths — no two agents collide (#646)"
+  else
+    s158_dup=$(printf '%s\n' "$s158_got" | sort | uniq -d | tr '\n' ' ')
+    ng "158b[$s158_role]: $S158_K concurrent invocations must receive $S158_K distinct paths — sort -u yielded $s158_u; repeated:$s158_dup (#646)"
+  fi
+
+  # §158c: each minted path is a DIRECTORY, mode 700, and lands under the root the test
+  # supplied for `<scratch-root>`. 0700 is what makes the dir private; residency is what makes
+  # the placeholder substitution real rather than decorative. Residency is measured on the
+  # PHYSICAL path (`cd … && pwd -P`), never on the printed string: a template carrying a `..`
+  # component still string-prefixes the root while landing outside it, and a prefix-only test
+  # passes it (mutation-checked above). Loop count-guarded so an empty read cannot report all-N.
+  s158_rootreal=$(cd "$S158_ROOT" 2>/dev/null && pwd -P)
+  s158_seen=0
+  s158_bad=""
+  while IFS= read -r s158_p; do
+    [ -z "$s158_p" ] && continue
+    s158_seen=$((s158_seen + 1))
+    if [ ! -d "$s158_p" ]; then
+      s158_bad="$s158_bad [$s158_p: not a directory]"
+      continue
+    fi
+    s158_real=$(cd "$s158_p" 2>/dev/null && pwd -P)
+    case "$s158_real" in
+      "$s158_rootreal"/*) ;;
+      *) s158_bad="$s158_bad [$s158_p: resolves outside, to ${s158_real:-?}]"; continue ;;
+    esac
+    s158_mode=$(stat -c '%a' "$s158_p" 2>/dev/null || stat -f '%OLp' "$s158_p" 2>/dev/null || printf '?')
+    [ "$s158_mode" = 700 ] || s158_bad="$s158_bad [$s158_p: mode $s158_mode]"
+  done <<S158_PATHS
+$s158_got
+S158_PATHS
+  if [ "$s158_seen" -eq "$S158_K" ] && [ -z "$s158_bad" ]; then
+    ok "158c[$s158_role]: all $s158_seen minted paths are mode-700 directories under the supplied <scratch-root> (#646)"
+  else
+    ng "158c[$s158_role]: every minted path must be a mode-700 directory under $S158_ROOT — checked $s158_seen of $S158_K, offenders:$s158_bad (#646)"
+  fi
+fi
+done  # per-contract loop (F-1): 158a-c asserted once per named contract, not once total
+
+# §158d (coverage lock — the recipe must be present in BOTH execution-verifying contracts).
+# 158a-c now execute BOTH contracts' templates, so a deleted section already reds there (the
+# extraction returns nothing and 158a's count-guard fires). This arm is still not redundant:
+# it separates ABSENCE from BREAKAGE — a section deleted from security-reviewer.md and one
+# whose template merely stopped working produce the same 158a red, and only this arm says
+# which. It also names an ABSENT FILE loudly instead of grepping to zero and passing, and it
+# is the only arm that would catch a SECOND heading or a SECOND template (a duplicated recipe
+# that 158a's `head -n 1` would silently read past).
+s158d_miss=""
+s158d_n=0
+for s158d_f in "${S158_ALL_AGENTS[@]}"; do
+  s158d_n=$(( s158d_n + 1 ))
+  s158d_base=$(basename "$s158d_f")
+  if [ ! -f "$s158d_f" ]; then
+    s158d_miss="$s158d_miss ${s158d_base}=ABSENT"
+    continue
+  fi
+  s158d_h=$(grep -c '^## Scratch discipline (#646)$' "$s158d_f" 2>/dev/null || true)
+  s158d_t=$(awk '/^## Scratch discipline \(#646\)$/{f=1;next} /^## /{f=0} f' "$s158d_f" 2>/dev/null \
+              | grep -cE '^S=\$\(mktemp -d "[^"]+"\)$' || true)
+  [ "$s158d_h" = 1 ] || s158d_miss="$s158d_miss ${s158d_base}=headings:${s158d_h}"
+  [ "$s158d_t" = 1 ] || s158d_miss="$s158d_miss ${s158d_base}=templates:${s158d_t}"
+done
+if [ "$s158d_n" -eq 2 ] && [ -z "$s158d_miss" ]; then
+  ok "158d: both execution-verifying contracts carry the scratch recipe — one heading and one extractable template each, checked $s158d_n of 2 (#646)"
+else
+  ng "158d: every execution-verifying contract must carry exactly one '## Scratch discipline (#646)' heading and one mktemp -d template — checked $s158d_n of 2, offenders:$s158d_miss (#646)"
+fi
+
