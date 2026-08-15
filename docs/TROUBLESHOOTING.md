@@ -10,6 +10,7 @@ Common blocks and how to resolve them.
 |---------|-----------|-----|
 | `Not a valid Conventional Commit` | Missing `(#N)` on `feat`/`fix`/`docs`/`refactor`/`perf`, or a typo'd type | Use `<type>(#<N>)[!]: <≤72 chars>`. `chore` and other optional types may omit `(#N)`. |
 | `Subject length out of codepoint range 1..72` | Subject is empty or longer than 72 codepoints | Shorten. Detail goes in the body. |
+| `Subject length could not be measured in codepoints` | A broken `python3` on `PATH`, or a shell fallback under a non-UTF-8 locale. The gate refuses rather than approve an unmeasured subject (SPEC §6.1.1). | Make `python3` runnable, or provide a UTF-8 locale (`C.UTF-8`/`en_US.UTF-8`). ASCII-only subjects measure exactly either way, as a stopgap. |
 | `commit on protected branch blocked` | Direct commit on main/master/release/* | Create a feature branch via `/work-on <issue#>`. |
 | `force push blocked` | Used `--force`/`-f`/`--force-with-lease` | Plain `git push` where possible. If truly needed: `SKIP_HOOKS=force-push SKIP_REASON='...'`. |
 | `--amend of an already-pushed commit blocked` | Amending a commit that's already on upstream | Make a new commit (`git commit -m`). History rewriting is a separate procedure. |
