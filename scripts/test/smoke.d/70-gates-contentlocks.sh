@@ -2875,3 +2875,114 @@ else
   ng "157z: finding-judge must add no merge gate — pre_tool_use.sh mentions=$s157_hookhit (expected 0), should_skip categories=$s157_cats (expected 20) (#645)"
 fi
 
+# ---------- §158: the reviewer scratch recipe is a REAL isolation primitive (#646) ----------
+# SPEC §1.5 / §4.11 name a SECOND isolation axis: worktree isolation separates git TREES, it
+# does not separate the session SCRATCHPAD, which every subagent of a session shares by path.
+# What ships against that is a recipe inside the reviewer contracts — no helper script, by
+# measured decision — so the only thing that can rot is the recipe itself. This arm therefore
+# locks no PROSE: it EXTRACTS the contract's own `mktemp -d` command out of
+# `.claude/agents/code-reviewer.md` and RUNS it, K-way concurrently, then asserts the property
+# the contract claims for it ("`mktemp -d`'s `O_EXCL` retry is what makes two concurrent
+# invocations unable to receive the same path"), plus 0700 and directory-ness. Doc↔behaviour,
+# not doc↔doc: the contract's own command must actually produce what the contract advertises.
+#
+# WHY A GREEN HERE IS NOT A VACUOUS PASS. Because the command is read FROM the contract, this
+# arm turns green the instant the Doc commit is in the tree — so its RED lives one commit
+# earlier, and was verified there rather than asserted. At the pre-Doc base (269323c~1),
+#   grep -n "mktemp\|scratch" .claude/agents/code-reviewer.md .claude/agents/security-reviewer.md
+# returns NOTHING; the extraction below then finds no command, the K runs of `mktemp -d ""`
+# all fail, and 158a fails with `collected 0 of 5` naming `extracted template=<none: ...>` —
+# a LOUD count-guard failure, not a silent skip on an absent target (smoke.sh:25, anti-pattern
+# #2). Reproduce without touching the working tree:
+#   git worktree add /tmp/predoc-646 269323c~1
+#   /tmp/predoc-646/scripts/test/smoke.sh 2>&1 | grep 158
+#
+# MUTATION-CHECKED (both against a tree materialised from the Doc commit, both went red):
+#   template → `<scratch-root>/../ghjig-escapes-XXXXXXXX`  → 158c (physical-path residency)
+#   template → `<scratch-root>/ghjig-code-reviewer` (no X) → 158a `collected 1 of 5`; BSD
+#     mktemp accepts an X-less template, so the first run wins the name and the other four
+#     lose the mkdtemp race — the partial collection is exactly the drift 158a exists to name.
+S158_AGENT="$SHELL_ROOT/.claude/agents/code-reviewer.md"
+S158_ROOT="$TMP/s158-scratch-root"   # stands in for <scratch-root>; the ONLY dir written to
+S158_OUT="$TMP/s158-collect"         # per-invocation stdout, kept OUT of the minted root
+S158_K=5
+mkdir -p "$S158_ROOT" "$S158_OUT"
+
+# Extraction, anchored twice over. The awk window opens only on the exact `## Scratch
+# discipline (#646)` heading and closes at the next `## ` heading, so no other section can
+# donate a match; inside it the grep is anchored to the CODE form of the whole line
+# (`^S=$(mktemp -d "…")$`), so the section's own PROSE mention of `mktemp -d` on the
+# rationale line cannot satisfy it either (smoke.sh:21, anti-pattern #1).
+s158_line=$(awk '/^## Scratch discipline \(#646\)$/ {i=1; next} /^## / {if (i) exit} i' \
+              "$S158_AGENT" 2>/dev/null | grep -E '^S=\$\(mktemp -d "[^"]+"\)$' | head -n 1)
+s158_tmpl=$(printf '%s\n' "$s158_line" | sed -E 's/^S=\$\(mktemp -d "([^"]+)"\)$/\1/')
+s158_show="$s158_tmpl"
+[ -n "$s158_show" ] || s158_show='<none: no S=$(mktemp -d "...") line under ## Scratch discipline (#646)>'
+# The contract writes the placeholder `<scratch-root>`; the test supplies its own root for it.
+s158_cmd="${s158_tmpl//<scratch-root>/$S158_ROOT}"
+
+# K concurrent invocations of exactly that command. Each subshell runs INSIDE $S158_ROOT, so
+# even a template that lost its placeholder (and would therefore resolve relative) cannot
+# write outside the test's own temp root; 158c then reports the relative path it produced.
+s158_i=1
+while [ "$s158_i" -le "$S158_K" ]; do
+  ( cd "$S158_ROOT" && mktemp -d "$s158_cmd" ) >"$S158_OUT/out.$s158_i" 2>/dev/null &
+  s158_i=$((s158_i + 1))
+done
+wait
+
+s158_got=$(cat "$S158_OUT"/out.* 2>/dev/null)
+s158_n=$(printf '%s\n' "$s158_got" | grep -c .)
+
+# §158a COUNT-GUARD. Without it an extraction that finds nothing collects nothing, and both
+# limbs below ("all distinct", "all 0700") are trivially true over the empty set.
+if [ "$s158_n" -ne "$S158_K" ]; then
+  ng "158a: the mktemp -d command extracted from .claude/agents/code-reviewer.md '## Scratch discipline (#646)' must mint $S158_K paths under $S158_K concurrent runs — collected $s158_n of $S158_K; extracted template=$s158_show — 158b/158c below would pass VACUOUSLY (#646)"
+else
+  ok "158a: the contract's own mktemp -d command ran $S158_K ways concurrently and collected $s158_n of $S158_K paths (template=$s158_show) — 158b/158c are load-bearing (#646)"
+
+  # §158b: the paired limb of the contract's own claim — two concurrent invocations do not
+  # receive the same path. The guarantee is mktemp's O_EXCL retry, which is exactly why the
+  # contract says to use the primitive rather than invent a name; this measures it under
+  # contention, where a hand-rolled `$$`/timestamp name is at its weakest.
+  s158_u=$(printf '%s\n' "$s158_got" | sort -u | grep -c .)
+  if [ "$s158_u" -eq "$S158_K" ]; then
+    ok "158b: $S158_K concurrent invocations received $s158_u distinct paths — no two agents collide (#646)"
+  else
+    s158_dup=$(printf '%s\n' "$s158_got" | sort | uniq -d | tr '\n' ' ')
+    ng "158b: $S158_K concurrent invocations must receive $S158_K distinct paths — sort -u yielded $s158_u; repeated:$s158_dup (#646)"
+  fi
+
+  # §158c: each minted path is a DIRECTORY, mode 700, and lands under the root the test
+  # supplied for `<scratch-root>`. 0700 is what makes the dir private; residency is what makes
+  # the placeholder substitution real rather than decorative. Residency is measured on the
+  # PHYSICAL path (`cd … && pwd -P`), never on the printed string: a template carrying a `..`
+  # component still string-prefixes the root while landing outside it, and a prefix-only test
+  # passes it (mutation-checked above). Loop count-guarded so an empty read cannot report all-N.
+  s158_rootreal=$(cd "$S158_ROOT" 2>/dev/null && pwd -P)
+  s158_seen=0
+  s158_bad=""
+  while IFS= read -r s158_p; do
+    [ -z "$s158_p" ] && continue
+    s158_seen=$((s158_seen + 1))
+    if [ ! -d "$s158_p" ]; then
+      s158_bad="$s158_bad [$s158_p: not a directory]"
+      continue
+    fi
+    s158_real=$(cd "$s158_p" 2>/dev/null && pwd -P)
+    case "$s158_real" in
+      "$s158_rootreal"/*) ;;
+      *) s158_bad="$s158_bad [$s158_p: resolves outside, to ${s158_real:-?}]"; continue ;;
+    esac
+    s158_mode=$(stat -c '%a' "$s158_p" 2>/dev/null || stat -f '%OLp' "$s158_p" 2>/dev/null || printf '?')
+    [ "$s158_mode" = 700 ] || s158_bad="$s158_bad [$s158_p: mode $s158_mode]"
+  done <<S158_PATHS
+$s158_got
+S158_PATHS
+  if [ "$s158_seen" -eq "$S158_K" ] && [ -z "$s158_bad" ]; then
+    ok "158c: all $s158_seen minted paths are mode-700 directories under the supplied <scratch-root> (#646)"
+  else
+    ng "158c: every minted path must be a mode-700 directory under $S158_ROOT — checked $s158_seen of $S158_K, offenders:$s158_bad (#646)"
+  fi
+fi
+
