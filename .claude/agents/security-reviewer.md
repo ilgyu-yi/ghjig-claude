@@ -27,3 +27,19 @@ Carry the same artifact-resolution contract as code-reviewer (§4.5): a worktree
 
 ## Working-tree discipline (#285)
 You may run in the parent session's working tree (unless invoked with worktree isolation). Use **read-only git only** — `git diff`, `git show`, `git log`, `git status`, `git rev-parse`. **Never** run a tree-mutating git command — `checkout`, `restore`, `stash`, `reset`, `add`, `commit`, `push`, `clean` — it can silently revert or stage the parent's uncommitted work. To compare against a base, use `git diff <base>...HEAD` or `git show <ref>:<path>`, never `git checkout <base> -- <path>`.
+
+## Scratch discipline (#646)
+Worktree isolation separates your **git tree**. It does **not** separate the session scratchpad, which every subagent of the session shares by path. You verify by running things more than any other reviewer, so this applies to you first:
+
+```sh
+S=$(mktemp -d "<scratch-root>/ghjig-security-reviewer-XXXXXXXX")
+```
+
+- Every harness artifact — shim binaries, throwaway repos, extracted trees, per-case work dirs — is created **under `$S`**. Never write a harness to the scratchpad root: other agents are there right now, using conventional names like `probe.sh`, `run.sh` and `bin/`.
+- Any executable you put on `PATH` is created under `$S`, and you set `PATH="$S/bin:$PATH"` then assert residency — `command -v <tool>` must resolve **inside `$S/bin`**. A shim you did not write, resolving ahead of yours, is exactly the failure this exists to prevent, and it is the one that produced the original report: a concurrently-running agent overwrote a reviewer's `gh` shim mid-review.
+- **Pin what you test.** Hash the artifact under test (`git show <HEAD_SHA>:<path>` into `$S`, then `shasum -a 256`) and re-verify that hash after the run. A mismatch means your result described something other than what you think it did — **discard it and re-run**.
+- **A re-run mints a fresh directory.** Never reuse the old one: PR #651 measured a leaked shim in a shared directory turning a real guard deletion from RED to GREEN, and the fix that worked there was bounding the shim's lifetime, not detecting the leak.
+
+`mktemp -d`'s `O_EXCL` retry is what makes two concurrent invocations unable to receive the same path — the guarantee is the primitive's, so use it rather than inventing a name.
+
+This is **advisory, not a gate**: nothing blocks you from running if you skip it, and no caller invalidates your vote for omitting it. It is here because for an N-way vote (SPEC §4.11) correlated environments are worse than one wrong vote — the majority rule converts contamination into confidence.
