@@ -88,11 +88,15 @@ _escape_token_honored() {
   #     "integer expression expected", the token is honored and CONSUMED, and the
   #     record reads as a routine `escape/skip` (§125-11). At the wrapper this
   #     shape blocks, but under the misleading `mtime-future` arm name.
-  #   `0x<hex>` clock — a THIRD mechanism, not a variant of the two above: hex is
-  #     VALID bash arithmetic, so nothing errors. `$(( ))` evaluates it, the delta
-  #     comes out NEGATIVE, that reads as "not stale", and the token is honored
-  #     and consumed with a routine record. Measured pre-guard. It is the shape
-  #     that refutes any fix framed as "catch the arithmetic error".
+  #     `0x<hex>` BELOW `created` belongs to THIS row, not to a third mechanism.
+  #     Measured pre-guard: empty, `abc` and `0xff` produce IDENTICAL signatures —
+  #     `[` errors, `$(( ))` SUCCEEDS with a negative delta, honored + consumed +
+  #     routine record. It is called out because it is the example that refutes a
+  #     fix framed as "catch the arithmetic error": `[` DOES error on hex (rc=2),
+  #     so error-catching would not close it — the honor comes from the SECOND
+  #     condition's `$(( ))` yielding a negative delta, which reads as "not stale".
+  #     Hex ABOVE `created` is not a fall-open at all: the delta is large positive
+  #     and the token BLOCKS (measured, `now=0x1755000000` -> +98455311168).
   # Threat model, stated honestly: NEITHER site is reachable without a broken or
   # shimmed `date` — a real `date +%s` emits none of these shapes (measured across
   # 6 locales x 4 timezones). This is defense in depth in the #635 sense (the
