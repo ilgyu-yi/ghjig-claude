@@ -39,8 +39,13 @@ ghjig_commit() {
   # Validate BEFORE committing — surface the failure here with full context,
   # not as an opaque post-hoc hook block.
   local err
+  # $err carries the CAUSE from the shared helper (format violation, an
+  # out-of-range length, or — #654 — a length that could not be measured at
+  # all); this site appends only the recovery live HERE (SPEC §6.0 P4). Nothing
+  # has been committed yet, so the recovery is to fix the subject and re-run —
+  # there is no gate to escape at this surface, and naming one would be false.
   if ! err=$(check_commit_subject "$full" 2>&1); then
-    printf 'ghjig_commit: rejected subject [%s]\n%s\n' "$full" "$err" >&2
+    printf 'ghjig_commit: rejected subject [%s] — NOT committed\n%s\n  Fix the subject — or, if the cause above is a measurement failure, repair the environment it names — and re-run ghjig_commit (the working tree is untouched).\n' "$full" "$err" >&2
     return 1
   fi
 

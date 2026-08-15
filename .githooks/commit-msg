@@ -25,8 +25,15 @@ done < "$_gh_msgfile"
 # Empty message → let git's own empty-message handling deal with it (fail-open).
 [ -n "$_gh_subject" ] || exit 0
 
+# check_commit_subject writes the CAUSE to stderr itself (format violation, an
+# out-of-range length, or — #654 — a length it could not measure at all). This
+# adapter must NOT re-state a cause of its own: naming "not a Conventional
+# Commit" for a measurement failure would be actively false. It appends only the
+# recovery live at THIS tier (SPEC §6.0 P4): the git-hook tier is advice and
+# folds to --no-verify (§6.7). The §7 SKIP_HOOKS env-prefix form is deliberately
+# absent — should_skip is never reached from here, so it would name a dead escape.
 if ! check_commit_subject "$_gh_subject"; then
-  githook_block commit-format "commit-msg: subject is not a Conventional Commit — blocked (SPEC §6.7). Format: <type>(#<N>)[!]: <subject>."
+  githook_block commit-format "commit-msg: subject rejected — see the reason above (SPEC §6.7, §6.1.1). Expected <type>(#<N>)[!]: <subject> with a subject of 1..72 codepoints; a length that cannot be measured is refused, not approved. Fix the message, or re-run with --no-verify (this tier is advice)."
   exit 1
 fi
 

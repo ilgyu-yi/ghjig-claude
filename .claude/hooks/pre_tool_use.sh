@@ -1268,6 +1268,12 @@ case "$tool" in
       subj=$(extract_commit_subject "$raw_cmd" "$cmd")
       if [ -n "$subj" ]; then
         err=$(check_commit_subject "$subj" 2>&1) || {
+          # Arm-scoped recovery (#654, SPEC §6.0 P4): check_commit_subject emits
+          # the CAUSE only — it is shared with the §6.7 commit-msg adapter and
+          # ghjig_commit, where a different recovery is the live one — so THIS
+          # surface appends the escape that actually works here: §7's file-token
+          # form, the only one the live Bash tool cannot strip before the hook.
+          err="$err"$'\n'"Recovery: fix the subject, or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh commit-format '<cmd-fingerprint>' '<why>' (SPEC §7)."
           should_skip commit-format && decided=1 || block commit-format "$err"
         }
       fi

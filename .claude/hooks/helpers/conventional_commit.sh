@@ -223,30 +223,75 @@ sys.stdout.write("\n".join(pieces))
 ' 2>/dev/null
 }
 
+# _codepoint_len <string> → codepoint count. TOTAL function with an explicit
+# failure contract (SPEC §6.1.1, #654): it either emits a DECIMAL-only string and
+# returns 0, or emits NOTHING and returns non-zero. There is no third outcome, so
+# no caller ever consumes an unvalidated value. The strategy ladder is
+# python3 → the UTF-8-locale-selecting `wc -m` path → fail, and it advances on
+# OUTPUT VALIDITY — not on `command -v` presence and not on exit status. A
+# present-but-broken python3, or one that prints a site/venv banner to stdout
+# ahead of the number, EXITS 0 with non-decimal output, so a presence-keyed or
+# rc-keyed selection would strand the ladder on a rung that never produced a
+# length and make the wc rung unreachable. A rejected rung's output is discarded
+# WHOLE — digits are never salvaged out of it (the salvaged digits would be the
+# banner's, not the length's).
 _codepoint_len() {
-  if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$1" | python3 -c 'import sys; print(len(sys.stdin.read()))'
-  else
-    # wc -m counts characters under a UTF-8 locale on BSD and GNU. A hardcoded
-    # en_US.UTF-8 is absent on many minimal Linux hosts; libc then silently
-    # falls to the C locale and counts BYTES, over-counting multibyte subjects
-    # and false-rejecting the 1..72 codepoint bound. Prefer whichever UTF-8
-    # locale the host actually provides (C.UTF-8 is present on modern glibc/
-    # musl; en_US.UTF-8 on BSD/macOS), else fall through to en_US.UTF-8.
-    local _utf8_locale=en_US.UTF-8
-    if command -v locale >/dev/null 2>&1; then
-      local _avail; _avail=$(locale -a 2>/dev/null)
-      # here-strings, not `| grep -q`: under `set -o pipefail` grep -q closes the
-      # pipe on match → SIGPIPE on the writer → nonzero pipeline status even on a
-      # HIT, which would defeat the detection.
-      if grep -qiE '^C\.(UTF-8|utf8)$' <<<"$_avail"; then
-        _utf8_locale=C.UTF-8
-      elif grep -qiE '^en_US\.(UTF-8|utf8)$' <<<"$_avail"; then
-        _utf8_locale=en_US.UTF-8
-      fi
-    fi
-    printf '%s' "$1" | LC_ALL="$_utf8_locale" wc -m | tr -d ' '
+  local _in="$1" _len=""
+
+  # Rung 1 — python3. Invoked unconditionally: its OUTPUT decides, not its
+  # presence. An absent or broken interpreter simply yields nothing and the
+  # ladder advances.
+  _len=$(printf '%s' "$_in" | python3 -c 'import sys; print(len(sys.stdin.read()))' 2>/dev/null)
+  case "$_len" in
+    ''|*[!0-9]*) _len= ;;
+  esac
+  if [ -n "$_len" ]; then
+    printf '%s' "$_len"
+    return 0
   fi
+
+  # Rung 2 — wc -m. It counts characters under a UTF-8 locale on BSD and GNU. A
+  # hardcoded en_US.UTF-8 is absent on many minimal Linux hosts; libc then
+  # silently falls to the C locale and counts BYTES, over-counting multibyte
+  # subjects and false-rejecting the 1..72 codepoint bound. Prefer whichever
+  # UTF-8 locale the host actually provides (C.UTF-8 is present on modern glibc/
+  # musl; en_US.UTF-8 on BSD/macOS), else fall through to en_US.UTF-8.
+  local _utf8_locale=en_US.UTF-8
+  if command -v locale >/dev/null 2>&1; then
+    local _avail; _avail=$(locale -a 2>/dev/null)
+    # here-strings, not `| grep -q`: under `set -o pipefail` grep -q closes the
+    # pipe on match → SIGPIPE on the writer → nonzero pipeline status even on a
+    # HIT, which would defeat the detection.
+    if grep -qiE '^C\.(UTF-8|utf8)$' <<<"$_avail"; then
+      _utf8_locale=C.UTF-8
+    elif grep -qiE '^en_US\.(UTF-8|utf8)$' <<<"$_avail"; then
+      _utf8_locale=en_US.UTF-8
+    fi
+  fi
+  _len=$(printf '%s' "$_in" | LC_ALL="$_utf8_locale" wc -m 2>/dev/null | tr -d '[:space:]')
+  case "$_len" in
+    ''|*[!0-9]*) return 1 ;;                # no wc / unusable output → advance to the failure rung
+  esac
+  # Measurability guard (#654): even a selected locale can byte-count, and then
+  # `wc -m` returns BYTES — the forbidden measurement arriving by degradation
+  # rather than by choice. The condition is detectable as a RELATION, not a
+  # hardcoded constant: on NON-ASCII input a byte-counting locale makes `wc -m`
+  # equal `wc -c`. ASCII input measures exactly under any locale, so a degraded
+  # host keeps committing ASCII subjects; only the case whose answer would be
+  # wrong refuses.
+  local _nonascii _bytes
+  _nonascii=$(printf '%s' "$_in" | LC_ALL=C tr -d '\001-\177' 2>/dev/null)
+  if [ -n "$_nonascii" ]; then
+    _bytes=$(printf '%s' "$_in" | LC_ALL=C wc -c 2>/dev/null | tr -d '[:space:]')
+    case "$_bytes" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    if [ "$_len" = "$_bytes" ]; then
+      return 1                              # byte count, not a codepoint count → refuse
+    fi
+  fi
+  printf '%s' "$_len"
+  return 0
 }
 
 check_commit_subject() {
@@ -259,9 +304,33 @@ check_commit_subject() {
     return 1
   fi
   local rest="${subj#*: }"
-  local len
-  len=$(_codepoint_len "$rest")
-  if [ "$len" -lt 1 ] || [ "$len" -gt 72 ]; then
+  local len len_rc
+  len=$(_codepoint_len "$rest"); len_rc=$?
+  [ "$len_rc" -eq 0 ] || len=""
+  # POSITIVE test before any `[` comparison (#654, SPEC §6.1.1): an absent or
+  # non-decimal length is REFUSED, never approved. Pre-fix this went straight
+  # into `[ "$len" -lt 1 ]`, and a length outside `[`'s domain made BOTH tests
+  # error, collapsed the `||` chain to false, skipped the range-check body and
+  # reported the subject VALID — a wrong ALLOW that lands in durable git history
+  # (fail-CLOSED per SPEC §6.1; the fail-OPEN row there governs only a MISSING
+  # helper, not a present one that could not measure).
+  # CAUSE ONLY, no recovery clause: this helper is shared by three enforcement
+  # surfaces whose live recovery differs, so each adapter appends its own
+  # (SPEC §6.0 P4) — a single baked-in recovery would be dead at two of them.
+  case "$len" in
+    ''|*[!0-9]*)
+      echo "Subject length could not be measured in codepoints — the measurement ladder (python3, then wc -m under a UTF-8 locale) produced no usable count." >&2
+      echo "  Refusing the subject rather than approving one that was never measured (SPEC §6.1.1)." >&2
+      return 1
+      ;;
+  esac
+  # Saturate the COMPARED operand so `[` can never error: any length past three
+  # digits is outside 1..72 whatever its exact value. The message still reports
+  # the RAW measured length — reporting the saturated value would print a
+  # fictional length for a genuinely long subject (#654).
+  local cmp="$len"
+  [ "${#len}" -gt 3 ] && cmp=999
+  if [ "$cmp" -lt 1 ] || [ "$cmp" -gt 72 ]; then
     echo "Subject length out of codepoint range 1..72 (got $len)" >&2
     return 1
   fi
