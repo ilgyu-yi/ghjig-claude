@@ -77,18 +77,48 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 #   "full" (default) — strip heredoc bodies AND all quoted literals. For
 #     is_pr_merge_command (#340), which must see through a quoted
 #     `--body "…gh pr merge…"`; #340 already accepts the quote-obfuscation residual.
-# FAIL-CLOSED: python3 absent, an unclosed quote (full OR message mode), or any
-# parse error prints the cmd UNCHANGED (return 0) — the caller's grep then runs
+# FAIL-CLOSED — and the contract is keyed on OUTPUT VALIDITY, never on the
+# interpreter's exit status and never on a `command -v python3` presence probe
+# (SPEC §6.1.2, #660). One enumerated set, decided by one test: python3 ABSENT,
+# a NON-ZERO exit, EXIT-0-WITH-JUNK on stdout (a site/venv/PYTHONSTARTUP banner
+# printed ahead of or instead of the payload), an EXIT-0 PARTIAL write, output
+# on STDERR with stdout empty, an unclosed quote (full OR message mode), or any
+# parse error → print the cmd UNCHANGED (return 0). The caller's grep then runs
 # against the full command, so a token that should block is never stripped away
 # by a failure (a missed message-elision degrades to today's recoverable
-# false-trip; it never over-strips a genuine target).
+# false-trip; it never over-strips a genuine target). An rc-only selector decides
+# only the first two of those and RETURNS THE JUNK for the rest — that was the
+# #660 defect: the arm's entry-grep missed and the arm never ran at all.
+# HOW the validity test works: a stripper's output is arbitrary shell text, so no
+# predicate over the output alone can tell a legitimate result from a banner —
+# validity needs a PROTOCOL, not a shape test. The interpreter frames its payload
+# between a CONSTANT tag before and after; the single glob `case $out in
+# "$tag"*"$tag")` admits it and the tags are then stripped off. That one glob
+# subsumes a length test (its two literal arms consume disjoint positions, so a
+# bare tag or an empty read cannot match), and every enumerated outcome above
+# lands on the same fall-through branch — which is why there is deliberately NO
+# `command -v python3` gate here (a probe whose only distinct outcome the frame
+# check already rejects). Constant, not random: the tag is handed to the
+# interpreter as argv, so a hostile python3 can echo it back at any entropy while
+# a merely degraded one cannot forge it at zero — the modeled failure is ACCIDENT,
+# not adversary.
+# RESIDUAL (disclosed): the frame changes the RAW (non-`$( )`) return for a
+# command ending in newlines — the tags protect trailing newlines that command
+# substitution used to eat. SEVEN of the 8 call sites wrap this helper in `$( )`,
+# which strips them again, so behaviour at those caller boundaries is
+# byte-identical (30/30 measured). The EIGHTH (pre_tool_use.sh, the force-push
+# arm) pipes the return straight into `awk` instead, so the extra newlines DO
+# survive there — harmlessly: `awk` renders them as blank lines and
+# `push_segments`' own `grep -E` drops blank lines. Named rather than rounded
+# off, because a future caller that neither wraps nor filters is where this
+# residual first becomes observable.
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
-  local cmd="$1" mode="${2:-full}" out
-  command -v python3 >/dev/null 2>&1 || { printf '%s' "$cmd"; return 0; }
-  if out=$(printf '%s' "$cmd" | python3 -c '
+  local cmd="$1" mode="${2:-full}" out tag='__ghjig_frame_660__'
+  out=$(printf '%s' "$cmd" | python3 -c '
 import sys, re
 mode = sys.argv[1] if len(sys.argv) > 1 else "full"
+tag = sys.argv[2] if len(sys.argv) > 2 else ""
 cmd = sys.stdin.read()
 # 1. Strip heredoc bodies (always). Opener is << or <<- + optionally-quoted
 #    delimiter word; <<< is a here-string (same-line operand), not a heredoc.
@@ -157,10 +187,10 @@ if mode == "message":
                     i += 1
             continue
         res.append(s[i]); i += 1
-    sys.stdout.write("".join(res))
+    sys.stdout.write(tag + "".join(res) + tag)
     sys.exit(0)
 if mode != "full":
-    sys.stdout.write(stripped)
+    sys.stdout.write(tag + stripped + tag)
     sys.exit(0)
 # 2. full mode: remove quoted string literals (interior can never be a command word).
 def strip_quotes(s):
@@ -193,13 +223,17 @@ def strip_quotes(s):
 residue = strip_quotes(stripped)
 if residue is None:
     sys.exit(2)                            # ambiguous → caller fail-closes (prints original)
-sys.stdout.write(residue)
+sys.stdout.write(tag + residue + tag)
 sys.exit(0)
-' "$mode" 2>/dev/null); then
-    printf '%s' "$out"
-  else
-    printf '%s' "$cmd"                     # fail-closed: parse error / ambiguity → original
-  fi
+' "$mode" "$tag" 2>/dev/null)
+  # The ONE selector (SPEC §6.1.2): a framed read is the only admissible result.
+  # Its two literal arms consume disjoint positions, so a bare tag, an empty read,
+  # a banner, a truncated write, a stderr-only write and an absent/crashed
+  # interpreter all land on the fall-through — no length test, no presence probe.
+  case $out in
+    "$tag"*"$tag") out=${out#"$tag"}; printf '%s' "${out%"$tag"}" ;;
+    *)             printf '%s' "$cmd" ;;   # fail-closed: unusable output → original
+  esac
 }
 
 # space_glued_separators <cmd> <outvar> — re-separate a GLUED unquoted command
@@ -217,17 +251,26 @@ sys.exit(0)
 # elision; no over-block). The separator set mirrors push_segments' awk regex.
 #
 # Idempotent: an already-spaced separator is normalized to single spaces, not
-# doubled. python3-absent → pass-through no-op: on that path parse_env_prefix
-# does NOT fold (it passes $cmd through unchanged), so the glued verb stays
-# intact for the entry-grep and there is nothing to repair.
+# doubled.
+#
+# FAIL-CLOSED on OUTPUT VALIDITY, same convention and same constant-tag frame as
+# strip_command_data above (SPEC §6.1.2, #660): the enumerated set — python3
+# absent, non-zero exit, exit-0-with-junk, exit-0-partial, stderr-only — all
+# write $_sgs_cmd through UNCHANGED, and none of them is decided by exit status
+# or by a `command -v python3` probe. The pre-#660 header argued safety from
+# python3 ABSENT only ("pass-through no-op: parse_env_prefix does not fold on
+# that path, so the glued verb stays intact and there is nothing to repair").
+# That argument is sound for absence and IRRELEVANT to exit-0-with-junk, which
+# takes the SUCCESS branch: the junk is written into the caller's variable. This
+# helper is invoked as `space_glued_separators "$cmd" cmd` (pre_tool_use.sh:157)
+# — an IN-PLACE write to $cmd, the arm-entry variable with 74 references in that
+# file — so a junk return does not degrade one arm, it replaces the command every
+# downstream arm greps. Pass-through is the only safe failure.
 space_glued_separators() {
-  local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"
-    return
-  fi
-  if _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -c '
+  local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out _sgs_tag='__ghjig_frame_660__'
+  _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -c '
 import sys
+tag = sys.argv[1] if len(sys.argv) > 1 else ""
 s = sys.stdin.read()
 out = []
 i, n = 0, len(s)
@@ -274,12 +317,17 @@ while i < n:
         while i < n and s[i] == " ": i += 1
         continue
     out.append(c); i += 1
-sys.stdout.write("".join(out).strip())
-' 2>/dev/null); then
-    printf -v "$_sgs_outvar" '%s' "$_sgs_out"
-  else
-    printf -v "$_sgs_outvar" '%s' "$_sgs_cmd"   # fail-open: parse error → unchanged
-  fi
+sys.stdout.write(tag + "".join(out).strip() + tag)
+' "$_sgs_tag" 2>/dev/null)
+  # Same ONE selector as strip_command_data (SPEC §6.1.2). The in-place write makes
+  # the fall-through the only safe answer: $cmd is the arm-entry variable.
+  case $_sgs_out in
+    "$_sgs_tag"*"$_sgs_tag")
+      _sgs_out=${_sgs_out#"$_sgs_tag"}
+      printf -v "$_sgs_outvar" '%s' "${_sgs_out%"$_sgs_tag"}" ;;
+    *)
+      printf -v "$_sgs_outvar" '%s' "$_sgs_cmd" ;;   # fail-CLOSED: unusable → unchanged
+  esac
 }
 
 # push_segments <cmd> — split <cmd> on unquoted command separators
