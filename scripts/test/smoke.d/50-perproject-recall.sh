@@ -2634,8 +2634,9 @@ s116_spec="$SHELL_ROOT/SPEC.md"
 # `set -u`, and `s116_levers` becomes EMPTY. Measured, that is WORSE than it
 # sounds: the suite runs `set -uo pipefail` with no `-e`, so the assignment still
 # completes, an empty-but-set variable evaluates as 0 in `$(( ))`, and §116 and
-# §116c both red with an ORDINARY PARITY MESSAGE — `expected=60` and an empty
-# `levers=` field — accompanied only by one `unbound variable` line on stderr. A
+# §116c both red with an ORDINARY PARITY MESSAGE carrying `expected=60` (§116's
+# also shows an empty `levers=` field), accompanied only by one `unbound
+# variable` line on stderr. A
 # parity-shaped red is indistinguishable from genuine §1.9 drift except for that
 # stderr line, which is exactly the wrong-cause failure §116 exists to avoid.
 # Order is load-bearing, not cosmetic.
@@ -2776,6 +2777,15 @@ S116W_MARK='smoke-fixture-decoy-644'
 # the §1.8 fixtures: they splice at the end of §1.8 as $S116_END_RE finds it,
 # never at the literal `### 1.9 `. The anchor reuses $S116_END_RE rather than
 # re-spelling the heading rule, so it cannot drift from the derivation.
+# ESCAPE SPLIT, because the two engines disagree and the difference is silent
+# (#668 round 2). `awk -v` performs escape processing on the VALUE, so a literal
+# dot must be written `\\.` here — the four `s116w_fixture` calls below do that.
+# `grep` does NOT, so the two `grep` call sites further down (`s116l_h_orig`, and
+# §116f's leftover-heading guard) must keep the single `\.` form. Applying the
+# `awk` form to a `grep` site does not fail loudly: `grep -c '^### 1\\.8 '`
+# returns 0 on ANY file, so §116f's `!= 0` leftover check would never fire and
+# the anti-vacuity guard would SILENTLY STOP GUARDING. Measured both ways during
+# #668's round-2 review, after exactly that over-application was made and caught.
 s116w_fixture() {
   awk -v openre="$1" -v h="$2" -v row="$3" -v endre="$S116_END_RE" '
     !i&&$0~openre   { i=1; print; next }
