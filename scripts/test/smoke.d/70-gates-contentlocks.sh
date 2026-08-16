@@ -2442,10 +2442,25 @@ fi
 
 # §156j — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
 # added for the SSOT change sweep are shaped so §116's OWN derivations count them, and
-# §116's parity therefore still balances. The awk/grep expressions below are §116's
-# verbatim (50-perproject-recall.sh); they are re-derived here under an s156_ prefix
-# rather than reading §116's s116_* variables, because the smoke.sh header reserves
-# cross-section symbols for smoke.d/_preamble.sh. Nothing is hardcoded: expected and
+# §116's parity therefore still balances. The awk/grep expressions below are
+# re-derived here under an s156_ prefix rather than reading §116's s116_* variables,
+# because the smoke.sh header reserves cross-section symbols for smoke.d/_preamble.sh.
+#
+# THEY ARE NO LONGER §116'S VERBATIM, and nothing enforces that they ever were
+# (#670). An earlier revision of this comment claimed byte-identity; measured, the
+# claim is false in BOTH halves — the posture window diverged at #644/#667 (§116
+# moved to a shared terminator while this copy kept `/^## 2\. /`) and the lever
+# window at #668/#669 (§116 moved to a title anchor). Neither divergence reddened
+# anything, because no arm compares the two files: a claim of byte-identity that
+# nothing checks decays silently, which is why #670 is scoped to that claim's
+# ENFORCEABILITY and not only to the windows.
+#
+# The live consequence here is bounded and one-sided: renumbering §1.8 collapses
+# this copy's lever window, so `s156_lever` reads 0 and the `ng` below reports the
+# row as "mis-shaped or absent" when it is present and correctly shaped. A new
+# `### 1.8.5` sibling does NOT break it — but only because the predicate counts one
+# specific row rather than every `| **` row; the window itself admits the sibling
+# exactly as §116's did. Tracked in #670, deliberately not repaired here. Nothing is hardcoded: expected and
 # actual are both machine-derived (both are 65 at this commit — recorded here as a
 # provenance note only, deliberately NOT pinned, since any of the four families may
 # legitimately grow).

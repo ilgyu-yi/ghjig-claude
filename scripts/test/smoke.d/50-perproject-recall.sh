@@ -2622,11 +2622,6 @@ fi
 # rename / empty table (anti-vacuity #2). A mechanism added to any of the four
 # families bumps the expected total and trips this guard until a §1.9 row is added.
 s116_spec="$SHELL_ROOT/SPEC.md"
-# s116_lever_rows <spec-file> → count of §1.8 narrowing-lever table rows in that
-# file. THE SINGLE DERIVATION of the lever count: the live `s116_levers` below
-# AND the §116e-§116g lever-window arms (#668) both call it, so the window rule
-# lives in exactly one place and cannot be repaired in one caller while drifting
-# in the other. Same shape, and for the same reason, as s116_posture_rows below.
 # THE SINGLE DEFINITION of "what ends a §1.x window" (#644, widened to §1.8 by
 # #668). Used by BOTH live derivations (§1.8's lever count and §1.9's posture
 # count) AND the shared fixture builder, so the guards and the arms that bound
@@ -2636,9 +2631,14 @@ s116_spec="$SHELL_ROOT/SPEC.md"
 # DEFINED HERE, ABOVE THE FIRST CONSUMER, DELIBERATELY. `s116_lever_rows` runs
 # ~30 lines below and takes this as `-v endre=`; defined after it, the first call
 # expands an unset variable, the command substitution's subshell dies under
-# `set -u`, and `s116_levers` becomes EMPTY — which reds §116 AND §116c with an
-# arithmetic error rather than a parity message (measured during #668's Test
-# phase). Order is load-bearing, not cosmetic.
+# `set -u`, and `s116_levers` becomes EMPTY. Measured, that is WORSE than it
+# sounds: the suite runs `set -uo pipefail` with no `-e`, so the assignment still
+# completes, an empty-but-set variable evaluates as 0 in `$(( ))`, and §116 and
+# §116c both red with an ORDINARY PARITY MESSAGE — `expected=60` and an empty
+# `levers=` field — accompanied only by one `unbound variable` line on stderr. A
+# parity-shaped red is indistinguishable from genuine §1.9 drift except for that
+# stderr line, which is exactly the wrong-cause failure §116 exists to avoid.
+# Order is load-bearing, not cosmetic.
 #
 # DEPTH 2-3, not "depth <= 3". `^# ` is deliberately ABSENT: it matches any
 # shell comment, and SPEC carries 16 such lines inside fenced examples, so
@@ -2655,7 +2655,6 @@ s116_spec="$SHELL_ROOT/SPEC.md"
 # tracking is deliberately NOT attempted here.
 S116_END_RE='^## |^### '
 
-#
 # NEITHER END IS A SECTION NUMBER (#668). The window used to open on the literal
 # `### 1.8 ` and close on the literal `### 1.9 `, so it broke in both directions:
 # a `### 1.8.5` sibling sat INSIDE the window and inflated the count (6 -> 7),
@@ -2668,6 +2667,11 @@ S116_END_RE='^## |^### '
 # window uses, rather than re-spelling it. `#### ` is not a terminator (position
 # 4 is `#`, not a space), so a genuine `#### 1.8.1` sub-section of §1.8 stays in
 # scope and its rows still count — §116g pins that direction.
+# s116_lever_rows <spec-file> → count of §1.8 narrowing-lever table rows in that
+# file. THE SINGLE DERIVATION of the lever count: the live `s116_levers` below
+# AND the §116e-§116g lever-window arms (#668) both call it, so the window rule
+# lives in exactly one place and cannot be repaired in one caller while drifting
+# in the other. Same shape, and for the same reason, as s116_posture_rows below.
 s116_lever_rows() {
   awk -v endre="$S116_END_RE" \
     '/^### .*[Ii]n-session narrowing levers/{i=1;next} i&&$0~endre{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$1"
@@ -2720,13 +2724,13 @@ fi
 # of §1.9 must stay INSIDE.
 #
 # THE LEVER WINDOW (#668): the same shape, one section up and on BOTH ends.
-# `s116_lever_rows`' window opens at the literal `### 1.8 ` and closes at the
-# literal `### 1.9 `, so (a) a `| **`-shaped row in a new `### 1.8.5` sibling is
-# counted as a lever it is not, and (b) renumbering §1.8 collapses the window to
-# 0 and silently drops every real lever from `s116_exp`. Both ends must go: the
-# terminator becomes the shared $S116_END_RE, the start anchor becomes the
-# section's TITLE rather than its number. A genuine `#### 1.8.1` sub-section of
-# §1.8 must stay INSIDE.
+# `s116_lever_rows`' window must open on §1.8's TITLE and close on the shared
+# $S116_END_RE. With the literal ends it carried before #668 — opening at
+# `### 1.8 `, closing at `### 1.9 ` — it broke in both directions: (a) a
+# `| **`-shaped row in a new `### 1.8.5` sibling counted as a lever it is not,
+# and (b) renumbering §1.8 collapsed the window to 0 and silently dropped every
+# real lever from `s116_exp`. A genuine `#### 1.8.1` sub-section of §1.8 must
+# stay INSIDE.
 #
 # Fixtures are COPIES under $TMP (cleaned by the preamble's EXIT trap); no arm
 # writes to the real SPEC.md, and §116d pins that (AC5) — nothing here removes a
@@ -2741,7 +2745,7 @@ fi
 # cannot be a decoy that simply never matched the counting regex.
 #
 # WITNESS HONESTY (#668, the lever window): §116e and §116f are WITNESSES — each
-# reds against `s116_lever_rows` as it stands (measured: 7 and 0 against a
+# red against the PRE-#668 `s116_lever_rows` (measured: 7 and 0 against a
 # baseline of 6). §116g is a BOUND, not a witness: it reads 7 both before and
 # after the repair, so it constrains the repair's shape rather than
 # demonstrating the defect. It is labelled that way at its own arm too.
@@ -2783,8 +2787,8 @@ s116w_excl="$S116W_DIR/excl.md"
 s116w_incl="$S116W_DIR/incl.md"
 s116w_pristine="$S116W_DIR/pristine.md"
 cp "$s116_spec" "$s116w_pristine"
-s116w_fixture '^### 1\.9 ' '### 1.10 Smoke fixture decoy section (#644)'  "$S116W_ROW" "$s116w_excl"
-s116w_fixture '^### 1\.9 ' '#### 1.9.1 Smoke fixture sub-section (#644)'  "$S116W_ROW" "$s116w_incl"
+s116w_fixture '^### 1\\.9 ' '### 1.10 Smoke fixture decoy section (#644)'  "$S116W_ROW" "$s116w_excl"
+s116w_fixture '^### 1\\.9 ' '#### 1.9.1 Smoke fixture sub-section (#644)'  "$S116W_ROW" "$s116w_incl"
 
 # ---- §116e-§116g fixtures (#668), built HERE, up front, alongside the #644
 # ones so that §116d — which runs LAST and pins AC5 — covers these too. Same
@@ -2797,8 +2801,8 @@ S116L_ROW="| **$S116L_MARK** (§0) | decoy lever row planted by smoke §116e/§1
 s116l_excl="$S116W_DIR/lever-excl.md"
 s116l_incl="$S116W_DIR/lever-incl.md"
 s116l_renum="$S116W_DIR/lever-renum.md"
-s116w_fixture '^### 1\.8 ' '### 1.8.5 Smoke fixture decoy section (#668)' "$S116L_ROW" "$s116l_excl"
-s116w_fixture '^### 1\.8 ' '#### 1.8.1 Smoke fixture sub-section (#668)'  "$S116L_ROW" "$s116l_incl"
+s116w_fixture '^### 1\\.8 ' '### 1.8.5 Smoke fixture decoy section (#668)' "$S116L_ROW" "$s116l_excl"
+s116w_fixture '^### 1\\.8 ' '#### 1.8.1 Smoke fixture sub-section (#668)'  "$S116L_ROW" "$s116l_incl"
 # §116f's fixture is a RENAME, not a splice: §1.8's heading keeps its TITLE and
 # loses its NUMBER, which is the only thing the start anchor may legitimately
 # depend on. Derived from the live heading line — no SPEC title is hardcoded
