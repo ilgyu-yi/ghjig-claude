@@ -51,8 +51,7 @@ block() {
 # Scan args of a Bash command for paths outside the registry.
 # Shell-aware: tokenizes via python3 `shlex.split` so quoted paths with spaces
 # stay intact and literal globs (`*`) are not pathname-expanded. Falls back to
-# `set -f` + `read -ra` when python3 is absent — quoting is lost there, and
-# globbing is still disabled.
+# `set -f` + `read -ra` — quoting is lost there, and globbing is still disabled.
 #
 # CORRECTED (#662): the prior header claimed out-of-scope paths "still block"
 # in that fallback, "the corrupted token does not prefix-match any registry
@@ -62,33 +61,72 @@ block() {
 # on that rung vs rc=2 healthy. The contract this site owes (output-validity
 # keying, refuse-rather-than-degrade, the disclosed over-block, `-I`) is
 # SPEC §6.1.2; it is not restated here.
+#
+# On refusal the function writes its cause + recovery into the GLOBAL
+# `cda_refusal` (§6.0 P4: the arm's own recovery clause, not the generic
+# out-of-scope wording, which would name the wrong fix for a degraded
+# interpreter). Deliberately not `local` — the caller reads it.
+cda_refusal=
 check_destructive_args() {
   local cmd="$1"
-  local arg
+  local arg tok tok_out
   local -a args=()
-  if command -v python3 >/dev/null 2>&1; then
-    local tok_out
-    if ! tok_out=$(printf '%s' "$cmd" | python3 -c '
+  local tag='__ghjig_toks_662__'
+  cda_refusal=
+  # SPEC §6.1.2, the framed-non-empty instantiation. The token list is the set
+  # the loop below ITERATES, so validity is established by PROTOCOL (a constant
+  # tag around the payload) and then by NON-EMPTINESS — the frame alone is not
+  # enough here, because an empty payload frames perfectly validly (`tagtag`
+  # matches the glob) and would read as a completed check that checked nothing.
+  # No `command -v python3` probe: an absent interpreter yields an unframed read
+  # like every other enumerated outcome, and a presence probe is the very
+  # question the rule forbids. `-I` drops the cwd from sys.path so an
+  # in-registry `./shlex.py` — a write the shell's own scope guard permits —
+  # cannot forge the token list under a healthy interpreter.
+  tok_out=$(printf '%s' "$cmd" | python3 -I -c '
 import shlex, sys
+tag = sys.argv[1] if len(sys.argv) > 1 else ""
 try:
-    for t in shlex.split(sys.stdin.read()):
-        print(t)
+    toks = shlex.split(sys.stdin.read())
 except ValueError:
     sys.exit(2)
-' 2>/dev/null); then
-      # shlex parse failed (unclosed quote, dangling backslash). Fail closed —
-      # we cannot reason about which paths the command would have touched.
-      return 1
-    fi
-    local tok
-    while IFS= read -r tok; do
-      [ -n "$tok" ] && args+=("$tok")
-    done <<< "$tok_out"
-  else
-    local _opts=$-
-    set -f
-    read -ra args <<< "$cmd"
-    case "$_opts" in *f*) ;; *) set +f ;; esac
+sys.stdout.write(tag + "\n".join(toks) + tag)
+' "$tag" 2>/dev/null)
+  case $tok_out in
+    "$tag"*"$tag")
+      tok_out=${tok_out#"$tag"}
+      tok_out=${tok_out%"$tag"}
+      while IFS= read -r tok; do
+        [ -n "$tok" ] && args+=("$tok")
+      done <<< "$tok_out"
+      ;;
+    *)
+      # The lossy rung answers a WEAKER question than the one asked, so it is
+      # restricted to a QUOTING-FREE command and REFUSES anything else — the
+      # same fail-closed exit the unclosed-quote case already took. Refusal is
+      # total where an enumeration of quoting forms would be re-argued per form.
+      # The key is the WHOLE command string, so `mv ./a ./b && echo "done"`
+      # (quote in an unrelated segment) refuses too: the disclosed over-block of
+      # SPEC §6.1.2, accepted rather than mitigated.
+      case $cmd in
+        *\'*|*\"*|*\\*)
+          cda_refusal="destructive command refused: the shell-aware tokenizer returned no usable token list and the command carries quoting the fallback cannot parse, so the paths it touches cannot be decided (SPEC §6.1.2). Recovery: make python3 runnable (python3 -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
+          return 1 ;;
+      esac
+      local _opts=$-
+      set -f
+      read -ra args <<< "$cmd"
+      case "$_opts" in *f*) ;; *) set +f ;; esac
+      ;;
+  esac
+  # Framed AND non-empty. An empty list is a FAILED check, never a passed one —
+  # and on bash 3.2.57 `for a in "${args[@]}"` over an empty array under `set -u`
+  # is a fatal unbound-variable that exits the hook 1: a non-blocking allow that
+  # also skips every later matcher. Refused here; the loop below additionally
+  # uses the `${args[@]+…}` form so no later edit can reintroduce the crash.
+  if [ "${#args[@]}" -eq 0 ]; then
+    cda_refusal="destructive command refused: the shell-aware tokenizer produced an EMPTY token list, which is a failed check, not a completed one (SPEC §6.1.2). Recovery: make python3 runnable (python3 -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
+    return 1
   fi
 
   # #555 A5: skip the verb/wrapper words (rm|mv|cp|sudo|doas|time|env) ONLY when
@@ -99,7 +137,7 @@ except ValueError:
   # (sudo/doas/time/env) and drops the moment the destructive verb (rm/mv/cp) — or
   # any other first word — is seen, so every subsequent operand is scope-checked.
   local at_cmd=1
-  for arg in "${args[@]}"; do
+  for arg in ${args[@]+"${args[@]}"}; do
     case "$arg" in
       -*) continue ;;
     esac
@@ -227,7 +265,12 @@ case "$tool" in
       # (an unforced single-file rm stays un-gated, #212).
       decided=
       if ! check_destructive_args "$cmd"; then
-        should_skip out-of-scope && decided=1 || block out-of-scope "destructive command points outside registry: $cmd"
+        # #662 / §6.0 P4: the REFUSAL arm (a degraded interpreter, no usable
+        # token list) is a different honest mistake from a genuine out-of-scope
+        # operand, and its recovery is repairing python3 — not narrowing the
+        # path. check_destructive_args supplies that arm's own clause in
+        # `cda_refusal`; empty means the operand really was outside the registry.
+        should_skip out-of-scope && decided=1 || block out-of-scope "${cda_refusal:-destructive command points outside registry: $cmd}"
       else
         # In-scope rm/mv/cp -f is the common happy path (`rm -rf ./node_modules`).
         # No audit emission needed; mark_allow satisfies the invariant via flag.
