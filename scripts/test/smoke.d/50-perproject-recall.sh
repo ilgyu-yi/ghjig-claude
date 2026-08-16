@@ -2631,21 +2631,37 @@ s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
 # SINGLE derivation of the count: the live parity arm below AND the §116a-§116c
 # window-terminator arms (#644) both call it, so the window rule lives in exactly
 # one place and cannot be fixed in one caller while drifting in the other.
+# THE SINGLE DEFINITION of "what ends §1.9's window" (#644). Used by BOTH the
+# live derivation below AND the §116a/§116b fixture builder, so the guard and the
+# arms that bound it cannot drift apart — which is the whole reason the
+# derivation was extracted into a function in the first place.
+#
+# DEPTH 2-3, not "depth <= 3". `^# ` is deliberately ABSENT: it matches any
+# shell comment, and SPEC carries 16 such lines inside fenced examples, so
+# including it would collapse the window to 0 the day §1.9 gains a fenced
+# example (measured). Dropping it costs nothing — the only thing it could ever
+# terminate on is a SECOND document H1 appearing after §1.9, in a file with
+# exactly one H1 (line 1) across 2900+ lines, and the `i&&` guard already keeps
+# line 1 from closing a window that has not opened.
+#
+# RESIDUAL, named rather than rounded off: this rule is line-oriented and knows
+# nothing about code fences, so 9 fence-interior `^## ` lines elsewhere in SPEC
+# remain collidable. Accepted for #644 — §1.9 carries no fence today and the
+# failure is loud (§116 reds at classified=0) rather than silent. Fence-state
+# tracking is deliberately NOT attempted here.
+S116_END_RE='^## |^### '
+
 s116_posture_rows() {
-  # Terminate at the NEXT HEADING OF DEPTH <= 3, not at the literal `## 2. ` (#644).
-  # The old terminator put every section between §1.9 and `## 2.` INSIDE the
-  # counting window, so a posture-token table row in a new `### 1.10` inflated
-  # the count and reddened §116 for a reason unrelated to the parity it checks
-  # (measured: 66 -> 67). `#### ` is deliberately NOT a terminator — position 3
-  # is `#`, not a space, so a genuine `#### 1.9.1` sub-section of §1.9 stays in
-  # scope and its rows still count (§116b pins that direction).
+  # `#### ` is NOT a terminator — position 3 is `#`, not a space — so a genuine
+  # `#### 1.9.1` sub-section of §1.9 stays in scope and its rows still count
+  # (§116b pins that direction).
   #
   # The `i&&` guard is LOAD-BEARING, not defensive: without it the terminator
-  # matches SPEC's own H1 (`# GHJig-Claude — Design Specification`) on LINE 1 and
+  # matches the §1.9 heading itself and every earlier `## `/`### ` heading, and
   # awk exits before the window ever opens, yielding 0. That would not fail
-  # silently — §116's `-gt 0` check and §116a-§116c's baseline guards all catch
+  # silently — §116's `-gt 0` check and the §116a-§116c baseline guards all catch
   # it — but the guard is what keeps the rule scoped to the window it describes.
-  awk '/^### 1\.9 /{i=1;next} i&&/^# |^## |^### /{exit} i' "$1" \
+  awk -v endre="$S116_END_RE" '/^### 1\.9 /{i=1;next} i&&$0~endre{exit} i' "$1" \
     | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`'
 }
 s116_rows=$(s116_posture_rows "$s116_spec")
@@ -2677,14 +2693,26 @@ S116W_DIR="$TMP/s116w"
 mkdir -p "$S116W_DIR"
 S116W_MARK='smoke-fixture-decoy-644'
 # s116w_fixture <heading-line> <out-file> — a SPEC.md copy with <heading-line>
-# plus ONE decoy posture row spliced in just before the `## 2. ` heading. Only
-# the heading DEPTH differs between §116a and §116b, so the heading rule is the
+# plus ONE decoy posture row spliced in at THE END OF §1.9, i.e. immediately
+# before the first line that $S116_END_RE says closes the window. Only the
+# heading DEPTH differs between §116a and §116b, so the heading rule stays the
 # single variable under test.
+#
+# ANCHORED TO §1.9, NOT TO `## 2. ` (#644 round-1 F1). An earlier revision
+# spliced at the literal `## 2. `, which is the end of §1.9 only while §1.9
+# happens to be §1's LAST subsection. The moment a real `### 1.10` lands, that
+# anchor puts §116b's decoy BEHIND the window it is meant to be inside, and the
+# arm reds for a cause outside its own subject — the very pathology §116a
+# exists to prevent, reproduced one level up in the fixture that bounds it.
+# #644 names three Active Directives planning a §1.x section, so this is the
+# anticipated future, not a hypothetical. The anchor reuses $S116_END_RE rather
+# than re-spelling the heading rule, so it cannot drift from the derivation.
 s116w_fixture() {
-  awk -v h="$1" -v m="$S116W_MARK" '
-    /^## 2\. /&&!d { print h; print ""
-                     print "| " m " (§0) | `keep-as-policy` | decoy row planted by smoke §116a/§116b (#644). |"
-                     print ""; d=1 }
+  awk -v h="$1" -v m="$S116W_MARK" -v endre="$S116_END_RE" '
+    /^### 1\.9 /  { i=1; print; next }
+    i&&!d&&$0~endre { print h; print ""
+                      print "| " m " (§0) | `keep-as-policy` | decoy row planted by smoke §116a/§116b (#644). |"
+                      print ""; d=1 }
     { print }' "$s116_spec" > "$2"
 }
 s116w_excl="$S116W_DIR/excl.md"
