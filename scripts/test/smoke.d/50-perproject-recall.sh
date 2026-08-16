@@ -3845,7 +3845,7 @@ else
   # out-of-registry `rm -rf` must BLOCK under every one. The QUOTED forms are the
   # fallback rung's own leak (`"/…"` is not `/`-anchored → absolutised against
   # `pwd -P` → in-scope), so bare-only coverage would miss half the defect.
-  # Measured pre-fix: 15 of 18 rows rc=0. Only crash/{bare,quoted,squoted} (the
+  # Measured pre-fix: 14 of 18 rows rc=0. Only crash/{bare,quoted,squoted} (the
   # rc≠0 outcome an rc-keyed selector DOES cover) and absent/bare block today.
   # Row codes: rc is the hook's exit; 4 = shim never ran; 8 = unknown shim mode.
   s662_blocked=0; s662_bad=""
