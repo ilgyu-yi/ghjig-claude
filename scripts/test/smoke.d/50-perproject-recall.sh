@@ -2641,7 +2641,7 @@ s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
 # including it would collapse the window to 0 the day §1.9 gains a fenced
 # example (measured). Dropping it costs nothing — the only thing it could ever
 # terminate on is a SECOND document H1 appearing after §1.9, in a file with
-# exactly one H1 (line 1) across 2900+ lines, and the `i&&` guard already keeps
+# exactly one H1 (line 1) across 2,893 lines, and the `i&&` guard already keeps
 # line 1 from closing a window that has not opened.
 #
 # RESIDUAL, named rather than rounded off: this rule is line-oriented and knows
@@ -2657,8 +2657,8 @@ s116_posture_rows() {
   # (§116b pins that direction).
   #
   # The `i&&` guard is LOAD-BEARING, not defensive: without it the terminator
-  # matches the §1.9 heading itself and every earlier `## `/`### ` heading, and
-  # awk exits before the window ever opens, yielding 0. That would not fail
+  # matches every EARLIER `## `/`### ` heading and awk exits before the window
+  # ever opens, yielding 0 (measured on the real SPEC). That would not fail
   # silently — §116's `-gt 0` check and the §116a-§116c baseline guards all catch
   # it — but the guard is what keeps the rule scoped to the window it describes.
   awk -v endre="$S116_END_RE" '/^### 1\.9 /{i=1;next} i&&$0~endre{exit} i' "$1" \
@@ -2673,7 +2673,7 @@ fi
 
 # ---------- §116a-§116d: §116's row-count window terminator (#644) ----------
 # Phase B (Test). §116's window opens at `### 1.9 ` and must close at the NEXT
-# HEADING OF DEPTH ≤ 3 — not at the literal `## 2. `. With the literal
+# WINDOW-CLOSING HEADING (depth 2-3) — not at the literal `## 2. `. With the literal
 # terminator, everything authored between §1.9 and `## 2. ` (a new `### 1.10`,
 # say) sits INSIDE the counting window, so an unrelated table row quoting a
 # backticked posture token inflates the count and reds §116 for a cause outside
@@ -2734,7 +2734,7 @@ if [ ! -s "$s116w_excl" ] || [ "$(grep -c "$S116W_MARK" "$s116w_excl")" != 1 ]; 
 elif [ "$s116w_base" -gt 0 ] && [ "$s116w_a" = "$s116w_base" ]; then
   ok "116a: a posture row inside a '### 1.10' is EXCLUDED from the §1.9 window (count stays $s116w_base) (#644)"
 else
-  ng "116a: §116's window admits a '### 1.10' — count=$s116w_a baseline=$s116w_base; the terminator must be the next heading of depth ≤ 3, not the literal '## 2. ' (#644)"
+  ng "116a: §116's window admits a '### 1.10' — count=$s116w_a baseline=$s116w_base; the terminator must be the next window-closing heading (depth 2-3), not the literal '## 2. ' (#644)"
 fi
 
 # §116b (AC3, regression guard — green before and after): the SAME row inside a
