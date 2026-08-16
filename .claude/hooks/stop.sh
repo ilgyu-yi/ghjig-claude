@@ -32,7 +32,7 @@ count=$(cat "$count_file" 2>/dev/null || echo 0)
 # non-numeric value is worse still: under `set -u`, arithmetic reads it as a variable
 # NAME, so the hook aborts with exit status 0, which the harness reads as success.
 # Empty/leading-zero/non-numeric → 0, so the next turn writes a usable 1.
-case "$count" in ""|*[!0-9]*) count=0 ;; 0) ;; 0*) count=0 ;; esac
+case "$count" in ""|*[!0-9]*|0*) count=0 ;; esac
 count=$((count + 1))
 printf '%s\n' "$count" > "$count_file"
 
