@@ -3654,6 +3654,29 @@ fi
 #   160h  the EMPTY-ARRAY crash: an empty token list must be REFUSED, not run
 #         into `for a in "${args[@]}"` under set -u (fatal on bash 3.2.57)   RED
 #
+# #664 EXTENSION — the same cluster, one rung further in. #662's `-I` stopped at
+# the two sites it measured; ten more `python3 -c` sites under `.claude/hooks/`
+# still run un-isolated, and the constant-tag frame #660 installed does NOT cover
+# them, because the frame authenticates exactly one proposition — THE PROGRAM RAN
+# TO COMPLETION. A COOPERATIVE plant runs it to completion: the genuine program
+# emits both tags around a payload the plant chose. Frame and `-I` are ORTHOGONAL,
+# not redundant (SPEC §6.1.2). Three arms, reusing the fixture above verbatim:
+#   160i  the COOPERATIVE `./re.py` plant at `strip_command_data` — four legs
+#         (a) no-plant negative FIRST, (b) cooperative plant, (c) same-PATH
+#         positive control RE-MEASURED WITH THE PLANT, (d) broken plant, which
+#         is explicitly NOT a witness                                       RED
+#   160l  AC7 no-regression: the healthy-path verdicts of the matchers that
+#         consume the TEN newly-swept sites, unchanged                    GREEN
+#   160k  the STRUCTURAL ZERO-ASSERTION: no piped `python3` invocation under
+#         `.claude/hooks/` or `.githooks/` may lack the LITERAL `python3 -I -c`
+#         prefix. Lives OUTSIDE the jq gate (it is a grep over the tree, not a
+#         hook fire), so it is defined last and PRINTS last.               RED
+#
+# 160l is GREEN on both sides by construction and that is deliberate — pre-fix
+# there is no sweep to regress, so a version of it that red at Phase B would be
+# asserting something false about shipped behaviour. 160i and 160k are the two
+# that RED against pre-fix code (measured: 10 pass / 2 fail on this section).
+#
 # Anti-vacuity (smoke.sh Theme E) — SHARPEST here of anywhere in the suite,
 # because on this guard the fail-closed answer IS "block": a BROKEN fixture
 # produces exactly the value a block-expecting arm wants and greens. Four measured
@@ -3669,9 +3692,20 @@ fi
 #       fail-closed answer and the stderr complaint is swallowed by `2>/dev/null`.
 # So: every `command -v` result is PATH-FILTERED before linking (`case $src in /*`),
 # the positive control runs on EVERY PATH variant (160a) and is re-run WITH the
-# plant in place (160g), every arm asserts the shim was actually INVOKED, an
-# unknown shim mode writes an OUT-OF-BAND marker file, and every failure mode gets
-# its own exit code so a fixture miss can never masquerade as the intended failure.
+# plant in place (160g, 160i leg c), every arm asserts the shim was actually
+# INVOKED, an unknown shim mode writes an OUT-OF-BAND marker file, and every
+# failure mode gets its own exit code so a fixture miss can never masquerade as the
+# intended failure. #664 adds a FIFTH near-miss to that list:
+#   (e) a BROKEN cwd plant read as a negative counterexample — measured, a
+#       `./re.py` that RAISES yields an unframed read, so `strip_command_data`
+#       fails closed to the unstripped command and the verdict is BYTE-IDENTICAL
+#       to the healthy one for this input. That is not evidence of coverage; it
+#       is evidence that the frame catches a plant which BREAKS the program. Only
+#       a COOPERATIVE plant separates the two, which is why 160i carries both and
+#       says in its own message which of the two is the witness.
+# The three #664 arms therefore order their checks fixture-legs-FIRST: 160i tests
+# (a), (c) and (d) before it will look at (b) at all, and 160k refuses to report a
+# zero it reached by scanning nothing.
 S662_DIR="$TMP/iv662"                    # under $TMP → cleaned by the shared EXIT trap
 S662_BIN="$S662_DIR/bin"                 # curated PATH + mode-driven python3 shim
 S662_NOPY="$S662_DIR/nopy"               # same, with NO python3 at all (absent leg)
@@ -3772,18 +3806,29 @@ S662_VICTIM=$(cd "$S662_VICTIM" && pwd -P)
 # $1 = ghjig state dir, $2 = tool JSON, $3 = curated PATH dir (or `ambient`),
 # $4 = S662_PY_MODE. Script-file mode under the harness's own `set -uo pipefail`
 # — never `bash -c`, whose quoting would re-tokenize the very strings under test.
+# The LOAD-BEARING pin is GHJIG_STATE_DIR_OVERRIDE: `hookrt.sh` consults it FIRST,
+# ahead of any project-dir derivation, so the registry the hook reads is
+# $1/registry.txt regardless of what CLAUDE_PROJECT_DIR says. The `env -u
+# CLAUDE_PROJECT_DIR` below is BELT-AND-BRACES, not the pin — it removes an
+# ambient variable a live agent session exports, so that if the override's
+# precedence ever changes the fixture fails LOUD (registry unfindable) instead of
+# silently resolving the developer's own project. Do not read it as the pin and
+# delete the override, or the arms start measuring the real tree (#664).
 s662_hook_run() {
   ( cd "$S662_TARGET" || exit 99
     if [ "$3" != ambient ]; then export PATH="$3"; fi
     export S662_STATE S662_REAL_PY S662_PY_MODE="$4"
     printf '%s' "$2" \
-      | GHJIG_STATE_DIR_OVERRIDE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+      | env -u CLAUDE_PROJECT_DIR \
+        GHJIG_STATE_DIR_OVERRIDE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
         bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
   return $?
 }
 
 if ! command -v jq >/dev/null 2>&1; then
-  for s662_a in 160-fixture 160a 160b 160c 160d 160e 160f 160g 160h; do
+  # 160k is deliberately ABSENT from this list: it is a grep over the tree and
+  # needs neither jq nor python3, so it runs below regardless (#664).
+  for s662_a in 160-fixture 160a 160b 160c 160d 160e 160f 160g 160h 160i 160l; do
     ng "$s662_a: jq missing — the whole §160 fixture is undrivable (#662)"
   done
 else
@@ -4088,6 +4133,257 @@ S662PLANT
     else
       ng "160h: an empty token list crashed the hook instead of being refused — $s662_blocked/2 blocked, failed:$s662_bad (rc=1 is the bash 3.2.57 fatal 'args[@]: unbound variable' → a non-blocking allow that also skips every later matcher; rc=0 would be a completed check that checked nothing) (#662)"
     fi
+  fi
+
+  # ---- 160i (RED, #664): the COOPERATIVE cwd plant at `strip_command_data`
+  # (`helpers/git_matcher.sh`), end-to-end through `pre_tool_use.sh`. This is the
+  # arm AC2/AC6 name, and it is the one that shows the #660 constant-tag frame is
+  # NECESSARY BUT NOT SUFFICIENT.
+  #
+  # The frame authenticates exactly one proposition: THE PROGRAM RAN TO
+  # COMPLETION. Every member of §6.1.2's enumerated degradation set (absent /
+  # non-zero exit / exit-0-junk / exit-0-partial / stderr-only) stops the program
+  # short of emitting both tags, which is why a single glob decides all five. It
+  # does NOT follow that the payload BETWEEN the tags is genuine. `python3 -c`
+  # puts the cwd on `sys.path` and `re` is NOT in `sys.modules` at interpreter
+  # startup, so a `./re.py` written to an in-registry path — a write the shell's
+  # own Edit/Write scope guard PERMITS BY DESIGN — is imported by the genuine
+  # program. A COOPERATIVE plant does not break that program; it lets it run to
+  # completion and emits both tags around a payload the plant chose:
+  #
+  #   strip_command_data "git push --force origin main" message
+  #     no plant          -> [git push --force origin main]
+  #     cooperative re.py -> [    ]        # validly FRAMED, command ELIDED
+  #
+  # The force-push arm's entry grep then finds nothing and the hook returns 0.
+  #
+  # Four legs, in this order, and the ORDER is the anti-vacuity design:
+  #   (a) NO-PLANT NEGATIVE, FIRST. On this matcher the fail-closed answer IS
+  #       "block", so a broken fixture produces exactly the value legs (b)-(d)
+  #       would read as success. If (a) is not rc=2 the arm reds HERE, naming the
+  #       fixture, rather than letting a later leg green on a dead hook.
+  #   (b) THE WITNESS. rc=0 today (so this arm REDS pre-fix); rc=2 once
+  #       `strip_command_data` carries the literal `python3 -I -c`. Verified by
+  #       mutation at Phase-B time: with `-I` at that site the same plant gives
+  #       rc=2, and the no-plant run stays rc=2. So it is a live witness, not a
+  #       forward guard.
+  #   (c) SAME-PATH POSITIVE CONTROL, re-measured WITH THE PLANT STILL IN PLACE
+  #       and on the SAME PATH — an `Edit` on an in-registry `.env`, a matcher
+  #       with no python3 leg at all. rc=2 is what makes (b)'s rc=0 a REAL ALLOW
+  #       instead of a dead fixture.
+  #   (d) BROKEN PLANT. A `./re.py` that RAISES. Its verdict is rc=2 — which is
+  #       BYTE-IDENTICAL to the healthy no-plant verdict for this input, because
+  #       an unframed read fails closed to the unstripped command and the arm
+  #       greps that. It is therefore NOT A WITNESS in either direction, and it
+  #       is carried here precisely so nobody re-derives it as one: this exact
+  #       result is what made the original negative counterexample look
+  #       conclusive and be wrong.
+  #       Its rc=2 is the ONLY thing this leg asserts, deliberately. A marker
+  #       file records whether the plant was actually IMPORTED, but that is
+  #       REPORTED, never gated on — because the marker's value legitimately
+  #       FLIPS across the fix: pre-`-I` the plant loads and rc=2 comes from the
+  #       frame's fail-closed path, post-`-I` the plant does not load and the
+  #       same rc=2 comes from isolation. Gating on it would smuggle leg (d) back
+  #       into being a witness, which is the exact confusion this leg exists to
+  #       prevent. (Measured at Phase B: gating on the marker red the arm against
+  #       an already-swept tree.)
+  #
+  # The plant below is the one pinned in Issue #664's AC2, verbatim.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160i: SKIPPED — no python3 on this host, the cooperative cwd plant is not runnable (#664)"
+  else
+    rm -f "$S662_TARGET/re.py"; rm -rf "$S662_TARGET/__pycache__"
+
+    # (a) no-plant negative, FIRST.
+    s662_hook_run "$S662_REG_ON" "$(s662_bash_json "git push --force origin main")" "$S662_HEAL" healthy
+    s664_noplant=$?
+
+    # (b) the cooperative plant (Issue #664 AC2, verbatim).
+    cat > "$S662_TARGET/re.py" <<'S664COOP'
+class _M:
+    def __init__(self, g1="", g2=" "): self._g = (None, g1, g2)
+    def group(self, i): return self._g[i]
+    def start(self): return 0
+class _P:
+    def __init__(self, pat): self.pat = pat
+    def match(self, s, pos=None):
+        # the heredoc-delimiter pattern must NOT match; the message-flag one must
+        if "message" in self.pat or "--file" in self.pat:
+            return _M("", " ")
+        return None
+    def finditer(self, s): return []
+def compile(pat, *a, **k): return _P(pat)
+def finditer(pat, s, *a, **k): return []
+def match(pat, s, *a, **k): return None
+S664COOP
+    s662_hook_run "$S662_REG_ON" "$(s662_bash_json "git push --force origin main")" "$S662_HEAL" healthy
+    s664_coop=$?
+
+    # (c) positive control, SAME PATH, plant STILL IN PLACE.
+    s662_hook_run "$S662_REG_ON" "$s662_ctl_json" "$S662_HEAL" healthy
+    s664_ctl=$?
+    rm -f "$S662_TARGET/re.py"; rm -rf "$S662_TARGET/__pycache__"
+
+    # (d) the broken plant — NOT a witness; see the header above.
+    rm -f "$S662_STATE/re_broken_loaded"
+    cat > "$S662_TARGET/re.py" <<'S664BROKEN'
+import os
+open(os.environ["S662_STATE"] + "/re_broken_loaded", "w").close()
+raise RuntimeError("664 broken plant")
+S664BROKEN
+    s662_hook_run "$S662_REG_ON" "$(s662_bash_json "git push --force origin main")" "$S662_HEAL" healthy
+    s664_broken=$?
+    s664_broken_loaded=no
+    [ -e "$S662_STATE/re_broken_loaded" ] && s664_broken_loaded=yes
+    rm -f "$S662_TARGET/re.py"; rm -rf "$S662_TARGET/__pycache__"
+
+    if [ "$s664_noplant" != 2 ]; then
+      ng "160i: leg (a) DEAD FIXTURE — with NO plant at all, 'git push --force origin main' returned rc=$s664_noplant, want 2. The force-push gate is not alive on this fixture, so legs (b)-(d) below measure NOTHING and the arm refuses to report on them (#664)"
+    elif [ "$s664_ctl" != 2 ]; then
+      ng "160i: leg (c) DEAD FIXTURE — the same-PATH positive control (Edit on an in-registry .env, a matcher with NO python3 leg) returned rc=$s664_ctl WITH the plant in place, want 2. Without it a leg-(b) rc=0 cannot be told apart from a hook the plant killed outright, so leg (b)'s rc=$s664_coop is unmeasured (#664)"
+    elif [ "$s664_broken" != 2 ]; then
+      ng "160i: leg (d) returned rc=$s664_broken, want 2 (plant-imported=$s664_broken_loaded) — a ./re.py that RAISES no longer produces a block. THIS LEG IS NOT A WITNESS for the -I sweep in either direction: its rc=2 is BYTE-IDENTICAL to the healthy no-plant rc=2 for this input, because an unframed read fails closed to the UNSTRIPPED command which the arm then greps — that byte-identity is exactly what made #664's original negative counterexample look conclusive and be wrong. It is carried only so a BROKEN plant is never mistaken for a COOPERATIVE one (leg b). A red here is a #660-frame regression, not a #664 one (#664)"
+    elif [ "$s664_coop" = 2 ]; then
+      ok "160i: a COOPERATIVE in-registry ./re.py cannot elide a force-push past strip_command_data — plant rc=2, no-plant rc=2, same-PATH control rc=2 with the plant in place; the broken-plant leg (rc=2, imported=$s664_broken_loaded) is carried as a NON-witness, byte-identical to healthy for this input (#664)"
+    else
+      ng "160i: a COOPERATIVE in-registry ./re.py FORGED strip_command_data's payload and the force-push gate SILENTLY ALLOWED 'git push --force origin main' — rc=$s664_coop, want 2 (no-plant rc=$s664_noplant and same-PATH .env control rc=$s664_ctl, both 2, the control measured WITH the plant still in place — so this is a REAL allow, not a dead fixture). The #660 constant-tag frame does NOT cover this: it authenticates only that the program RAN TO COMPLETION, and a cooperative plant lets it run to completion around a payload the plant chose — the output is validly FRAMED and the command is ELIDED. The broken-plant leg (rc=$s664_broken, imported=$s664_broken_loaded) is NOT the counterexample it looks like; it is byte-identical to the healthy verdict for this input. Fix: the literal 'python3 -I -c' at strip_command_data — SPEC §6.1.2 (#664)"
+    fi
+  fi
+
+  # ---- 160l (GREEN both sides, #664): AC7 no-regression. The `-I` sweep must not
+  # move any HEALTHY-path verdict. 160c already pins the destructive matcher's
+  # table; this arm pins the matchers that consume the TEN sites #664 newly
+  # touches and 160c does not reach — `strip_command_data`'s heredoc AND message
+  # modes (branch / force-push / --no-verify / --amend entry greps),
+  # `space_glued_separators`, `parse_skip_sentinel`, and the Edit/Write
+  # sensitive-file symlink realpath.
+  #
+  # This arm is GREEN on BOTH sides BY CONSTRUCTION and that is its job: pre-fix
+  # there is no sweep to regress, so it cannot red at Phase B, and a version of it
+  # that did red would be asserting something false about shipped behaviour rather
+  # than guarding it. It is the same class as 160a/160c, not a #664 defect witness
+  # — measured green against the current tree AND against a tree with `python3
+  # -I -c` at all ten sites, which is what makes it a guard rather than a
+  # restatement.
+  #
+  # Both directions are represented deliberately: FOUR rows expect rc=0, so an
+  # over-block introduced by `-I` reds here; NINE expect rc=2, so a blinding reds
+  # here. Rows are `name|want-rc|command`; the two rows that cannot ride the
+  # `|`-delimited loop (a multi-line heredoc, and an Edit tool payload) are
+  # measured explicitly after it.
+  #
+  # NOT covered, stated rather than rounded off: `parse_gh_merge_argv`
+  # (`ac_closeout_gate.sh`) and `resolve_gh_issue_target` (`issue_type.sh`) reach
+  # a verdict only through `gh`, and this farm stubs `python3` ONLY — there is no
+  # `gh` stub layer here, so their healthy paths are out of this arm's reach.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160l: SKIPPED — no python3 on this host, the healthy-path verdict table is not runnable (#664)"
+  else
+    rm -f "$S662_TARGET/re.py"; rm -rf "$S662_TARGET/__pycache__"
+    s664_lm=0; s664_lt=0; s664_bad=""
+    for s664_row in \
+      "push-protected|2|git push origin main" \
+      "push-force-protected|2|git push --force origin main" \
+      "push-force-bare|2|git push --force" \
+      "push-force-named-nonprotected|0|git push --force-with-lease origin feat-664" \
+      "msgvalue-elided-as-data|0|git stash push -m \"git push --force origin main\"" \
+      "quoted-target-not-elided|2|git push --force origin \"main\"" \
+      "unclosed-msg-quote-failclosed|2|git stash push -m \"git push --force origin main" \
+      "space-glued-separator|2|git push origin main;echo hi" \
+      "no-verify|2|git commit --no-verify -m x" \
+      "amend|2|git commit --amend -m x" \
+      "skip-sentinel-honored|0|rm -rf $S662_VICTIM # ghjig:skip=out-of-scope reason=160l" \
+      ; do
+      IFS='|' read -r s664_name s664_want s664_cmd <<< "$s664_row"
+      s664_lt=$((s664_lt+1))
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s664_cmd")" "$S662_HEAL" healthy; s664_rc=$?
+      if [ "$s664_rc" = "$s664_want" ]; then
+        s664_lm=$((s664_lm+1))
+      else
+        s664_bad="$s664_bad $s664_name(rc=$s664_rc,want=$s664_want)"
+      fi
+    done
+    # Row 12: a heredoc BODY is data — `strip_command_data`'s heredoc mode. Cannot
+    # live in the `|` loop because `read` would stop at the first newline.
+    s664_lt=$((s664_lt+1))
+    s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$(printf 'cat <<EOF\ngit push origin main\nEOF\n')")" "$S662_HEAL" healthy; s664_rc=$?
+    if [ "$s664_rc" = 0 ]; then s664_lm=$((s664_lm+1)); else s664_bad="$s664_bad heredoc-body-is-data(rc=$s664_rc,want=0)"; fi
+    # Row 13: the Edit/Write sensitive-file SYMLINK realpath (`pre_tool_use.sh`,
+    # `import os`). A different tool payload, so also outside the loop.
+    s664_lt=$((s664_lt+1))
+    ln -sf "$S662_TARGET/.env" "$S662_TARGET/envlink-664"
+    s662_hook_run "$S662_REG_ON" \
+      "$(jq -nc --arg p "$S662_TARGET/envlink-664" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}')" \
+      "$S662_HEAL" healthy; s664_rc=$?
+    rm -f "$S662_TARGET/envlink-664"
+    if [ "$s664_rc" = 2 ]; then s664_lm=$((s664_lm+1)); else s664_bad="$s664_bad sensitive-symlink-realpath(rc=$s664_rc,want=2)"; fi
+
+    if [ "$s664_lm" -eq 13 ] && [ "$s664_lt" -eq 13 ]; then
+      ok "160l: the -I sweep moves no healthy-path verdict — 13/13 unchanged across strip_command_data's heredoc+message modes, space_glued_separators, parse_skip_sentinel and the sensitive-file symlink realpath (#664)"
+    else
+      ng "160l: the -I sweep CHANGED a healthy-path verdict — only $s664_lm/$s664_lt unchanged, drifted:$s664_bad (the 4 want-rc=0 rows catch an OVER-block, the 9 want-rc=2 rows catch a BLINDING; a fix that blocks everything is not a fix — #664 AC7, SPEC §6.1.2) (#664)"
+    fi
+  fi
+fi
+
+# ---- 160k (RED, #664): the STRUCTURAL ZERO-ASSERTION. Outside the jq gate above
+# on purpose — it is a grep over the tree and needs neither jq nor python3.
+#
+# EVERY piped `python3` invocation under `.claude/hooks/` and `.githooks/` must
+# carry the LITERAL `python3 -I -c`. Three properties of this arm are load-bearing
+# and each is a decision, not an accident:
+#
+#   1. It is a ZERO-assertion, NOT a count-guard. A count-guard ("no more than N
+#      un-isolated sites") greens on a newly ADDED un-isolated site, which defeats
+#      the entire reason `-I` is applied uniformly rather than only to the sites
+#      whose program text imports something shadowable TODAY. `-I` is a property
+#      of the INVOCATION; "shadowable" is a property of the PROGRAM TEXT, which a
+#      later edit can change without touching the invocation at all.
+#   2. It carries NO allow-list. An allow-list is the import-scanning classifier
+#      SPEC §6.1.2 rejects, and its misparses fail in the EXEMPT (wrong-allow)
+#      direction: measured, `import sys; import re`, `from re import compile` and
+#      `re = __import__("re")` all scan as `['sys']` and land in the exempt
+#      bucket. Two of the guarded sites feed §6.0 P1 irreversible gates
+#      (`strip_command_data` → force-push; `parse_gh_merge_argv` → `gh pr merge`).
+#   3. It anchors the LITERAL PREFIX, not "contains -I". Measured:
+#      `python3 -c '<prog>' -I` gives `sys.argv == ['-c','-I']` — the `-I` is an
+#      argument to the PROGRAM, not an interpreter flag, and a cwd plant STILL
+#      LOADS; `python3 -I -c '<prog>'` gives `sys.argv == ['-c']` and it does not.
+#      A "contains -I" assertion would green a live bypass.
+#
+# RESIDUAL, named rather than rounded off: the `\| *python3` anchor is EXACT for
+# all 12 invocation sites as they exist today (measured: 12 piped hits, 0 false
+# positives — the 3 prose occurrences of "python3 -c" in message strings carry no
+# pipe — and 0 misses). It would NOT catch a future NON-piped invocation:
+# `$(python3 -c ...)`, `python3 -c ... <<< "$x"`, or a redirect-fed one. That is
+# where this arm first goes blind, and closing it needs a different anchor, not a
+# tighter one.
+#
+# Anti-vacuity: the DENOMINATOR is guarded, not the violation count. A scan that
+# matched nothing at all would report zero violations and green while measuring
+# nothing, so the arm requires at least one piped `python3` site to exist. That is
+# a "did I scan anything?" guard, which is the opposite of a count-guard on the
+# thing being asserted. `.githooks/` is asserted to EXIST so its zero contribution
+# is a LIVE zero rather than an invented one.
+s664_scan_ok=yes
+[ -x /usr/bin/grep ] || s664_scan_ok=no
+[ -d "$SHELL_ROOT/.claude/hooks" ] || s664_scan_ok=no
+[ -d "$SHELL_ROOT/.githooks" ] || s664_scan_ok=no
+if [ "$s664_scan_ok" != yes ]; then
+  ng "160k: UNMEASURED — /usr/bin/grep, .claude/hooks/ or .githooks/ is missing under SHELL_ROOT=$SHELL_ROOT, so the isolation zero-assertion scanned nothing (a zero reached by scanning nothing is not a zero) (#664)"
+else
+  s664_all=$(/usr/bin/grep -rnE "\| *python3" "$SHELL_ROOT/.claude/hooks/" "$SHELL_ROOT/.githooks/" 2>/dev/null || true)
+  s664_total=$(printf '%s\n' "$s664_all" | /usr/bin/grep -c . || true)
+  s664_viol=$(printf '%s\n' "$s664_all" | /usr/bin/grep -vE "\| *python3 -I -c" | /usr/bin/grep -c . || true)
+  s664_viol_at=$(printf '%s\n' "$s664_all" | /usr/bin/grep -vE "\| *python3 -I -c" \
+    | /usr/bin/sed -e "s#^$SHELL_ROOT/##" -e 's/^\([^:]*:[^:]*\):.*/\1/' | tr '\n' ' ')
+  s664_viol_at=${s664_viol_at% }
+  if [ "$s664_total" -lt 1 ]; then
+    ng "160k: UNMEASURED — the '| python3' anchor found 0 invocation sites under .claude/hooks/ + .githooks/ (12 expected today). The scan is blind, so its zero violations mean nothing; the anchor needs updating, not the arm deleting (#664)"
+  elif [ "$s664_viol" -eq 0 ]; then
+    ok "160k: every piped python3 invocation under .claude/hooks/ + .githooks/ carries the literal 'python3 -I -c' (0 violations across $s664_total sites) (#664)"
+  else
+    ng "160k: $s664_viol of $s664_total piped python3 invocations under .claude/hooks/ + .githooks/ run WITHOUT cwd isolation — at:$s664_viol_at. FIX: write the invocation as 'python3 -I -c' (the -I must LEAD -c; a TRAILING -I is an argument to the program — measured sys.argv ['-c','-I'] — and a cwd plant still loads). Do NOT delete or relax this assertion to make it pass, and do NOT add an exemption: python3 -c puts the cwd on sys.path, so any module the program imports that is not already in sys.modules at startup can be shadowed by an in-registry file write the shell's own Edit/Write guard permits by design. Because -I leads, it shifts no sys.argv INDEX, so adding it never requires a change to the program text — SPEC §6.1.2 (#664)"
   fi
 fi
 
