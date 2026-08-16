@@ -4359,6 +4359,22 @@ fi
 # where this arm first goes blind, and closing it needs a different anchor, not a
 # tighter one.
 #
+# THREE MORE BLIND FORMS, all measured, all leaving the arm GREEN with a live
+# un-isolated site present — because each drops the line OUT OF THE DENOMINATOR
+# rather than into the violation count, so the anti-vacuity guard below cannot
+# see them either:
+#   (a) a NEWLINE-SPLIT pipe — `… |` at end of line, `python3 -c '…'` on the
+#       next. Measured: denominator 1, violations 0, GREEN, with an un-isolated
+#       site in the file. This is the ONLY one a contributor hits BY ACCIDENT
+#       (it is ordinary long-line wrapping), which makes it the likeliest real
+#       regression of the three.
+#   (b) an interposed command — `| env python3 -c`, which is still piped.
+#   (c) an interposed VARIABLE assignment — `| PYTHONHASHSEED=0 python3 -c`.
+# Closing (a)-(c) is the same single decision as widening past the pipe anchor,
+# and it is coupled to any future adoption of `-S` (which would move the literal
+# this arm anchors on). Deliberately NOT patched here one-at-a-time: three
+# separate tightenings of one regex is the churn this comment exists to prevent.
+#
 # Anti-vacuity: the DENOMINATOR is guarded, not the violation count. A scan that
 # matched nothing at all would report zero violations and green while measuring
 # nothing, so the arm requires at least one piped `python3` site to exist. That is
