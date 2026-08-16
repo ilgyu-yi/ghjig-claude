@@ -2627,29 +2627,18 @@ s116_spec="$SHELL_ROOT/SPEC.md"
 # AND the §116e-§116g lever-window arms (#668) both call it, so the window rule
 # lives in exactly one place and cannot be repaired in one caller while drifting
 # in the other. Same shape, and for the same reason, as s116_posture_rows below.
+# THE SINGLE DEFINITION of "what ends a §1.x window" (#644, widened to §1.8 by
+# #668). Used by BOTH live derivations (§1.8's lever count and §1.9's posture
+# count) AND the shared fixture builder, so the guards and the arms that bound
+# them cannot drift apart — which is the whole reason those derivations were
+# extracted into functions in the first place.
 #
-# THIS IS NOT THE FIX (#668, Phase B). The awk body is the PRE-FIX derivation
-# verbatim — both ends of the window are still literal headings — so §116e and
-# §116f red against it exactly as #668 measured. The extraction is
-# behaviour-preserving (`s116_levers` still derives 6); without it the Code
-# phase would repair the inline copy while the new arms went on reading a
-# second one, leaving both witnesses unfixable.
-s116_lever_rows() {
-  awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$1"
-}
-s116_levers=$(s116_lever_rows "$s116_spec")
-s116_agents=$(ls "$SHELL_ROOT"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-s116_cmds=$(grep -cE '^### 5\.[0-9]+ `/' "$s116_spec")
-s116_hooks=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT"/.claude/hooks/pre_tool_use.sh | awk '{print $2}' | sort -u | wc -l | tr -d ' ')
-s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
-# s116_posture_rows <spec-file> → count of §1.9 posture rows in that file. The
-# SINGLE derivation of the count: the live parity arm below AND the §116a-§116c
-# window-terminator arms (#644) both call it, so the window rule lives in exactly
-# one place and cannot be fixed in one caller while drifting in the other.
-# THE SINGLE DEFINITION of "what ends §1.9's window" (#644). Used by BOTH the
-# live derivation below AND the §116a/§116b fixture builder, so the guard and the
-# arms that bound it cannot drift apart — which is the whole reason the
-# derivation was extracted into a function in the first place.
+# DEFINED HERE, ABOVE THE FIRST CONSUMER, DELIBERATELY. `s116_lever_rows` runs
+# ~30 lines below and takes this as `-v endre=`; defined after it, the first call
+# expands an unset variable, the command substitution's subshell dies under
+# `set -u`, and `s116_levers` becomes EMPTY — which reds §116 AND §116c with an
+# arithmetic error rather than a parity message (measured during #668's Test
+# phase). Order is load-bearing, not cosmetic.
 #
 # DEPTH 2-3, not "depth <= 3". `^# ` is deliberately ABSENT: it matches any
 # shell comment, and SPEC carries 16 such lines inside fenced examples, so
@@ -2665,6 +2654,33 @@ s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
 # failure is loud (§116 reds at classified=0) rather than silent. Fence-state
 # tracking is deliberately NOT attempted here.
 S116_END_RE='^## |^### '
+
+#
+# NEITHER END IS A SECTION NUMBER (#668). The window used to open on the literal
+# `### 1.8 ` and close on the literal `### 1.9 `, so it broke in both directions:
+# a `### 1.8.5` sibling sat INSIDE the window and inflated the count (6 -> 7),
+# while renumbering §1.8 meant the window never opened at all (-> 0). Both feed
+# `s116_exp`, and both therefore red §116 *and* §116c for a cause outside the
+# parity being checked — with §116c's message wrongly blaming the SPEC copy.
+#
+# The start anchors on the section TITLE, which survives renumbering and matches
+# exactly one line; the end reuses $S116_END_RE, the same definition §1.9's
+# window uses, rather than re-spelling it. `#### ` is not a terminator (position
+# 4 is `#`, not a space), so a genuine `#### 1.8.1` sub-section of §1.8 stays in
+# scope and its rows still count — §116g pins that direction.
+s116_lever_rows() {
+  awk -v endre="$S116_END_RE" \
+    '/^### .*[Ii]n-session narrowing levers/{i=1;next} i&&$0~endre{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$1"
+}
+s116_levers=$(s116_lever_rows "$s116_spec")
+s116_agents=$(ls "$SHELL_ROOT"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
+s116_cmds=$(grep -cE '^### 5\.[0-9]+ `/' "$s116_spec")
+s116_hooks=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT"/.claude/hooks/pre_tool_use.sh | awk '{print $2}' | sort -u | wc -l | tr -d ' ')
+s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
+# s116_posture_rows <spec-file> → count of §1.9 posture rows in that file. The
+# SINGLE derivation of the count: the live parity arm below AND the §116a-§116c
+# window-terminator arms (#644) both call it, so the window rule lives in exactly
+# one place and cannot be fixed in one caller while drifting in the other.
 
 s116_posture_rows() {
   # `#### ` is NOT a terminator — position 3 is `#`, not a space — so a genuine
