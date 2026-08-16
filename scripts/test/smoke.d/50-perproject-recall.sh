@@ -2627,12 +2627,147 @@ s116_agents=$(ls "$SHELL_ROOT"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d '
 s116_cmds=$(grep -cE '^### 5\.[0-9]+ `/' "$s116_spec")
 s116_hooks=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT"/.claude/hooks/pre_tool_use.sh | awk '{print $2}' | sort -u | wc -l | tr -d ' ')
 s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
-s116_rows=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$s116_spec" \
-            | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
+# s116_posture_rows <spec-file> → count of §1.9 posture rows in that file. The
+# SINGLE derivation of the count: the live parity arm below AND the §116a-§116c
+# window-terminator arms (#644) both call it, so the window rule lives in exactly
+# one place and cannot be fixed in one caller while drifting in the other.
+# THE SINGLE DEFINITION of "what ends §1.9's window" (#644). Used by BOTH the
+# live derivation below AND the §116a/§116b fixture builder, so the guard and the
+# arms that bound it cannot drift apart — which is the whole reason the
+# derivation was extracted into a function in the first place.
+#
+# DEPTH 2-3, not "depth <= 3". `^# ` is deliberately ABSENT: it matches any
+# shell comment, and SPEC carries 16 such lines inside fenced examples, so
+# including it would collapse the window to 0 the day §1.9 gains a fenced
+# example (measured). Dropping it costs nothing — the only thing it could ever
+# terminate on is a SECOND document H1 appearing after §1.9, in a file with
+# exactly one H1 (line 1) across 2,893 lines, and the `i&&` guard already keeps
+# line 1 from closing a window that has not opened.
+#
+# RESIDUAL, named rather than rounded off: this rule is line-oriented and knows
+# nothing about code fences, so 9 fence-interior `^## ` lines elsewhere in SPEC
+# remain collidable. Accepted for #644 — §1.9 carries no fence today and the
+# failure is loud (§116 reds at classified=0) rather than silent. Fence-state
+# tracking is deliberately NOT attempted here.
+S116_END_RE='^## |^### '
+
+s116_posture_rows() {
+  # `#### ` is NOT a terminator — position 3 is `#`, not a space — so a genuine
+  # `#### 1.9.1` sub-section of §1.9 stays in scope and its rows still count
+  # (§116b pins that direction).
+  #
+  # The `i&&` guard is LOAD-BEARING, not defensive: without it the terminator
+  # matches every EARLIER `## `/`### ` heading and awk exits before the window
+  # ever opens, yielding 0 (measured on the real SPEC). That would not fail
+  # silently — §116's `-gt 0` check and the §116a-§116c baseline guards all catch
+  # it — but the guard is what keeps the rule scoped to the window it describes.
+  awk -v endre="$S116_END_RE" '/^### 1\.9 /{i=1;next} i&&$0~endre{exit} i' "$1" \
+    | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`'
+}
+s116_rows=$(s116_posture_rows "$s116_spec")
 if [ "$s116_rows" -gt 0 ] && [ "$s116_rows" = "$s116_exp" ]; then
   ok "116: SPEC §1.9 classifies all $s116_exp enumerated mechanisms (parity, #450)"
 else
   ng "116: SPEC §1.9 coverage parity drift — classified=$s116_rows expected=$s116_exp (levers=$s116_levers agents=$s116_agents cmds=$s116_cmds hooks=$s116_hooks) (#450)"
+fi
+
+# ---------- §116a-§116d: §116's row-count window terminator (#644) ----------
+# Phase B (Test). §116's window opens at `### 1.9 ` and must close at the NEXT
+# WINDOW-CLOSING HEADING (depth 2-3) — not at the literal `## 2. `. With the literal
+# terminator, everything authored between §1.9 and `## 2. ` (a new `### 1.10`,
+# say) sits INSIDE the counting window, so an unrelated table row quoting a
+# backticked posture token inflates the count and reds §116 for a cause outside
+# its subject. A genuine `#### 1.9.1` sub-section of §1.9 must stay INSIDE.
+#
+# Fixtures are COPIES under $TMP (cleaned by the preamble's EXIT trap); no arm
+# writes to the real SPEC.md, and §116d pins that (AC5) — nothing here removes a
+# path, so there is no cleanup to prefix-guard.
+#
+# WITNESS HONESTY: only §116a reds against the current terminator. §116b and
+# §116c pass both before and after the fix — they are REGRESSION GUARDS bounding
+# the fix (b: it must not shrink the real scope; c: the pair is not
+# always-failing), not witnesses. §116b does carry one load-bearing job for
+# §116a: it proves the decoy row IS countable when in scope, so a green §116a
+# cannot be a decoy that simply never matched the counting regex.
+S116W_DIR="$TMP/s116w"
+mkdir -p "$S116W_DIR"
+S116W_MARK='smoke-fixture-decoy-644'
+# s116w_fixture <heading-line> <out-file> — a SPEC.md copy with <heading-line>
+# plus ONE decoy posture row spliced in at THE END OF §1.9, i.e. immediately
+# before the first line that $S116_END_RE says closes the window. Only the
+# heading DEPTH differs between §116a and §116b, so the heading rule stays the
+# single variable under test.
+#
+# ANCHORED TO §1.9, NOT TO `## 2. ` (#644 round-1 F1). An earlier revision
+# spliced at the literal `## 2. `, which is the end of §1.9 only while §1.9
+# happens to be §1's LAST subsection. The moment a real `### 1.10` lands, that
+# anchor puts §116b's decoy BEHIND the window it is meant to be inside, and the
+# arm reds for a cause outside its own subject — the very pathology §116a
+# exists to prevent, reproduced one level up in the fixture that bounds it.
+# #644 names three Active Directives planning a §1.x section, so this is the
+# anticipated future, not a hypothetical. The anchor reuses $S116_END_RE rather
+# than re-spelling the heading rule, so it cannot drift from the derivation.
+s116w_fixture() {
+  awk -v h="$1" -v m="$S116W_MARK" -v endre="$S116_END_RE" '
+    /^### 1\.9 /  { i=1; print; next }
+    i&&!d&&$0~endre { print h; print ""
+                      print "| " m " (§0) | `keep-as-policy` | decoy row planted by smoke §116a/§116b (#644). |"
+                      print ""; d=1 }
+    { print }' "$s116_spec" > "$2"
+}
+s116w_excl="$S116W_DIR/excl.md"
+s116w_incl="$S116W_DIR/incl.md"
+s116w_pristine="$S116W_DIR/pristine.md"
+cp "$s116_spec" "$s116w_pristine"
+s116w_fixture '### 1.10 Smoke fixture decoy section (#644)'    "$s116w_excl"
+s116w_fixture '#### 1.9.1 Smoke fixture sub-section (#644)'    "$s116w_incl"
+# Baseline over the untouched SPEC. `-gt 0` below fails LOUD if the window
+# collapsed (a §1.9 rename, an awk that exits before the window opens) rather
+# than reading an empty window as agreement.
+s116w_base=$(s116_posture_rows "$s116_spec")
+
+# §116a (AC2, THE WITNESS — RED until the terminator is scoped): a decoy posture
+# row inside a `### 1.10` is OUT of §1.9 and must not move the count.
+s116w_a=$(s116_posture_rows "$s116w_excl")
+if [ ! -s "$s116w_excl" ] || [ "$(grep -c "$S116W_MARK" "$s116w_excl")" != 1 ]; then
+  ng "116a: fixture not built — '### 1.10' decoy SPEC copy missing or lacks exactly one decoy row (#644)"
+elif [ "$s116w_base" -gt 0 ] && [ "$s116w_a" = "$s116w_base" ]; then
+  ok "116a: a posture row inside a '### 1.10' is EXCLUDED from the §1.9 window (count stays $s116w_base) (#644)"
+else
+  ng "116a: §116's window admits a '### 1.10' — count=$s116w_a baseline=$s116w_base; the terminator must be the next window-closing heading (depth 2-3), not the literal '## 2. ' (#644)"
+fi
+
+# §116b (AC3, regression guard — green before and after): the SAME row inside a
+# `#### 1.9.1` is a genuine §1.9 sub-section and stays counted. Doubles as
+# §116a's non-vacuity proof (the decoy row does match the counting regex).
+s116w_b=$(s116_posture_rows "$s116w_incl")
+if [ ! -s "$s116w_incl" ] || [ "$(grep -c "$S116W_MARK" "$s116w_incl")" != 1 ]; then
+  ng "116b: fixture not built — '#### 1.9.1' decoy SPEC copy missing or lacks exactly one decoy row (#644)"
+elif [ "$s116w_base" -gt 0 ] && [ "$s116w_b" = "$((s116w_base + 1))" ]; then
+  ok "116b: a posture row inside a '#### 1.9.1' is still INCLUDED (count $s116w_base → $s116w_b) (#644)"
+else
+  ng "116b: §116's window lost a genuine '#### 1.9.1' sub-section row — count=$s116w_b expected=$((s116w_base + 1)) (#644)"
+fi
+
+# §116c (AC4, regression guard — green before and after): an UNMODIFIED copy
+# still balances against the independently derived expectation, so §116a+§116b
+# are not simply bounding an always-failing derivation.
+s116w_c=$(s116_posture_rows "$s116w_pristine")
+if [ ! -s "$s116w_pristine" ]; then
+  ng "116c: fixture not built — pristine SPEC copy missing or empty (#644)"
+elif [ "$s116w_c" -gt 0 ] && [ "$s116w_c" = "$s116_exp" ]; then
+  ok "116c: an unmodified SPEC copy still balances ($s116w_c = $s116_exp) (#644)"
+else
+  ng "116c: unmodified SPEC copy no longer balances — classified=$s116w_c expected=$s116_exp (#644)"
+fi
+
+# §116d (AC5, regression guard — green before and after): the real SPEC.md is
+# byte-identical to the copy taken before any fixture was built. Pins that the
+# fixture builder writes only to $TMP.
+if [ -s "$s116w_pristine" ] && cmp -s "$s116_spec" "$s116w_pristine"; then
+  ok "116d: the real SPEC.md is unmutated by the §116a-§116c fixtures (#644)"
+else
+  ng "116d: SPEC.md changed while the §116 window fixtures ran — a fixture wrote to the real SSOT (#644)"
 fi
 
 # ---------- §117: command docs use -F (not -f) for gh api stdin/file body (#452) ----------
