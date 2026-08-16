@@ -25,6 +25,14 @@ command -v git >/dev/null 2>&1 || exit 0
 # Simple modulo throttle: suggest only when response_count is a multiple of N.
 count_file="$SHELL_ROOT/.claude/state/stop_count"
 count=$(cat "$count_file" 2>/dev/null || echo 0)
+# Sanitize before arithmetic, exactly as $throttle_n is nine lines below (#652). This
+# operand is the load-bearing one: `08` is invalid octal to $(( )), so an unsanitized
+# counter is written back UNCHANGED and can never increment again — a permanent wedge,
+# not a transient failure — while the defeated modulo fires the advisory every turn. A
+# non-numeric value is worse still: under `set -u`, arithmetic reads it as a variable
+# NAME, so the hook aborts with exit status 0, which the harness reads as success.
+# Empty/leading-zero/non-numeric → 0, so the next turn writes a usable 1.
+case "$count" in ""|*[!0-9]*|0*) count=0 ;; esac
 count=$((count + 1))
 printf '%s\n' "$count" > "$count_file"
 

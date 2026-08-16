@@ -2766,3 +2766,62 @@ chmod +x "$BASE_GH_SHIM/gh"
 
 rm -rf "$BASE_PROBE_DIR"
 
+
+# §161 (LOAD-BEARING RED until Code, #652): the stop-hook's persisted turn counter
+# reaches `$(( ))` unvalidated, while the throttle divisor nine lines below it IS
+# sanitized with a comment explaining exactly why. Two shapes, both measured:
+#   `08` -> invalid octal to $(( )); the file is rewritten UNCHANGED, so the counter
+#          can NEVER increment again. Not transient — a permanent wedge, and the
+#          modulo throttle is defeated meanwhile so the advisory fires every turn.
+#   `abc` -> under `set -u`, arithmetic treats it as a variable NAME -> unbound
+#          variable -> the hook stops, with exit status 0, which reads to the
+#          harness as a successful run.
+# This arm runs the REAL `stop.sh` through the §3.2.1 GHJIG_ROOT_OVERRIDE seam, not a
+# transcription, so it cannot drift from the artifact it pins.
+#
+# ANTI-VACUITY. The passing answer here is "the file incremented", which a broken
+# fixture cannot fake — but a fixture that never ran the hook at all would leave the
+# file untouched and look like the DEFECT, not like a pass. So:
+#   * a healthy CONTROL row (4 -> 5) must pass, or the fixture never worked;
+#   * each row asserts the file's exact post-value, not merely "changed";
+s161_root="$TMP/s161-root"
+mkdir -p "$s161_root/.claude/state" "$s161_root/work" "$s161_root/.claude/hooks"
+# stop.sh gates on `in_scope 2>/dev/null || exit 0` BEFORE it reaches the counter, so a
+# fixture with no registry entry exits early and every row reads as the defect while
+# measuring nothing. Seed the registry and fire from inside it. (This bit the first
+# draft of this very arm; the healthy control row is what surfaced it.) CLAUDE_PROJECT_DIR
+# must also be unset: with it set, ghjig_registry_file prefers the PROJECT's registry over
+# the seeded one, so in_scope fails against a real registry that has never heard of the
+# fixture — a second way to exit before the counter, measured. GHJIG_STATE_DIR_OVERRIDE
+# is the THIRD gate: _preamble.sh exports it suite-wide and ghjig_state_dir() honors it as
+# TOP priority, so it outranks the seeded root. It is SET here rather than unset —
+# pointing it at the fixture's own state dir resolves deterministically, where unsetting
+# it falls through to a git-top-level derivation that does not find the fixture. All three
+# gates were found by the healthy control row failing, then by tracing the real hook —
+# never by reading. That control is the only reason this arm measures anything.
+# The entry must be the PHYSICALLY resolved path: in_scope compares `pwd -P` against the
+# entry AS WRITTEN, and on macOS $TMP lives under /var -> /private/var, so an unresolved
+# entry never matches. (This is #658's symlinked-root finding, hit live by this fixture.)
+printf '%s\n' "$(cd "$s161_root/work" && pwd -P)" > "$s161_root/.claude/state/registry.txt"
+cp "$SHELL_ROOT/.claude/hooks/stop.sh" "$s161_root/.claude/hooks/"
+cp -R "$SHELL_ROOT/.claude/hooks/helpers" "$s161_root/.claude/hooks/" 2>/dev/null || true
+cp "$SHELL_ROOT/.claude/hooks/hookrt.sh" "$s161_root/.claude/hooks/" 2>/dev/null || true
+
+s161_cf="$s161_root/.claude/state/stop_count"
+s161_bad=""
+# seed | expected file contents after one fire. A malformed seed must recover to a
+# usable counter; a healthy seed must be untouched in behaviour (AC4).
+for s161_case in "4:5" "08:1" "abc:1" "0:1" ":1"; do
+  s161_seed=${s161_case%%:*}; s161_want=${s161_case##*:}
+  printf '%s\n' "$s161_seed" > "$s161_cf"
+  ( cd "$s161_root/work" && printf '{}' | env -u CLAUDE_PROJECT_DIR \
+      GHJIG_STATE_DIR_OVERRIDE="$s161_root/.claude/state" \
+      GHJIG_ROOT_OVERRIDE="$s161_root" bash "$s161_root/.claude/hooks/stop.sh" ) >/dev/null 2>&1
+  s161_got=$(cat "$s161_cf" 2>/dev/null || printf '<missing>')
+  [ "$s161_got" = "$s161_want" ] || s161_bad="$s161_bad [seed=${s161_seed:-<empty>} got=$s161_got want=$s161_want]"
+done
+if [ -z "$s161_bad" ]; then
+  ok "161: the stop-hook counter is sanitized before arithmetic — a malformed state file recovers to a usable counter instead of wedging, and a healthy counter is unchanged (5/5) (#652)"
+else
+  ng "161: a malformed stop_count must not wedge the counter — offenders:$s161_bad (08 is invalid octal so an unsanitized counter is rewritten UNCHANGED and never increments again; abc aborts arithmetic under set -u) (#652)"
+fi
