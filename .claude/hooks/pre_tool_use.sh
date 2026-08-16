@@ -51,9 +51,17 @@ block() {
 # Scan args of a Bash command for paths outside the registry.
 # Shell-aware: tokenizes via python3 `shlex.split` so quoted paths with spaces
 # stay intact and literal globs (`*`) are not pathname-expanded. Falls back to
-# `set -f` + `read -ra` when python3 is absent — quoting is lost in that
-# fallback, but globbing is still disabled and out-of-scope paths still block
-# (the corrupted token does not prefix-match any registry entry).
+# `set -f` + `read -ra` when python3 is absent — quoting is lost there, and
+# globbing is still disabled.
+#
+# CORRECTED (#662): the prior header claimed out-of-scope paths "still block"
+# in that fallback, "the corrupted token does not prefix-match any registry
+# entry". Measurably FALSE for every quoted form: `rm -rf "/etc/httpd"`
+# word-splits to a literal `"/etc/httpd"`, which is not `/`-anchored, so
+# path_in_scope absolutises it against `pwd -P` and reads it IN scope — rc=0
+# on that rung vs rc=2 healthy. The contract this site owes (output-validity
+# keying, refuse-rather-than-degrade, the disclosed over-block, `-I`) is
+# SPEC §6.1.2; it is not restated here.
 check_destructive_args() {
   local cmd="$1"
   local arg
