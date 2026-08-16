@@ -165,7 +165,14 @@ parse_env_prefix() {
     return
   fi
   local _pep_out
-  _pep_out=$(printf '%s' "$_pep_cmd" | python3 -c '
+  # `-I` (isolated) drops the cwd from sys.path (#662, SPEC §6.1.2): `python3 -c`
+  # otherwise imports `./shlex.py` from the working directory, and a plant at an
+  # in-registry path — a write the shell's own Edit/Write scope guard permits by
+  # design — makes a perfectly healthy interpreter return arbitrary tokens that
+  # this function then substitutes back over the command every later Bash matcher
+  # greps. Load-bearing at BOTH this site and check_destructive_args: restoring
+  # it at only one leaves the plant winning.
+  _pep_out=$(printf '%s' "$_pep_cmd" | python3 -I -c '
 import json, re, shlex, sys
 ALLOW = {"SKIP_HOOKS", "SKIP_REASON"}
 data = sys.stdin.read()
@@ -195,6 +202,15 @@ print(json.dumps({"env": env, "cmd": rest}))
   local _pep_env_lines _pep_stripped _pep_kv
   _pep_env_lines=$(printf '%s' "$_pep_out" | jq -r '.env[]? | "\(.[0])=\(.[1])"' 2>/dev/null) || _pep_env_lines=""
   _pep_stripped=$(printf '%s' "$_pep_out" | jq -r '.cmd // ""' 2>/dev/null) || _pep_stripped="$_pep_cmd"
+  # SPEC §6.1.2, the SUBSTITUTION case: this result is written back over `cmd`
+  # and every Bash matcher greps that copy, so it is admitted on OUTPUT VALIDITY
+  # — non-empty — not on jq's exit status. `jq` exits 0 with empty output on
+  # empty input, so on any python3 outcome that writes nothing to stdout (empty,
+  # stderr-only, absent) the `||` above never fires and the BLANK was substituted
+  # back, killing every downstream matcher (`git push --force origin main`,
+  # `git reset --hard`, `git clean -fd` all measured rc=0 with the hook alive).
+  # Fail-closed direction here is the command UNCHANGED (#662).
+  [ -n "$_pep_stripped" ] || _pep_stripped="$_pep_cmd"
   while IFS= read -r _pep_kv; do
     [ -z "$_pep_kv" ] && continue
     # shellcheck disable=SC2163  # $_pep_kv holds the literal KEY=VALUE form

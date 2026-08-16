@@ -3611,3 +3611,483 @@ EOF
   fi
 fi
 
+# ---------- §160 (#662): refuse what the tokenizer cannot parse, at THREE sites (SPEC §6.1.2) ----------
+# #660 fixed the two `git_matcher.sh` stripper sites. Three more share the same
+# root — a delegated interpreter's output admitted without first asking whether it
+# is a result the caller MAY USE — and the two the strippers' framing predicate
+# does NOT reach on its own, because here the fail-closed direction is INVERTED:
+#
+#   1. check_destructive_args (pre_tool_use.sh) keys on `command -v python3` and
+#      then on EXIT STATUS. Junk becomes the token LIST the caller ITERATES, and
+#      path_in_scope absolutises every relative junk token against `pwd -P` — i.e.
+#      INTO the registry. Its `set -f` + `read -ra` fallback rung additionally
+#      leaks every QUOTED operand form: `rm -rf "/etc/httpd"` word-splits to a
+#      literal `"/etc/httpd"` which is not `/`-anchored, so it too absolutises
+#      in-scope. An EMPTY payload frames perfectly validly and reads as a
+#      COMPLETED CHECK THAT CHECKED NOTHING (zero path_in_scope calls, return 0).
+#   2. parse_env_prefix (helpers/escape.sh) keys on JQ'S EXIT STATUS, and `jq`
+#      exits 0 with EMPTY output on empty input — so on any python3 outcome that
+#      writes nothing to stdout the `||` fallback never fires and the BLANK is
+#      substituted back over `cmd`, which every later Bash matcher greps. Two of
+#      the five enumerated outcomes therefore never reach site 1 at all: this is a
+#      PRECONDITION for measuring the tokenizer, not an adjacent concern.
+#   3. `python3 -c` puts the CWD on sys.path, so a `./shlex.py` planted at an
+#      IN-REGISTRY path — a write the shell's own Edit/Write guard permits by
+#      design — makes a PERFECTLY HEALTHY interpreter return arbitrary tokens at
+#      both of the above sites. `-I` (isolated mode) drops cwd from sys.path.
+#
+# Arms. 160b/160d/160e/160f/160g/160h are the RED propositions; 160-fixture/160a/
+# 160c are the anti-vacuity spine and the no-blinding guard, green on both sides.
+#   160-fixture  curated-PATH shim farm + registered target + victim (count-guarded)
+#   160a  in_scope control BOTH ways + a same-PATH POSITIVE CONTROL on every one
+#         of the 10 PATH/mode variants the arms below use                  GREEN
+#   160b  all 5 enumerated outcomes × 3 operand forms block an out-of-registry
+#         `rm -rf` (the QUOTED forms are the ones the fallback rung leaks)  RED
+#   160c  no blinding: under a HEALTHY interpreter the shipped verdict table is
+#         unchanged (in-registry allowed, $HOME/~ still resolving)          GREEN
+#   160d  the DISCLOSED over-block, keyed PER OUTCOME, not in aggregate     RED
+#   160e  exit-0-partial with a PLAUSIBLE SINGLE TOKEN (`rm`) — an all-command-
+#         position list is a FAILED check, not a successful one             RED
+#   160f  the upstream BLANKING: under an empty-stdout python3 three irreversible
+#         git gates die upstream of the destructive matcher                 RED
+#   160g  the `./shlex.py` plant under a HEALTHY interpreter — BOTH -I sites  RED
+#   160h  the EMPTY-ARRAY crash: an empty token list must be REFUSED, not run
+#         into `for a in "${args[@]}"` under set -u (fatal on bash 3.2.57)   RED
+#
+# Anti-vacuity (smoke.sh Theme E) — SHARPEST here of anywhere in the suite,
+# because on this guard the fail-closed answer IS "block": a BROKEN fixture
+# produces exactly the value a block-expecting arm wants and greens. Four measured
+# near-misses this round, each of which greened while measuring nothing:
+#   (a) a "python3-absent" PATH that still contained /usr/bin — both columns ran
+#       the same healthy interpreter and the rows looked identical;
+#   (b) a curated PATH so minimal it broke the hook entirely — the positive
+#       control itself returned rc=0, a pure no-measurement;
+#   (c) `ln -s "$(command -v grep)"` under a shell where `grep` is a FUNCTION —
+#       `command -v` prints the bare name and the link dangles silently;
+#   (d) a bare `exit 1` default for an unknown shim mode — measured on #661 to
+#       leave the equivalent arm 18/18 green, because empty output IS the
+#       fail-closed answer and the stderr complaint is swallowed by `2>/dev/null`.
+# So: every `command -v` result is PATH-FILTERED before linking (`case $src in /*`),
+# the positive control runs on EVERY PATH variant (160a) and is re-run WITH the
+# plant in place (160g), every arm asserts the shim was actually INVOKED, an
+# unknown shim mode writes an OUT-OF-BAND marker file, and every failure mode gets
+# its own exit code so a fixture miss can never masquerade as the intended failure.
+S662_DIR="$TMP/iv662"                    # under $TMP → cleaned by the shared EXIT trap
+S662_BIN="$S662_DIR/bin"                 # curated PATH + mode-driven python3 shim
+S662_NOPY="$S662_DIR/nopy"               # same, with NO python3 at all (absent leg)
+S662_HEAL="$S662_DIR/heal"               # same, with the REAL python3 (healthy leg)
+S662_STATE="$S662_DIR/state"             # shim invocation markers
+S662_REG_ON="$S662_DIR/state-on"         # isolated ghjig state dir, registry POPULATED
+S662_REG_OFF="$S662_DIR/state-off"       # isolated ghjig state dir, registry EMPTY
+mkdir -p "$S662_BIN" "$S662_NOPY" "$S662_HEAL" "$S662_STATE" "$S662_REG_ON" "$S662_REG_OFF"
+
+# The real python3 by ABSOLUTE path. Empty ⇒ the healthy-leg arms skip LOUD rather
+# than silently measuring the ABSENT rung under a "healthy" label.
+S662_REAL_PY=$(command -v python3 2>/dev/null || true)
+case "$S662_REAL_PY" in /*) ;; *) S662_REAL_PY="" ;; esac
+
+s662_missing=""
+for s662_t in sed awk grep head tail tr wc cat cut sort uniq git jq date mkdir rm ls env sh bash id find dirname basename mktemp touch chmod xargs od; do
+  s662_src=$(command -v "$s662_t" 2>/dev/null) || { s662_missing="$s662_missing $s662_t"; continue; }
+  case "$s662_src" in /*) ;; *) s662_missing="$s662_missing $s662_t(not-a-path)"; continue ;; esac
+  ln -sf "$s662_src" "$S662_BIN/$s662_t"
+  ln -sf "$s662_src" "$S662_NOPY/$s662_t"
+  ln -sf "$s662_src" "$S662_HEAL/$s662_t"
+done
+[ -n "$S662_REAL_PY" ] && ln -sf "$S662_REAL_PY" "$S662_HEAL/python3"
+
+# The mode-driven python3 shim. Every mode exits 0 unless it names otherwise —
+# that is the point: rc answers "did something run?", which is not the question a
+# fail-closed contract asks. The shim also RECORDS WHICH CALL SITE it served, so
+# 160h can degrade exactly one site while leaving the other healthy (without that,
+# the upstream blanking hides the tokenizer's own empty-list behaviour entirely).
+# Site discrimination is by PROGRAM TEXT and is therefore fixture-fragile BY
+# DESIGN: if a fix changes the program so `cda` is never recorded, 160h fails LOUD
+# (exit 9) instead of greening on an unmeasured healthy run. It scans ALL argv
+# words, so adding `-I` (which shifts the program from $2 to $3) does not blind it.
+cat > "$S662_BIN/python3" <<'S662PY'
+#!/bin/sh
+: "${S662_STATE:?}"
+_site=other
+for _a in "$@"; do
+  case "$_a" in
+    *json*shlex*|*shlex*json*) _site=pep ;;                       # parse_env_prefix
+    *shlex*) [ "$_site" = pep ] || _site=cda ;;                   # check_destructive_args
+  esac
+done
+printf '%s\n' "$_site" >> "$S662_STATE/py_calls"
+case "${S662_PY_MODE:?}" in
+  # exit-0-with-junk: a site/venv/PYTHONSTARTUP banner INSTEAD OF the payload.
+  banner)   cat >/dev/null 2>&1; printf 'Python 3.12.0 (venv site banner on stdout)\n' ;;
+  # exit-0-partial: a truncated write — a genuine PREFIX of the payload.
+  partial)  head -c 12 ;;
+  # exit-0-partial in its most PLAUSIBLE form (160e): the write was interrupted
+  # after the FIRST token. `rm` is a well-formed one-element token list — and one
+  # that consists entirely of command-position words, so the caller's loop runs
+  # ZERO path_in_scope calls and returns SUCCESS. Non-empty, so a bare
+  # "is there output?" test admits it.
+  onetoken) cat >/dev/null 2>&1; printf 'rm\n' ;;
+  # exit 0 with nothing at all.
+  empty)    cat >/dev/null 2>&1 ;;
+  # the payload on STDERR, stdout empty. Shaped like a real token list, so the
+  # only thing rejecting it is the channel it arrived on.
+  stderr)   cat >/dev/null 2>&1; printf 'rm\n-rf\n/tmp/x\n' >&2 ;;
+  # NON-ZERO exit with junk on stdout. Green on BOTH sides of the fix at this site
+  # (the pre-fix `if ! tok_out=$(…)` already closes on rc≠0) — a regression +
+  # enumerated-outcome coverage guard, NOT a defect witness.
+  crash)    cat >/dev/null 2>&1; printf 'Traceback (most recent call last)\n'; exit 1 ;;
+  # NOT a pathology (160c): the REAL interpreter plus harmless stderr noise. A fix
+  # that keys on "anything on stderr" instead of on output validity reds there.
+  noisy)    printf 'DeprecationWarning: fixture noise\n' >&2; exec "${S662_REAL_PY:?}" "$@" ;;
+  # 160h: HEALTHY for parse_env_prefix, EMPTY STDOUT for check_destructive_args.
+  # Isolates the tokenizer's empty-token-list handling from the upstream blanking,
+  # which today swallows every empty-stdout outcome before the matcher is reached.
+  emptytok) if [ "$_site" = cda ]; then cat >/dev/null 2>&1; else exec "${S662_REAL_PY:?}" "$@"; fi ;;
+  # A typo'd S662_PY_MODE must not silently degrade into a mode that greens. A bare
+  # `exit 1` is NOT sufficient (measured on #661: 18/18 green, measuring nothing) —
+  # the signal has to be OUT-OF-BAND, because both empty output and a non-zero exit
+  # are values a block-expecting arm accepts.
+  *)        : > "$S662_STATE/bad_mode" ;;
+esac
+exit 0
+S662PY
+chmod +x "$S662_BIN/python3"
+
+# The registered target repo (cwd for every hook fire) and the VICTIM path, which
+# is outside BOTH the registry AND $GHJIG_ROOT — path_in_scope carves out
+# $GHJIG_ROOT unconditionally, so a victim under the shell root would be allowed
+# for a reason that has nothing to do with the tokenizer.
+S662_TARGET="$S662_DIR/target"
+mkdir -p "$S662_TARGET"
+S662_TARGET=$(cd "$S662_TARGET" && pwd -P)
+(cd "$S662_TARGET" && (git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main; })
+ git -c commit.gpgsign=false -c user.email=t@t -c user.name=t commit --allow-empty -q -m init) >/dev/null 2>&1
+mkdir -p "$S662_TARGET/build" "$S662_TARGET/build dir"
+printf '%s\n' "$S662_TARGET" > "$S662_REG_ON/registry.txt"
+: > "$S662_REG_OFF/registry.txt"
+S662_VICTIM="$S662_DIR/victim-outside-registry"
+mkdir -p "$S662_VICTIM"
+S662_VICTIM=$(cd "$S662_VICTIM" && pwd -P)
+
+# $1 = ghjig state dir, $2 = tool JSON, $3 = curated PATH dir (or `ambient`),
+# $4 = S662_PY_MODE. Script-file mode under the harness's own `set -uo pipefail`
+# — never `bash -c`, whose quoting would re-tokenize the very strings under test.
+s662_hook_run() {
+  ( cd "$S662_TARGET" || exit 99
+    if [ "$3" != ambient ]; then export PATH="$3"; fi
+    export S662_STATE S662_REAL_PY S662_PY_MODE="$4"
+    printf '%s' "$2" \
+      | GHJIG_STATE_DIR_OVERRIDE="$1" GHJIG_ROOT_OVERRIDE="$SHELL_ROOT" \
+        bash "$SHELL_ROOT/.claude/hooks/pre_tool_use.sh" >/dev/null 2>&1 )
+  return $?
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  for s662_a in 160-fixture 160a 160b 160c 160d 160e 160f 160g 160h; do
+    ng "$s662_a: jq missing — the whole §160 fixture is undrivable (#662)"
+  done
+else
+  s662_bash_json() { jq -nc --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}'; }
+  # The positive control: an Edit on an IN-REGISTRY `.env`. Deliberately a matcher
+  # with NO python3 leg at all, so its rc=2 says "the hook is alive on THIS PATH"
+  # and nothing about #662 in either direction. In-registry (not out-of-scope) so
+  # it measures the sensitive-file arm rather than re-measuring in_scope.
+  s662_ctl_json=$(jq -nc --arg p "$S662_TARGET/.env" \
+    '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}')
+
+  # ---- 160-fixture: count-guard. `! -L` on the shim: a symlink there would mean
+  # the heredoc wrote THROUGH a coreutils link instead of installing the shim.
+  # The nopy leg is asserted by RESOLUTION, not just by absence of the file —
+  # near-miss (a) above was a curated PATH that still reached a real python3.
+  s662_nopy_clean=no
+  ( PATH="$S662_NOPY"; command -v python3 >/dev/null 2>&1 ) || s662_nopy_clean=yes
+  s662_heal_ok=no
+  [ -z "$S662_REAL_PY" ] || { [ "$( ( PATH="$S662_HEAL"; command -v python3 ) )" = "$S662_HEAL/python3" ] && s662_heal_ok=yes; }
+  if [ -z "$s662_missing" ] \
+     && [ -x "$S662_BIN/python3" ] && [ ! -L "$S662_BIN/python3" ] \
+     && [ "$s662_nopy_clean" = yes ] \
+     && [ -d "$S662_TARGET/.git" ] && [ -s "$S662_REG_ON/registry.txt" ] \
+     && [ -d "$S662_VICTIM" ] && [ ! -e "$S662_REG_ON/registry.txt.bak" ]; then
+    ok "160-fixture: #662 curated-PATH shim farm + registered target + out-of-registry victim built"
+  else
+    ng "160-fixture: #662 shim setup incomplete (missing:${s662_missing:- none}, nopy-clean=$s662_nopy_clean, heal=$s662_heal_ok) — 160a–160h below are not trustworthy (#662)"
+  fi
+
+  # ---- 160a: the anti-vacuity spine. The positive control on EVERY PATH/mode
+  # variant the arms below use (10 of them) must return rc=2, and the SAME probe
+  # with the registry EMPTIED must return rc=0. Without the first half an rc=0
+  # below could mean "the curated PATH broke the hook"; without the second half an
+  # rc=2 could mean "everything blocks here". Both halves are needed because on
+  # this guard the fail-closed answer IS the value the block arms want.
+  s662_ctl_ok=0; s662_ctl_bad=""
+  for s662_row in "bin|banner" "bin|partial" "bin|onetoken" "bin|empty" "bin|stderr" \
+                  "bin|crash" "bin|noisy" "bin|emptytok" "nopy|absent" "heal|healthy"; do
+    s662_pd=${s662_row%%|*}; s662_md=${s662_row#*|}
+    case "$s662_pd" in
+      bin) s662_path="$S662_BIN" ;;
+      nopy) s662_path="$S662_NOPY" ;;
+      *) s662_path="$S662_HEAL" ;;
+    esac
+    if [ -z "$S662_REAL_PY" ] && { [ "$s662_md" = noisy ] || [ "$s662_md" = emptytok ] || [ "$s662_md" = healthy ]; }; then
+      s662_ctl_ok=$((s662_ctl_ok+1)); continue     # leg not runnable; its arm skips LOUD below
+    fi
+    s662_hook_run "$S662_REG_ON" "$s662_ctl_json" "$s662_path" "$s662_md"; s662_rc=$?
+    if [ "$s662_rc" = 2 ]; then s662_ctl_ok=$((s662_ctl_ok+1)); else s662_ctl_bad="$s662_ctl_bad $s662_pd/$s662_md(rc=$s662_rc)"; fi
+  done
+  s662_hook_run "$S662_REG_OFF" "$s662_ctl_json" "$S662_BIN" banner; s662_ctl_off=$?
+  if [ "$s662_ctl_ok" -eq 10 ] && [ "$s662_ctl_off" = 0 ]; then
+    ok "160a: same-PATH positive control alive on all 10 PATH/mode variants (rc=2) and in_scope control both ways (registry emptied → rc=0) (#662)"
+  else
+    ng "160a: the §160 fixture is NOT MEASURING — positive control passed only $s662_ctl_ok/10 (dead:$s662_ctl_bad, want rc=2 each), registry-emptied rc=$s662_ctl_off (want 0); every rc in 160b–160h is unmeasured (#662)"
+  fi
+
+  # ---- 160b (RED): the five SPEC §6.1.2 outcomes × three operand forms. An
+  # out-of-registry `rm -rf` must BLOCK under every one. The QUOTED forms are the
+  # fallback rung's own leak (`"/…"` is not `/`-anchored → absolutised against
+  # `pwd -P` → in-scope), so bare-only coverage would miss half the defect.
+  # Measured pre-fix: 14 of 18 rows rc=0. Only crash/{bare,quoted,squoted} (the
+  # rc≠0 outcome an rc-keyed selector DOES cover) and absent/bare block today.
+  # Row codes: rc is the hook's exit; 4 = shim never ran; 8 = unknown shim mode.
+  s662_blocked=0; s662_bad=""
+  for s662_mode in banner partial empty stderr crash absent; do
+    s662_path="$S662_BIN"; [ "$s662_mode" = absent ] && s662_path="$S662_NOPY"
+    for s662_form in bare dquoted squoted; do
+      case "$s662_form" in
+        bare)    s662_cmd="rm -rf $S662_VICTIM" ;;
+        dquoted) s662_cmd="rm -rf \"$S662_VICTIM\"" ;;
+        squoted) s662_cmd="rm -rf '$S662_VICTIM'" ;;
+      esac
+      : > "$S662_STATE/py_calls"; rm -f "$S662_STATE/bad_mode"
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$s662_path" "$s662_mode"; s662_rc=$?
+      if [ -e "$S662_STATE/bad_mode" ]; then
+        s662_bad="$s662_bad $s662_mode/$s662_form(rc=8-unknown-shim-mode)"
+      elif [ "$s662_mode" != absent ] && [ ! -s "$S662_STATE/py_calls" ]; then
+        s662_bad="$s662_bad $s662_mode/$s662_form(rc=4-shim-never-ran)"
+      elif [ "$s662_rc" = 2 ]; then
+        s662_blocked=$((s662_blocked+1))
+      else
+        s662_bad="$s662_bad $s662_mode/$s662_form(rc=$s662_rc)"
+      fi
+    done
+  done
+  if [ "$s662_blocked" -eq 18 ]; then
+    ok "160b: an out-of-registry rm -rf blocks under all 5 §6.1.2 outcomes × 3 operand forms (18/18) (#662)"
+  else
+    ng "160b: a degraded python3 SILENTLY ALLOWED rm -rf outside the registry — only $s662_blocked/18 blocked, allowed:$s662_bad (want rc=2 each; the exit-0 rows are junk laundered into scope by path_in_scope's pwd-absolutisation, the absent/quoted rows are the fallback rung's own leak; 160a proves an rc=0 here is a REAL allow) (#662)"
+  fi
+
+  # ---- 160c (GREEN, no-blinding regression guard): under a HEALTHY interpreter
+  # the shipped verdict table must be BYTE-FOR-BYTE what it is today. "Block
+  # everything" is not a fix; neither is a validity predicate so eager that
+  # harmless stderr noise beside a correct stdout blinds the tokenizer (the
+  # `noisy` rows). The $HOME/~/${HOME} rows pin that path_in_scope's substitution
+  # arms still resolve as before (issue #662 AC6). Rows are `name|want-rc|command`.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160c: SKIPPED — no python3 on this host, the healthy-interpreter verdict table is not runnable (#662)"
+  else
+    s662_gm=0; s662_gt=0; s662_bad=""
+    for s662_row in \
+      "healthy-rel|0|rm -rf ./build" \
+      "healthy-abs|0|rm -rf $S662_TARGET/build" \
+      "healthy-quoted-space|0|rm -rf \"$S662_TARGET/build dir\"" \
+      "healthy-unrelated-quote|0|mv ./a ./b && echo \"done\"" \
+      "healthy-tilde|2|rm -rf ~/no-such-662-victim" \
+      "healthy-home-var|2|rm -rf \$HOME/no-such-662-victim" \
+      "healthy-home-brace|2|rm -rf \${HOME}/no-such-662-victim" \
+      "noisy-in-registry|0|rm -rf ./build" \
+      "noisy-out-of-registry|2|rm -rf $S662_VICTIM" \
+      ; do
+      IFS='|' read -r s662_name s662_want s662_cmd <<< "$s662_row"
+      s662_gt=$((s662_gt+1))
+      case "$s662_name" in
+        noisy-*) s662_path="$S662_BIN"; s662_mode=noisy ;;
+        *)       s662_path="$S662_HEAL"; s662_mode=healthy ;;
+      esac
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$s662_path" "$s662_mode"; s662_rc=$?
+      if [ "$s662_rc" = "$s662_want" ]; then
+        s662_gm=$((s662_gm+1))
+      else
+        s662_bad="$s662_bad $s662_name(rc=$s662_rc,want=$s662_want)"
+      fi
+    done
+    if [ "$s662_gm" -eq 9 ] && [ "$s662_gt" -eq 9 ]; then
+      ok "160c: under a healthy python3 the destructive matcher's verdict table is unchanged (9/9, incl. stderr-noise and the \$HOME/~ arms) (#662)"
+    else
+      ng "160c: the fix BLINDED or OVER-BLOCKED a healthy interpreter — only $s662_gm/$s662_gt verdicts unchanged, drifted:$s662_bad (a fix that blocks everything is not a fix, #662 AC1/AC6) (#662)"
+    fi
+  fi
+
+  # ---- 160d (RED): the DISCLOSED over-block, keyed PER OUTCOME. The refusal keys
+  # on the WHOLE command string, not the destructive segment, so a fully
+  # in-registry `mv ./a ./b && echo "done"` — the quote living in an UNRELATED
+  # segment — blocks whenever the interpreter is degraded (SPEC §6.1.2). Stated in
+  # aggregate the comparison to shipped behaviour would be FALSE, so it is pinned
+  # per outcome: for `crash` this is NARROWER than today (today's `return 1`
+  # already blocks every in-registry destructive command — that row is green now);
+  # for `absent` it is a WIDENING, 0 → 2. Measured pre-fix: 5 of 6 rows rc=0.
+  s662_blocked=0; s662_bad=""
+  for s662_mode in banner partial empty stderr crash absent; do
+    s662_path="$S662_BIN"; [ "$s662_mode" = absent ] && s662_path="$S662_NOPY"
+    : > "$S662_STATE/py_calls"; rm -f "$S662_STATE/bad_mode"
+    s662_hook_run "$S662_REG_ON" "$(s662_bash_json "mv ./a ./b && echo \"done\"")" "$s662_path" "$s662_mode"; s662_rc=$?
+    if [ -e "$S662_STATE/bad_mode" ]; then
+      s662_bad="$s662_bad $s662_mode(rc=8-unknown-shim-mode)"
+    elif [ "$s662_rc" = 2 ]; then
+      s662_blocked=$((s662_blocked+1))
+    else
+      s662_bad="$s662_bad $s662_mode(rc=$s662_rc)"
+    fi
+  done
+  if [ "$s662_blocked" -eq 6 ]; then
+    ok "160d: a degraded interpreter refuses rather than degrades — the disclosed whole-command over-block holds on all 6 outcomes (#662)"
+  else
+    ng "160d: the fallback rung DEGRADED to a weaker parse instead of refusing — only $s662_blocked/6 outcomes blocked the quote-bearing in-registry command, allowed:$s662_bad (want rc=2 each; narrower than today for crash, a widening for absent — SPEC §6.1.2) (#662)"
+  fi
+
+  # ---- 160e (RED): exit-0-partial in its most PLAUSIBLE form. The shim writes a
+  # single well-formed token, `rm`. It is non-empty (so a bare output-presence test
+  # admits it) and consists entirely of COMMAND-POSITION words, so the caller's
+  # loop makes ZERO path_in_scope calls and returns SUCCESS — a one-token
+  # all-command-position list must be read as a FAILED check, not a successful one.
+  # Measured pre-fix: rc=0.
+  : > "$S662_STATE/py_calls"; rm -f "$S662_STATE/bad_mode"
+  s662_hook_run "$S662_REG_ON" "$(s662_bash_json "rm -rf $S662_VICTIM")" "$S662_BIN" onetoken; s662_rc=$?
+  if [ -e "$S662_STATE/bad_mode" ]; then
+    ng "160e: UNKNOWN shim mode (typo'd S662_PY_MODE) — the single-plausible-token row is unmeasured (#662)"
+  elif [ ! -s "$S662_STATE/py_calls" ]; then
+    ng "160e: the onetoken shim never ran — the single-plausible-token row is unmeasured (#662)"
+  elif [ "$s662_rc" = 2 ]; then
+    ok "160e: a one-token all-command-position list is treated as a FAILED check (rc=2) (#662)"
+  else
+    ng "160e: a truncated one-token list ('rm') was accepted as a COMPLETED check that checked nothing — rc=$s662_rc, want 2 (zero path_in_scope calls read as 'every operand was in scope'; 160a proves this rc is measured) (#662)"
+  fi
+
+  # ---- 160f (RED): the UPSTREAM blanking, a separate arm from 160b because these
+  # commands die BEFORE the destructive matcher is ever reached. parse_env_prefix
+  # keys on JQ's exit status and `jq` exits 0 with EMPTY output on empty input, so
+  # on any python3 outcome that writes nothing to stdout the blank is substituted
+  # back over `cmd` and EVERY Bash matcher greps an empty string. Measured pre-fix:
+  # all 6 rows rc=0, with the same-PATH positive control (160a) at rc=2 — the hook
+  # was alive and matching nothing.
+  s662_blocked=0; s662_bad=""
+  for s662_mode in empty stderr; do
+    for s662_cmd in "git push --force origin main" "git reset --hard" "git clean -fd"; do
+      : > "$S662_STATE/py_calls"; rm -f "$S662_STATE/bad_mode"
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$S662_BIN" "$s662_mode"; s662_rc=$?
+      if [ -e "$S662_STATE/bad_mode" ]; then
+        s662_bad="$s662_bad $s662_mode/${s662_cmd% *}(rc=8-unknown-shim-mode)"
+      elif [ ! -s "$S662_STATE/py_calls" ]; then
+        s662_bad="$s662_bad $s662_mode/${s662_cmd% *}(rc=4-shim-never-ran)"
+      elif [ "$s662_rc" = 2 ]; then
+        s662_blocked=$((s662_blocked+1))
+      else
+        s662_bad="$s662_bad $s662_mode/${s662_cmd% *}(rc=$s662_rc)"
+      fi
+    done
+  done
+  # Guard: the same three commands under a HEALTHY interpreter must block, or the
+  # six rows above prove nothing about the blanking.
+  s662_ref=0
+  if [ -n "$S662_REAL_PY" ]; then
+    for s662_cmd in "git push --force origin main" "git reset --hard" "git clean -fd"; do
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$S662_HEAL" healthy; s662_rc=$?
+      [ "$s662_rc" = 2 ] && s662_ref=$((s662_ref+1))
+    done
+  else
+    s662_ref=3    # not runnable; 160a already proved the hook is alive on this PATH
+  fi
+  if [ "$s662_blocked" -eq 6 ] && [ "$s662_ref" -eq 3 ]; then
+    ok "160f: an empty-stdout python3 no longer blanks the command — 3 irreversible git gates still block on both empty-stdout outcomes (6/6) (#662)"
+  else
+    ng "160f: an empty-stdout python3 BLANKED \$cmd upstream and every Bash matcher greped an empty string — only $s662_blocked/6 blocked, allowed:$s662_bad; healthy reference $s662_ref/3 (want 3, else the arm is unmeasured) (parse_env_prefix keys on jq's exit status, and jq exits 0 with empty output on empty input — SPEC §6.1.2) (#662)"
+  fi
+
+  # ---- 160g (RED): the `./shlex.py` plant. `python3 -c` puts the CWD on
+  # sys.path, so a file written to an IN-REGISTRY path — a write the shell's own
+  # Edit/Write scope guard PERMITS BY DESIGN — shadows the stdlib module both
+  # programs import, and a PERFECTLY HEALTHY interpreter returns whatever it says.
+  # The plant forges ACTIVELY (it returns real tokens, `echo harmless`) rather than
+  # returning nothing, so this arm does not ride on the 160f blanking and stays a
+  # live witness after 160f is fixed.
+  #
+  # BOTH -I sites are load-bearing, verified by mutation at Phase-B time
+  # (rc per row, plant in place, healthy interpreter):
+  #        -I at:   none    cda-only   pep-only   both
+  #   rm -rf <out>    0         0          0        2
+  #   git push -f     0         0          2        2
+  #   git reset       0         0          2        2
+  #   git clean -fd   0         0          2        2
+  # cda-only leaves ALL FOUR forged, because parse_env_prefix substitutes the
+  # plant's output back over the command string every later matcher reads; pep-only
+  # leaves the rm row forged. Hence the four rows below, not one.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160g: SKIPPED — no python3 on this host, the cwd-import plant is not runnable (#662)"
+  else
+    # Negative leg FIRST, with no plant: these must already block, or the plant
+    # rows below measure nothing.
+    s662_ref=0
+    for s662_cmd in "rm -rf $S662_VICTIM" "git push --force origin main" "git reset --hard" "git clean -fd"; do
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$S662_HEAL" healthy; s662_rc=$?
+      [ "$s662_rc" = 2 ] && s662_ref=$((s662_ref+1))
+    done
+    cat > "$S662_TARGET/shlex.py" <<'S662PLANT'
+def split(s, comments=False, posix=True):
+    return ["echo", "harmless"]
+def join(seq):
+    return "echo harmless"
+def quote(s):
+    return s
+S662PLANT
+    s662_blocked=0; s662_bad=""
+    for s662_cmd in "rm -rf $S662_VICTIM" "git push --force origin main" "git reset --hard" "git clean -fd"; do
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$S662_HEAL" healthy; s662_rc=$?
+      if [ "$s662_rc" = 2 ]; then s662_blocked=$((s662_blocked+1)); else s662_bad="$s662_bad ${s662_cmd% *}(rc=$s662_rc)"; fi
+    done
+    # Positive control re-measured WITH the plant in place and on the same PATH:
+    # proves the plant disarms the python3-delegating matchers specifically, not
+    # the hook as a whole.
+    s662_hook_run "$S662_REG_ON" "$s662_ctl_json" "$S662_HEAL" healthy; s662_ctl_plant=$?
+    rm -f "$S662_TARGET/shlex.py"
+    rm -rf "$S662_TARGET/__pycache__"
+    if [ "$s662_blocked" -eq 4 ] && [ "$s662_ref" -eq 4 ] && [ "$s662_ctl_plant" = 2 ]; then
+      ok "160g: a ./shlex.py planted inside the registry cannot forge the decision under a healthy python3 (4/4 still block) (#662)"
+    else
+      ng "160g: an in-registry ./shlex.py FORGED the verdict of a healthy interpreter — only $s662_blocked/4 blocked, allowed:$s662_bad; no-plant reference $s662_ref/4 (want 4) and same-PATH control rc=$s662_ctl_plant (want 2, else the arm is unmeasured) (python3 -c puts cwd on sys.path; -I is needed at BOTH check_destructive_args and parse_env_prefix — SPEC §6.1.2) (#662)"
+    fi
+  fi
+
+  # ---- 160h (RED): the EMPTY-ARRAY crash. An empty token list frames perfectly
+  # validly and is the one outcome the strippers' predicate does NOT reject, so the
+  # tokenizer must refuse it explicitly. Today it reaches
+  # `for arg in "${args[@]}"` with an empty array under `set -u`, which on bash
+  # 3.2.57 is a FATAL `args[@]: unbound variable` — the hook exits 1, which is a
+  # NON-BLOCKING allow AND skips every later matcher. The second row proves the
+  # second half: it also carries `git reset --hard`, whose own arm sits below the
+  # destructive one and never runs. Reachable ONLY through the site-aware shim
+  # (the upstream blanking hides it otherwise), so this arm REDS TODAY at rc=1 —
+  # it is a live witness, not a forward guard.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160h: SKIPPED — no python3 on this host, the site-isolated empty-token-list leg is not runnable (#662)"
+  else
+    s662_blocked=0; s662_bad=""
+    for s662_cmd in "rm -rf $S662_VICTIM" "rm -rf $S662_VICTIM && git reset --hard"; do
+      : > "$S662_STATE/py_calls"; rm -f "$S662_STATE/bad_mode"
+      s662_hook_run "$S662_REG_ON" "$(s662_bash_json "$s662_cmd")" "$S662_BIN" emptytok; s662_rc=$?
+      if [ -e "$S662_STATE/bad_mode" ]; then
+        s662_bad="$s662_bad ${s662_cmd% *}(rc=8-unknown-shim-mode)"
+      elif ! grep -q '^cda$' "$S662_STATE/py_calls" 2>/dev/null; then
+        s662_bad="$s662_bad ${s662_cmd% *}(rc=9-shim-no-longer-discriminates-the-tokenizer-call)"
+      elif [ "$s662_rc" = 2 ]; then
+        s662_blocked=$((s662_blocked+1))
+      else
+        s662_bad="$s662_bad ${s662_cmd% *}(rc=$s662_rc)"
+      fi
+    done
+    if [ "$s662_blocked" -eq 2 ]; then
+      ok "160h: an EMPTY token list is refused (rc=2), not iterated into a fatal unbound-variable (2/2) (#662)"
+    else
+      ng "160h: an empty token list crashed the hook instead of being refused — $s662_blocked/2 blocked, failed:$s662_bad (rc=1 is the bash 3.2.57 fatal 'args[@]: unbound variable' → a non-blocking allow that also skips every later matcher; rc=0 would be a completed check that checked nothing) (#662)"
+    fi
+  fi
+fi
+
