@@ -3192,9 +3192,19 @@ case "${S660_PY_MODE:?}" in
   # payload on STDERR, stdout empty. Shaped like a real answer so the only thing
   # rejecting it is the channel it arrived on.
   stderr)  cat >/dev/null 2>&1; printf 'gh issue edit 1 --body \n' >&2 ;;
+  # NON-ZERO EXIT with junk on stdout — SPEC §6.1.2's remaining enumerated outcome,
+  # named verbatim by #660 AC item 4. Green on BOTH sides of the fix (measured: the
+  # pre-fix blob already closed on rc!=0 — that is precisely what an rc-keyed selector
+  # DID cover), so this is a regression + AC-coverage guard, NOT a defect witness.
+  crash)   cat >/dev/null 2>&1; printf 'Traceback (most recent call last)\n'; exit 1 ;;
   # NOT a pathology (159b): correct stdout from the real interpreter PLUS noise on
   # stderr, which the helper's existing `2>/dev/null` already handles.
   noisy)   printf 'DeprecationWarning: fixture noise\n' >&2; exec "${S660_REAL_PY:?}" "$@" ;;
+  # A typo'd S660_PY_MODE must not silently degrade to `empty`. MEASURED: a bare
+  # `exit 1` here does NOT red the arm — empty stdout is unframed, so the helper fails
+  # closed, `[ out = in ]` PASSES and the closed-counter increments. A stderr complaint
+  # is swallowed by the subshells' `) 2>/dev/null`. The signal must be OUT-OF-BAND.
+  *)       : > "$S660_STATE/bad_mode" ;;
 esac
 exit 0
 S660PY
@@ -3243,7 +3253,8 @@ s660_in=""; s660_out=""
 # Recorded differential (159d): `<corpus-id>|<mode>|<hex of the output>`, captured
 # at Phase-B time from the CURRENT implementation under a healthy python3. `mode`
 # ∈ heredoc/message/full is strip_command_data measured AT THE `$( )` CALLER
-# BOUNDARY (all 8 of its call sites wrap it in `$( )`); `sgs` is
+# BOUNDARY — see that helper's RESIDUAL header for which call sites wrap and
+# which do not; the tally lives there, not here, so it cannot drift twice. `sgs` is
 # space_glued_separators measured RAW, because its sole call site is a `printf -v`
 # in-place write and raw IS its caller boundary. Hex, not text, so a stray newline
 # or trailing space cannot be silently normalized away by the comparison.
@@ -3325,9 +3336,9 @@ fi
 # Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = RETURN ≠ INPUT (the
 # defect), 6 = python3 still resolvable on the no-python3 PATH, 7 = corpus builder failed.
 s660_closed=0; s660_bad=""
-for s660_mode in banner partial empty stderr; do
+for s660_mode in banner partial empty stderr crash; do
   for s660_m in heredoc message full; do
-    : > "$S660_STATE/py_calls"
+    : > "$S660_STATE/py_calls"; rm -f "$S660_STATE/bad_mode"
     if (
         . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
         export PATH="$S660_BIN" S660_STATE S660_PY_MODE="$s660_mode"
@@ -3335,6 +3346,7 @@ for s660_mode in banner partial empty stderr; do
         s660_corpus_cmd failclosed s660_in || exit 7
         s660_out=$(strip_command_data "$s660_in" "$s660_m")
         [ -s "$S660_STATE/py_calls" ] || exit 4
+        [ ! -e "$S660_STATE/bad_mode" ] || exit 8
         [ "$s660_out" = "$s660_in" ] || exit 5
       ) 2>/dev/null; then
       s660_closed=$((s660_closed+1))
@@ -3350,6 +3362,7 @@ for s660_m in heredoc message full; do
       command -v python3 >/dev/null 2>&1 && exit 6
       s660_corpus_cmd failclosed s660_in || exit 7
       s660_out=$(strip_command_data "$s660_in" "$s660_m")
+      [ ! -e "$S660_STATE/bad_mode" ] || exit 8
       [ "$s660_out" = "$s660_in" ] || exit 5
     ) 2>/dev/null; then
     s660_closed=$((s660_closed+1))
@@ -3357,10 +3370,10 @@ for s660_m in heredoc message full; do
     s660_bad="$s660_bad absent/$s660_m(rc=$?)"
   fi
 done
-if [ "$s660_closed" -eq 15 ]; then
-  ok "159a: strip_command_data fails closed on all 5 pathologies × 3 modes (15/15) (#660)"
+if [ "$s660_closed" -eq 18 ]; then
+  ok "159a: strip_command_data fails closed on every SPEC §6.1.2 pathology × 3 strip modes ($s660_closed/18) (#660)"
 else
-  ng "159a: strip_command_data returned interpreter JUNK as the stripped command — only $s660_closed/15 failed closed, failed:$s660_bad (5=return≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed) (#660)"
+  ng "159a: strip_command_data returned interpreter JUNK as the stripped command — only $s660_closed/18 failed closed, failed:$s660_bad (5=return≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed, 8=UNKNOWN shim mode — a typo'd S660_PY_MODE, which would otherwise degrade silently to the empty-output mode) (#660)"
 fi
 
 # 159b (#660, no-blinding at the unit level): noise on STDERR beside a CORRECT
@@ -3375,7 +3388,7 @@ if [ -z "$S660_REAL_PY" ]; then
 else
   s660_stripped=0; s660_bad=""
   for s660_m in heredoc message full; do
-    : > "$S660_STATE/py_calls"
+    : > "$S660_STATE/py_calls"; rm -f "$S660_STATE/bad_mode"
     if (
         . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
         s660_corpus_cmd failclosed s660_in || exit 7
@@ -3395,7 +3408,7 @@ else
   if [ "$s660_stripped" -eq 3 ]; then
     ok "159b: stderr-only NOISE beside correct stdout still strips (3/3 modes) (#660)"
   else
-    ng "159b: an over-eager validity test BLINDED the stripper on harmless stderr noise — only $s660_stripped/3 stripped, failed:$s660_bad (5=result≠reference, 6=reference==input, 3=shim off PATH, 4=shim never ran, 7=corpus builder failed) (#660)"
+    ng "159b: an over-eager validity test BLINDED the stripper on harmless stderr noise — only $s660_stripped/3 stripped, failed:$s660_bad (5=result≠reference, 6=reference==input, 3=shim off PATH, 4=shim never ran, 7=corpus builder failed, 8=UNKNOWN shim mode) (#660)"
   fi
 fi
 
@@ -3407,8 +3420,8 @@ fi
 # Subshell exits: 3 = shim not on PATH, 4 = shim never ran, 5 = WRITTEN ≠ INPUT
 # (the defect), 6 = python3 still resolvable on the no-python3 PATH, 7 = corpus failed.
 s660_closed=0; s660_bad=""
-for s660_mode in banner partial empty stderr; do
-  : > "$S660_STATE/py_calls"
+for s660_mode in banner partial empty stderr crash; do
+  : > "$S660_STATE/py_calls"; rm -f "$S660_STATE/bad_mode"
   if (
       . "$SHELL_ROOT/.claude/hooks/helpers/git_matcher.sh"
       export PATH="$S660_BIN" S660_STATE S660_PY_MODE="$s660_mode"
@@ -3416,6 +3429,7 @@ for s660_mode in banner partial empty stderr; do
       s660_corpus_cmd glued s660_in || exit 7
       space_glued_separators "$s660_in" s660_out
       [ -s "$S660_STATE/py_calls" ] || exit 4
+      [ ! -e "$S660_STATE/bad_mode" ] || exit 8
       [ "$s660_out" = "$s660_in" ] || exit 5
     ) 2>/dev/null; then
     s660_closed=$((s660_closed+1))
@@ -3429,16 +3443,17 @@ if (
     command -v python3 >/dev/null 2>&1 && exit 6
     s660_corpus_cmd glued s660_in || exit 7
     space_glued_separators "$s660_in" s660_out
+    [ ! -e "$S660_STATE/bad_mode" ] || exit 8
     [ "$s660_out" = "$s660_in" ] || exit 5
   ) 2>/dev/null; then
   s660_closed=$((s660_closed+1))
 else
   s660_bad="$s660_bad absent(rc=$?)"
 fi
-if [ "$s660_closed" -eq 5 ]; then
-  ok "159c: space_glued_separators fails closed on all 5 pathologies (5/5) (#660)"
+if [ "$s660_closed" -eq 6 ]; then
+  ok "159c: space_glued_separators fails closed on every SPEC §6.1.2 pathology ($s660_closed/6) (#660)"
 else
-  ng "159c: space_glued_separators wrote interpreter JUNK into the arm-entry \$cmd — only $s660_closed/5 failed closed, failed:$s660_bad (5=written≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed) (#660)"
+  ng "159c: space_glued_separators wrote interpreter JUNK into the arm-entry \$cmd — only $s660_closed/6 failed closed, failed:$s660_bad (5=written≠input, 3=shim off PATH, 4=shim never ran, 6=python3 on the no-python PATH, 7=corpus builder failed) (#660)"
 fi
 
 # 159d (#660, no blinding): under a HEALTHY python3, the whole 44-record
@@ -3534,7 +3549,7 @@ else
     "pr-merge|gh pr merge 1 --squash" \
     ; do
     s660_name=${s660_row%%|*}; s660_cmd=${s660_row#*|}
-    : > "$S660_STATE/py_calls"
+    : > "$S660_STATE/py_calls"; rm -f "$S660_STATE/bad_mode"
     s660_hook_run "$S660_REG_ON" "$(s660_bash_json "$s660_cmd")" shim; s660_rc=$?
     if [ ! -s "$S660_STATE/py_calls" ]; then
       s660_bad="$s660_bad $s660_name(shim-never-ran)"
@@ -3585,7 +3600,7 @@ EOF
   # this row is rc=0 for the WRONG reason: the arm greps the banner and matches
   # nothing. Pairing it with 159g is what distinguishes "fail closed to unstripped"
   # from "returned junk", which the rc alone cannot tell apart pre-fix.
-  : > "$S660_STATE/py_calls"
+  : > "$S660_STATE/py_calls"; rm -f "$S660_STATE/bad_mode"
   s660_hook_run "$S660_REG_ON" "$(s660_bash_json "$s660_data_cmd")" shim; s660_data_rc=$?
   if [ ! -s "$S660_STATE/py_calls" ]; then
     ng "159h: the banner python3 shim never ran — the fail-closed-means-unstripped row is unmeasured (#660)"
