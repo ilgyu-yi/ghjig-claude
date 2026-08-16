@@ -274,7 +274,7 @@ parse_skip_sentinel() {
   # literals avoid embedding `'`/`"`/`#`/`\` in this single-quoted python source.
   local _pss_comment=""
   if command -v python3 >/dev/null 2>&1; then
-    _pss_comment=$(printf '%s' "$_pss_in" | python3 -c '
+    _pss_comment=$(printf '%s' "$_pss_in" | python3 -I -c '
 import sys
 s = sys.stdin.read()
 DQ = chr(34); SQ = chr(39); BS = chr(92); HS = chr(35)

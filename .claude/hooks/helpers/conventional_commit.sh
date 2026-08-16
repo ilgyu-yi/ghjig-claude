@@ -23,7 +23,7 @@ extract_commit_subject() {
   # result, e.g. -F-only → fail-open) its output is authoritative. Only a
   # python3 crash (non-zero exit) falls through to the legacy logic below.
   if command -v python3 >/dev/null 2>&1; then
-    if subj=$(printf '%s' "$raw" | python3 -c '
+    if subj=$(printf '%s' "$raw" | python3 -I -c '
 import sys, re
 raw = sys.stdin.read()
 # Bound to the git commit command: scan from the commit token onward (stay
@@ -169,7 +169,7 @@ sys.exit(0)
 # read; the top-level heredoc branch covers a `git commit -F- <<TAG … TAG` form.
 extract_commit_message() {
   command -v python3 >/dev/null 2>&1 || { printf ''; return 0; }
-  printf '%s' "$1" | python3 -c '
+  printf '%s' "$1" | python3 -I -c '
 import sys, re
 raw = sys.stdin.read()
 m = re.search(r"\bgit\b[^\n;&|]*?\bcommit\b", raw)   # bound start: one line, no separator
@@ -241,7 +241,7 @@ _codepoint_len() {
   # Rung 1 — python3. Invoked unconditionally: its OUTPUT decides, not its
   # presence. An absent or broken interpreter simply yields nothing and the
   # ladder advances.
-  _len=$(printf '%s' "$_in" | python3 -c 'import sys; print(len(sys.stdin.read()))' 2>/dev/null)
+  _len=$(printf '%s' "$_in" | python3 -I -c 'import sys; print(len(sys.stdin.read()))' 2>/dev/null)
   case "$_len" in
     ''|*[!0-9]*) _len= ;;
   esac

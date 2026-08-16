@@ -314,7 +314,7 @@ resolve_gh_issue_target() {
   local -a toks=()
   if command -v python3 >/dev/null 2>&1; then
     local _tok_out
-    if _tok_out=$(printf '%s' "$cmd" | python3 -c '
+    if _tok_out=$(printf '%s' "$cmd" | python3 -I -c '
 import shlex, sys
 try:
     for t in shlex.split(sys.stdin.read()):
