@@ -2632,7 +2632,20 @@ s116_exp=$((s116_levers + s116_agents + s116_cmds + s116_hooks))
 # window-terminator arms (#644) both call it, so the window rule lives in exactly
 # one place and cannot be fixed in one caller while drifting in the other.
 s116_posture_rows() {
-  awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$1" \
+  # Terminate at the NEXT HEADING OF DEPTH <= 3, not at the literal `## 2. ` (#644).
+  # The old terminator put every section between §1.9 and `## 2.` INSIDE the
+  # counting window, so a posture-token table row in a new `### 1.10` inflated
+  # the count and reddened §116 for a reason unrelated to the parity it checks
+  # (measured: 66 -> 67). `#### ` is deliberately NOT a terminator — position 3
+  # is `#`, not a space, so a genuine `#### 1.9.1` sub-section of §1.9 stays in
+  # scope and its rows still count (§116b pins that direction).
+  #
+  # The `i&&` guard is LOAD-BEARING, not defensive: without it the terminator
+  # matches SPEC's own H1 (`# GHJig-Claude — Design Specification`) on LINE 1 and
+  # awk exits before the window ever opens, yielding 0. That would not fail
+  # silently — §116's `-gt 0` check and §116a-§116c's baseline guards all catch
+  # it — but the guard is what keeps the rule scoped to the window it describes.
+  awk '/^### 1\.9 /{i=1;next} i&&/^# |^## |^### /{exit} i' "$1" \
     | grep -E '^\|' | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`'
 }
 s116_rows=$(s116_posture_rows "$s116_spec")
