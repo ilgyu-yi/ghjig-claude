@@ -2622,7 +2622,22 @@ fi
 # rename / empty table (anti-vacuity #2). A mechanism added to any of the four
 # families bumps the expected total and trips this guard until a §1.9 row is added.
 s116_spec="$SHELL_ROOT/SPEC.md"
-s116_levers=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$s116_spec")
+# s116_lever_rows <spec-file> → count of §1.8 narrowing-lever table rows in that
+# file. THE SINGLE DERIVATION of the lever count: the live `s116_levers` below
+# AND the §116e-§116g lever-window arms (#668) both call it, so the window rule
+# lives in exactly one place and cannot be repaired in one caller while drifting
+# in the other. Same shape, and for the same reason, as s116_posture_rows below.
+#
+# THIS IS NOT THE FIX (#668, Phase B). The awk body is the PRE-FIX derivation
+# verbatim — both ends of the window are still literal headings — so §116e and
+# §116f red against it exactly as #668 measured. The extraction is
+# behaviour-preserving (`s116_levers` still derives 6); without it the Code
+# phase would repair the inline copy while the new arms went on reading a
+# second one, leaving both witnesses unfixable.
+s116_lever_rows() {
+  awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i&&/^\| \*\*/{n++} END{print n+0}' "$1"
+}
+s116_levers=$(s116_lever_rows "$s116_spec")
 s116_agents=$(ls "$SHELL_ROOT"/.claude/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
 s116_cmds=$(grep -cE '^### 5\.[0-9]+ `/' "$s116_spec")
 s116_hooks=$(grep -oE 'should_skip [a-z-]+' "$SHELL_ROOT"/.claude/hooks/pre_tool_use.sh | awk '{print $2}' | sort -u | wc -l | tr -d ' ')
@@ -2671,56 +2686,118 @@ else
   ng "116: SPEC §1.9 coverage parity drift — classified=$s116_rows expected=$s116_exp (levers=$s116_levers agents=$s116_agents cmds=$s116_cmds hooks=$s116_hooks) (#450)"
 fi
 
-# ---------- §116a-§116d: §116's row-count window terminator (#644) ----------
-# Phase B (Test). §116's window opens at `### 1.9 ` and must close at the NEXT
-# WINDOW-CLOSING HEADING (depth 2-3) — not at the literal `## 2. `. With the literal
-# terminator, everything authored between §1.9 and `## 2. ` (a new `### 1.10`,
-# say) sits INSIDE the counting window, so an unrelated table row quoting a
-# backticked posture token inflates the count and reds §116 for a cause outside
-# its subject. A genuine `#### 1.9.1` sub-section of §1.9 must stay INSIDE.
+# ---------- §116a-§116g: §116's two windowed extractors (#644, #668) ----------
+# Phase B (Test). §116 derives its verdict from TWO windowed walks of SPEC —
+# §1.9's posture-row count (`s116_posture_rows`, arms §116a-§116c, #644) and
+# §1.8's lever-row count (`s116_lever_rows`, arms §116e-§116g, #668) — and both
+# feed the same comparison. The arms share ONE fixture builder and ONE
+# $S116_END_RE, so "what ends a §1.x window" is spelled once for every window
+# under test. §116d is the AC5 sentinel for every fixture below and is kept LAST
+# by design.
+#
+# THE ROW WINDOW (#644): §116's posture-row window opens at `### 1.9 ` and must
+# close at the NEXT WINDOW-CLOSING HEADING (depth 2-3) — not at the literal
+# `## 2. `. With the literal terminator, everything authored between §1.9 and
+# `## 2. ` (a new `### 1.10`, say) sits INSIDE the counting window, so an
+# unrelated table row quoting a backticked posture token inflates the count and
+# reds §116 for a cause outside its subject. A genuine `#### 1.9.1` sub-section
+# of §1.9 must stay INSIDE.
+#
+# THE LEVER WINDOW (#668): the same shape, one section up and on BOTH ends.
+# `s116_lever_rows`' window opens at the literal `### 1.8 ` and closes at the
+# literal `### 1.9 `, so (a) a `| **`-shaped row in a new `### 1.8.5` sibling is
+# counted as a lever it is not, and (b) renumbering §1.8 collapses the window to
+# 0 and silently drops every real lever from `s116_exp`. Both ends must go: the
+# terminator becomes the shared $S116_END_RE, the start anchor becomes the
+# section's TITLE rather than its number. A genuine `#### 1.8.1` sub-section of
+# §1.8 must stay INSIDE.
 #
 # Fixtures are COPIES under $TMP (cleaned by the preamble's EXIT trap); no arm
 # writes to the real SPEC.md, and §116d pins that (AC5) — nothing here removes a
 # path, so there is no cleanup to prefix-guard.
 #
-# WITNESS HONESTY: only §116a reds against the current terminator. §116b and
+# WITNESS HONESTY (#644, the row window): only §116a reds against the current
+# row-window terminator. §116b and
 # §116c pass both before and after the fix — they are REGRESSION GUARDS bounding
 # the fix (b: it must not shrink the real scope; c: the pair is not
 # always-failing), not witnesses. §116b does carry one load-bearing job for
 # §116a: it proves the decoy row IS countable when in scope, so a green §116a
 # cannot be a decoy that simply never matched the counting regex.
+#
+# WITNESS HONESTY (#668, the lever window): §116e and §116f are WITNESSES — each
+# reds against `s116_lever_rows` as it stands (measured: 7 and 0 against a
+# baseline of 6). §116g is a BOUND, not a witness: it reads 7 both before and
+# after the repair, so it constrains the repair's shape rather than
+# demonstrating the defect. It is labelled that way at its own arm too.
 S116W_DIR="$TMP/s116w"
 mkdir -p "$S116W_DIR"
 S116W_MARK='smoke-fixture-decoy-644'
-# s116w_fixture <heading-line> <out-file> — a SPEC.md copy with <heading-line>
-# plus ONE decoy posture row spliced in at THE END OF §1.9, i.e. immediately
-# before the first line that $S116_END_RE says closes the window. Only the
-# heading DEPTH differs between §116a and §116b, so the heading rule stays the
-# single variable under test.
+# s116w_fixture <open-re> <heading-line> <decoy-row> <out-file> — a SPEC.md copy
+# with <heading-line> plus ONE <decoy-row> spliced in at THE END OF the section
+# <open-re> opens, i.e. immediately before the first following line that
+# $S116_END_RE says closes a §1.x window. Only the heading DEPTH differs between
+# the exclusion and the inclusion fixture of each pair, so the heading rule
+# stays the single variable under test.
 #
-# ANCHORED TO §1.9, NOT TO `## 2. ` (#644 round-1 F1). An earlier revision
-# spliced at the literal `## 2. `, which is the end of §1.9 only while §1.9
-# happens to be §1's LAST subsection. The moment a real `### 1.10` lands, that
-# anchor puts §116b's decoy BEHIND the window it is meant to be inside, and the
-# arm reds for a cause outside its own subject — the very pathology §116a
-# exists to prevent, reproduced one level up in the fixture that bounds it.
-# #644 names three Active Directives planning a §1.x section, so this is the
-# anticipated future, not a hypothetical. The anchor reuses $S116_END_RE rather
-# than re-spelling the heading rule, so it cannot drift from the derivation.
+# ONE BUILDER FOR BOTH WINDOWS (#668). §1.9's arms (#644) and §1.8's arms (#668)
+# pass different <open-re>/<decoy-row> and share everything else, so the splice
+# rule — "the end of a §1.x section" — exists in exactly one place, for the same
+# reason $S116_END_RE does. A second builder would be the drift that shared
+# definition exists to prevent.
+#
+# ANCHORED TO THE SECTION UNDER TEST, NOT TO A DOCUMENT-GLOBAL LITERAL (#644
+# round-1 F1). An earlier revision spliced at the literal `## 2. `, which is the
+# end of §1.9 only while §1.9 happens to be §1's LAST subsection. The moment a
+# real `### 1.10` lands, that anchor puts §116b's decoy BEHIND the window it is
+# meant to be inside, and the arm reds for a cause outside its own subject — the
+# very pathology §116a exists to prevent, reproduced one level up in the fixture
+# that bounds it. #644 names three Active Directives planning a §1.x section, so
+# this is the anticipated future, not a hypothetical. The same reasoning binds
+# the §1.8 fixtures: they splice at the end of §1.8 as $S116_END_RE finds it,
+# never at the literal `### 1.9 `. The anchor reuses $S116_END_RE rather than
+# re-spelling the heading rule, so it cannot drift from the derivation.
 s116w_fixture() {
-  awk -v h="$1" -v m="$S116W_MARK" -v endre="$S116_END_RE" '
-    /^### 1\.9 /  { i=1; print; next }
-    i&&!d&&$0~endre { print h; print ""
-                      print "| " m " (§0) | `keep-as-policy` | decoy row planted by smoke §116a/§116b (#644). |"
-                      print ""; d=1 }
-    { print }' "$s116_spec" > "$2"
+  awk -v openre="$1" -v h="$2" -v row="$3" -v endre="$S116_END_RE" '
+    !i&&$0~openre   { i=1; print; next }
+    i&&!d&&$0~endre { print h; print ""; print row; print ""; d=1 }
+    { print }' "$s116_spec" > "$4"
 }
+S116W_ROW="| $S116W_MARK (§0) | \`keep-as-policy\` | decoy row planted by smoke §116a/§116b (#644). |"
 s116w_excl="$S116W_DIR/excl.md"
 s116w_incl="$S116W_DIR/incl.md"
 s116w_pristine="$S116W_DIR/pristine.md"
 cp "$s116_spec" "$s116w_pristine"
-s116w_fixture '### 1.10 Smoke fixture decoy section (#644)'    "$s116w_excl"
-s116w_fixture '#### 1.9.1 Smoke fixture sub-section (#644)'    "$s116w_incl"
+s116w_fixture '^### 1\.9 ' '### 1.10 Smoke fixture decoy section (#644)'  "$S116W_ROW" "$s116w_excl"
+s116w_fixture '^### 1\.9 ' '#### 1.9.1 Smoke fixture sub-section (#644)'  "$S116W_ROW" "$s116w_incl"
+
+# ---- §116e-§116g fixtures (#668), built HERE, up front, alongside the #644
+# ones so that §116d — which runs LAST and pins AC5 — covers these too. Same
+# builder, same anchor discipline; only the section and the decoy row's SHAPE
+# differ (§1.8's window counts `| **`-leading rows; §1.9's counts backticked
+# posture tokens). The decoy carries no posture token, so it is inert to
+# s116_posture_rows even if a future window ever spans both sections.
+S116L_MARK='smoke-fixture-decoy-668'
+S116L_ROW="| **$S116L_MARK** (§0) | decoy lever row planted by smoke §116e/§116g (#668). | **Guidance** — fixture only. |"
+s116l_excl="$S116W_DIR/lever-excl.md"
+s116l_incl="$S116W_DIR/lever-incl.md"
+s116l_renum="$S116W_DIR/lever-renum.md"
+s116w_fixture '^### 1\.8 ' '### 1.8.5 Smoke fixture decoy section (#668)' "$S116L_ROW" "$s116l_excl"
+s116w_fixture '^### 1\.8 ' '#### 1.8.1 Smoke fixture sub-section (#668)'  "$S116L_ROW" "$s116l_incl"
+# §116f's fixture is a RENAME, not a splice: §1.8's heading keeps its TITLE and
+# loses its NUMBER, which is the only thing the start anchor may legitimately
+# depend on. Derived from the live heading line — no SPEC title is hardcoded
+# here — so the copy differs from the real SPEC in exactly that one line, and a
+# §1.8 that has already been renumbered upstream leaves $s116l_h_orig empty and
+# trips §116f's fixture guard rather than quietly producing a no-op copy.
+s116l_h_orig=$(grep -m1 '^### 1\.8 ' "$s116_spec")
+s116l_h_renum="### 1.8a ${s116l_h_orig#\#\#\# 1.8 }"
+awk -v o="$s116l_h_orig" -v n="$s116l_h_renum" '!r&&$0==o { print n; r=1; next } { print }' \
+  "$s116_spec" > "$s116l_renum"
+# Lever-count baseline over the untouched SPEC, the DENOMINATOR every §116e-§116g
+# comparison is gated on: `-gt 0` fails LOUD if the lever window collapsed (a
+# §1.8 rename, an awk that exits before the window opens) rather than letting an
+# empty window read as agreement.
+s116l_base=$(s116_lever_rows "$s116_spec")
 # Baseline over the untouched SPEC. `-gt 0` below fails LOUD if the window
 # collapsed (a §1.9 rename, an awk that exits before the window opens) rather
 # than reading an empty window as agreement.
@@ -2761,13 +2838,63 @@ else
   ng "116c: unmodified SPEC copy no longer balances — classified=$s116w_c expected=$s116_exp (#644)"
 fi
 
-# §116d (AC5, regression guard — green before and after): the real SPEC.md is
+# §116e (#668 AC2, THE WITNESS — RED until the lever window's terminator stops
+# being the literal `### 1.9 `): a decoy `| **`-shaped row inside a NEW
+# `### 1.8.5` sibling section is OUT of §1.8's lever table and must not move the
+# count. Measured pre-fix: levers=7 against a baseline of 6, i.e. an unrelated
+# table row inflates s116_exp and reds §116 — AND §116c, whose message then
+# blames the SPEC copy — for a cause outside either arm's subject.
+s116l_e=$(s116_lever_rows "$s116l_excl")
+if [ ! -s "$s116l_excl" ] || [ "$(grep -c "$S116L_MARK" "$s116l_excl")" != 1 ]; then
+  ng "116e: fixture not built — '### 1.8.5' decoy SPEC copy missing or lacks exactly one decoy lever row (#668)"
+elif [ "$s116l_base" -gt 0 ] && [ "$s116l_e" = "$s116l_base" ]; then
+  ok "116e: a '| **' row inside a '### 1.8.5' is EXCLUDED from the §1.8 lever window (count stays $s116l_base) (#668)"
+else
+  ng "116e: §116's lever window admits a '### 1.8.5' — levers=$s116l_e baseline=$s116l_base; the terminator must be the shared \$S116_END_RE, not the literal '### 1.9 ' (#668)"
+fi
+
+# §116f (#668 AC4, THE WITNESS — RED until the START anchor stops being the
+# literal `### 1.8 `): a SPEC copy whose §1.8 is RENUMBERED (title untouched)
+# must still yield the same lever count. Measured pre-fix: levers=0 against a
+# baseline of 6 — the window never opens, so every lever silently vanishes from
+# s116_exp. The fixture guard is on the DENOMINATOR: it demands the renumbered
+# heading be present exactly once AND the old numbering be gone, so a rename
+# that silently did nothing fails loud instead of reading as a pass.
+s116l_f=$(s116_lever_rows "$s116l_renum")
+if [ ! -s "$s116l_renum" ] || [ -z "$s116l_h_orig" ] \
+   || [ "$(grep -cF "$s116l_h_renum" "$s116l_renum")" != 1 ] \
+   || [ "$(grep -c '^### 1\.8 ' "$s116l_renum")" != 0 ]; then
+  ng "116f: fixture not built — renumbered SPEC copy missing, or its §1.8 heading was not rewritten to '### 1.8a <same title>' (#668)"
+elif [ "$s116l_base" -gt 0 ] && [ "$s116l_f" = "$s116l_base" ]; then
+  ok "116f: renumbering §1.8 keeps its levers in the window (count stays $s116l_base) (#668)"
+else
+  ng "116f: §116's lever window opens only at the literal '### 1.8 ' — levers=$s116l_f baseline=$s116l_base; anchor the start on the section TITLE, not on its number (#668)"
+fi
+
+# §116g (#668 AC3, a BOUND — NOT a witness: measured 7 both before and after the
+# repair): the SAME decoy row inside a genuine `#### 1.8.1` sub-section of §1.8
+# is still COUNTED, so scoping the terminator must not shrink the lever window's
+# real reach (`#### ` is depth 4 and $S116_END_RE deliberately stops at 3).
+# It also carries §116e's non-vacuity: it proves the IDENTICAL row IS countable
+# when in scope, so a green §116e cannot be a decoy that simply never matched
+# `^\| \*\*`.
+s116l_g=$(s116_lever_rows "$s116l_incl")
+if [ ! -s "$s116l_incl" ] || [ "$(grep -c "$S116L_MARK" "$s116l_incl")" != 1 ]; then
+  ng "116g: fixture not built — '#### 1.8.1' decoy SPEC copy missing or lacks exactly one decoy lever row (#668)"
+elif [ "$s116l_base" -gt 0 ] && [ "$s116l_g" = "$((s116l_base + 1))" ]; then
+  ok "116g: a '| **' row inside a '#### 1.8.1' is still INCLUDED (count $s116l_base → $s116l_g) (#668)"
+else
+  ng "116g: §116's lever window lost a genuine '#### 1.8.1' sub-section row — levers=$s116l_g expected=$((s116l_base + 1)) (#668)"
+fi
+
+# §116d (AC5, regression guard — green before and after; kept LAST by design so
+# it covers every fixture above, #644's and #668's alike): the real SPEC.md is
 # byte-identical to the copy taken before any fixture was built. Pins that the
 # fixture builder writes only to $TMP.
 if [ -s "$s116w_pristine" ] && cmp -s "$s116_spec" "$s116w_pristine"; then
-  ok "116d: the real SPEC.md is unmutated by the §116a-§116c fixtures (#644)"
+  ok "116d: the real SPEC.md is unmutated by the §116a-§116g fixtures (#644, #668)"
 else
-  ng "116d: SPEC.md changed while the §116 window fixtures ran — a fixture wrote to the real SSOT (#644)"
+  ng "116d: SPEC.md changed while the §116 window fixtures ran — a fixture wrote to the real SSOT (#644, #668)"
 fi
 
 # ---------- §117: command docs use -F (not -f) for gh api stdin/file body (#452) ----------
