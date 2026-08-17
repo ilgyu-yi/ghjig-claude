@@ -2352,9 +2352,11 @@ elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # and this line has already carried two successive wrong provenance stories.
   # Re-measure it; do not re-tell it.
   #
-  # floor=18 tolerates ordinary prose tightening and catches a collapsed or
-  # renamed heading; ceiling=60 leaves §1.3.1 room to nearly triple while sitting
-  # six-fold below the ~368 a desync produces today. The bounds are NAMED in both
+  # The floor tolerates ordinary prose tightening and catches a collapsed or
+  # renamed heading; the ceiling leaves §1.3.1 room to nearly triple while sitting
+  # six-fold below the ~368 a desync produces today. Both values are deliberately
+  # NOT repeated here — they are on the two lines directly below, and a fourth
+  # hand-synced copy is a fourth thing to keep in sync (#673). The bounds are NAMED in both
   # messages so a failure says which side tripped, and §156o/§156p parse those two
   # spellings — renaming them fails CLOSED (measured: both arms red), so it is not
   # a silent hazard.
@@ -2495,7 +2497,7 @@ fi
 # The arms drive the live guard's EXTRACTOR verbatim, but its DECISION is
 # re-implemented here from the two integers scraped out of the assertion messages
 # — so an executed condition that diverges from the declared bounds is NOT caught
-# by these arms (#643 round-1 F4b, deferred). The extractor is lifted
+# by these arms (#643 round-1 F4b, deferred; tracked at #673). The extractor is lifted
 # verbatim out of the guard's own source line, and the bounds are read out of the
 # `156a:` assertion messages — i.e. the bounds the guard TELLS a failing reader about.
 # This covers the OMISSION direction only — a divergence, where the guard declares
@@ -2657,8 +2659,11 @@ fi
 #   already satisfies them. They exist so a later edit cannot rename a record field, drop
 #   one of the three anti-swing rules, weaken a closed menu into a free-text hatch, or
 #   dilute one of the load-bearing negative results.
-#   ROUTING arms (157v–157x) are LOAD-BEARING RED at this commit: `/review` step 3.5 and
-#   `/ship` step 1.5 are the Code phase.
+#   ROUTING arms (157v–157x) were LOAD-BEARING RED at 58b43ee: `/review` step 3.5 and
+#   `/ship` step 1.5 were the Code phase. They are GREEN from 9aa6e85 on (measured:
+#   `finding-judge` refs in review.md/ship.md go 0 -> 2 across that commit) — anchored
+#   rather than left present-tense, because "at this commit" goes stale the moment the
+#   Code phase lands and cannot be re-checked afterwards (#673).
 #
 # ANTI-VACUITY. 157a count-guards the contract file — a lock over an absent or gutted file
 # passes vacuously, anti-pattern #2 in the smoke.sh header. Every anti-swing arm reads a
