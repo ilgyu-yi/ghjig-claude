@@ -2494,21 +2494,64 @@ fi
 # NO LIVE SPEC MUTATION. All three fixtures are copies under the preamble's $TMP,
 # removed by its EXIT trap; $S156_SPEC is only ever read.
 #
-# The arms drive the live guard's EXTRACTOR verbatim, but its DECISION is
-# re-implemented here from the two integers scraped out of the assertion messages
-# — so an executed condition that diverges from the declared bounds is NOT caught
-# by these arms (#643 round-1 F4b, deferred; tracked at #673). The extractor is lifted
-# verbatim out of the guard's own source line, and the bounds are read out of the
-# `156a:` assertion messages — i.e. the bounds the guard TELLS a failing reader about.
-# This covers the OMISSION direction only — a divergence, where the guard declares
-# a bound it does not execute, is the deferred F4b vector.
-# A bound the guard does not declare cannot bind anything, so an undeclared ceiling
-# reads here exactly as it behaves there: absent.
+# DECISION SOURCE (#673). Every arm here drives the live guard: its EXTRACTOR is lifted
+# verbatim out of the guard's own `s156_win=$(awk …)` source line, and its DECISION is
+# taken by EVALUATING the guard's own condition line, lifted the same way (see the lift
+# below and §156s). Nothing in this block re-implements §156a's comparison, so the two
+# directions are covered together:
+#   OMISSION  — a bound the guard never declares and never executes cannot bind anything,
+#               and reads here exactly as it behaves there: absent (§156p reds).
+#   DIVERGENCE — a bound the guard DECLARES but does not EXECUTE, or executes but does not
+#               declare, is caught by the composition: §156s (the condition can be read at
+#               all) + §156t (the two `156a:` messages agree with each other) + §156u
+#               (what the messages declare equals the numerals the condition executes).
+#               This is #643 round-1's F4b vector; #673 is its repair, not its deferral.
+#
+# UNCOVERED BY CONSTRUCTION, deliberately: a bound changed WRONGLY but CONSISTENTLY — in
+# the condition and in both messages together — stays green here. It has to. #673 AC2 asks
+# for exactly that: the arms must DERIVE the bound rather than restate it, so a ceiling
+# retuned everywhere at once is indistinguishable from a legitimate retuning. Whether the
+# two values are the RIGHT ones is a judgement no arm in this file makes (#643, locked). No
+# bound numeral is repeated in this block, on purpose — a copy here would be one more thing
+# to keep in sync and would silently satisfy AC1 while re-creating #673's own defect.
+#
+# FAIL-CLOSED ON A REFACTOR. The lift anchor is broad (`^elif .*s156_n.*; then$`, and an
+# arithmetic `(( s156_n < … || s156_n > … ))` rewrite is measured to lift and evaluate
+# cleanly), but a rewrite it cannot recognise yields an empty condition, which is
+# UNEVALUABLE, not accepting: §156s reds and §156p/§156q/§156r red as UNTESTED rather than
+# reporting a bound they never applied.
+#
+# RUNNABLE AGAINST e8aa0db (the pre-#643 Test commit, guard floor-only) — #643 round 1's
+# measured deferral reason and #673 AC3's binding constraint. Measured for this design:
+# `✗156o ✗156p ✓156q ✓156r`, clean `ng` assertion failures, no `unbound variable` under
+# `set -u`. The lifted condition names only `s156_n`, which s156o_accepts binds as a
+# function-local before evaluating it, so a floor-only condition evaluates there exactly as
+# it does here.
+#
+# SHARED BLINDSPOT, disclosed rather than mitigated: no arm in this block ever executes
+# §156a itself. All of them SIMULATE it from its source text — the extractor and now the
+# condition are the guard's real bytes, but they are re-run over fixtures, not observed
+# firing. An edit that leaves both source lines intact and breaks §156a some other way
+# (its surrounding `if`/`elif` chain, the variable it feeds) is invisible here.
 S156O_SRC="$SHELL_ROOT/scripts/test/smoke.d/70-gates-contentlocks.sh"
 s156o_msgs=""
 s156o_floor=""
 s156o_ceil=""
 s156o_prog=""
+# s156o_cbound — the guard's own first `156a` assertion-message line number. It is the
+# LIFT BOUND, and the bound is load-bearing rather than tidy: the lift anchor
+# `^elif .*s156_n.*; then$` is deliberately broad enough to survive a rewrite of the
+# condition's shape, and unbounded it also matches §156r's own
+# `elif [ "$s156o_hn" -ne "$s156_n" ]; then` below. Against a guard refactored to a form
+# that no longer names s156_n, an unbounded -m1 lift picks up THAT line instead and — with
+# s156o_hn bound in-suite — every arm in this block greens with no bounds in force at all.
+# Searching only ahead of the first `156a` message cannot reach any arm of this block.
+#
+# s156o_cond — §156a's executed condition, lifted verbatim within that bound and stripped
+# of its `elif`/`; then` wrapper. Empty means the lift failed, which every consumer treats
+# as UNTESTED (never as agreement).
+s156o_cbound=""
+s156o_cond=""
 if [ -f "$S156O_SRC" ]; then
   s156o_msgs=$(grep -E '^[[:space:]]*(ok|ng) "156a:' "$S156O_SRC")
   s156o_floor=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | head -1 | cut -d= -f2)
@@ -2518,15 +2561,37 @@ if [ -f "$S156O_SRC" ]; then
   case "$s156o_line" in
     *"awk '"*) s156o_prog=${s156o_line#*awk \'}; s156o_prog=${s156o_prog%\'*} ;;
   esac
+  s156o_cbound=$(grep -n -m1 -E '^[[:space:]]*(ok|ng) "156a:' "$S156O_SRC" | cut -d: -f1)
+  if [ -n "$s156o_cbound" ]; then
+    s156o_cline=$(head -n "$s156o_cbound" "$S156O_SRC" | grep -m1 -E '^elif .*s156_n.*; then$')
+    case "$s156o_cline" in
+      elif\ *\;\ then) s156o_cond=${s156o_cline#elif }; s156o_cond=${s156o_cond%; then} ;;
+    esac
+  fi
 fi
 
-# s156o_accepts <non-blank-line-count> — 0 when the guard's DECLARED bounds admit a
-# window of that size. Mirrors §156a's decision; an undeclared bound is inert.
+# s156o_accepts <non-blank-line-count> — THREE-VALUED, and the three values are the point:
+#   0 ACCEPT       — the guard's own condition, evaluated at that count, does NOT trip
+#   1 REJECT       — it trips
+#   2 UNEVALUABLE  — the condition could not be lifted, or evaluating it failed
+# It does not mirror §156a's decision any more; it RUNS it. The lifted text is EVALUATED in
+# a SUBSHELL with `s156_n` bound function-locally, so a condition naming a variable that is
+# unbound at this point in the suite kills the subshell under `set -u` and comes back as
+# UNEVALUABLE instead of killing the run. The two sentinel exits (10/11) are what separate a
+# genuine verdict from any failure mode of eval itself — a shell that died on the condition
+# exits 1/2/127, all of which land in UNEVALUABLE. Callers must branch on all three: folding
+# 2 into "not accepted" would green §156p/§156q on a condition they never managed to run.
 s156o_accepts() {
-  local n="$1"
-  [ -n "$s156o_floor" ] && [ "$n" -lt "$s156o_floor" ] && return 1
-  [ -n "$s156o_ceil" ] && [ "$n" -gt "$s156o_ceil" ] && return 1
-  return 0
+  # shellcheck disable=SC2034  # read by the lifted condition below, via eval
+  local s156_n="$1"
+  local rc=0
+  ( eval "if $s156o_cond; then exit 11; else exit 10; fi" ) >/dev/null 2>&1
+  rc=$?
+  case "$rc" in
+    10) return 0 ;;
+    11) return 1 ;;
+    *)  return 2 ;;
+  esac
 }
 
 # Fixtures. -1 means NOT MEASURED, so no arm can read a zero as agreement.
@@ -2555,6 +2620,15 @@ if [ -f "$S156_SPEC" ] && [ -n "$s156o_prog" ] && mkdir -p "$S156O_DIR" 2>/dev/n
   fi
 fi
 
+# Verdicts, taken ONCE and stored, because s156o_accepts is three-valued and
+# `if s156o_accepts "$n"; then` would silently fold UNEVALUABLE into REJECT — greening
+# §156p/§156q on a condition the arms never managed to run. 2 (UNEVALUABLE) is also the
+# initial value, so an unbuilt fixture is never mistaken for a verdict.
+s156o_hv=2; s156o_ov=2; s156o_tv=2
+if [ "$s156o_hn" -ge 0 ]; then s156o_accepts "$s156o_hn"; s156o_hv=$?; fi
+if [ "$s156o_on" -ge 0 ]; then s156o_accepts "$s156o_on"; s156o_ov=$?; fi
+if [ "$s156o_tn" -ge 0 ]; then s156o_accepts "$s156o_tn"; s156o_tv=$?; fi
+
 # §156o — AC1: the guard names BOTH bounds in its own assertion message, so a failure
 # says WHICH SIDE tripped. Reads the guard's text; §156p reads its behaviour.
 if [ -z "$s156o_msgs" ]; then
@@ -2573,10 +2647,12 @@ elif [ "$s156o_ofence" -ne $((s156o_hfence + 1)) ]; then
   ng "156p: over-extension fixture did not take (fence markers healthy=$s156o_hfence over=$s156o_ofence, expected +1) — arm would be vacuous (#643)"
 elif [ "$s156o_on" -le "$s156o_hn" ]; then
   ng "156p: over-extension fixture did not over-extend (over n=$s156o_on vs healthy n=$s156o_hn) — arm would be vacuous (#643)"
-elif s156o_accepts "$s156o_on"; then
-  ng "156p: an unclosed fence in §1.3.1 runs the window to $s156o_on non-blank lines (healthy=$s156o_hn) and the declared bounds ACCEPT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the content locks would be called load-bearing over §1.4–§3 (#643)"
+elif [ "$s156o_ov" -ge 2 ]; then
+  ng "156p: §156a's executed condition could not be evaluated at n=$s156o_on (lifted='${s156o_cond:-<none>}') — the ceiling is UNTESTED, not satisfied (#673)"
+elif [ "$s156o_ov" -eq 0 ]; then
+  ng "156p: an unclosed fence in §1.3.1 runs the window to $s156o_on non-blank lines (healthy=$s156o_hn) and the guard's EXECUTED condition ACCEPTS it (declared floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the content locks would be called load-bearing over §1.4–§3 (#643, #673)"
 else
-  ok "156p: an unclosed fence in §1.3.1 over-extends the window to $s156o_on non-blank lines and the declared bounds REJECT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+  ok "156p: an unclosed fence in §1.3.1 over-extends the window to $s156o_on non-blank lines and the guard's EXECUTED condition REJECTS it (declared floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643, #673)"
 fi
 
 # §156q — AC3, a BOUND (not a witness; passes before and after). The ceiling must not
@@ -2585,10 +2661,12 @@ if [ "$s156o_tn" -lt 0 ]; then
   ng "156q: renamed-heading fixture not built or rename did not land — the floor is UNTESTED, not satisfied (#643)"
 elif [ "$s156o_tn" -ne 0 ]; then
   ng "156q: renamed-heading fixture left a non-empty window (n=$s156o_tn, expected 0) — arm would be vacuous (#643)"
-elif s156o_accepts "$s156o_tn"; then
-  ng "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the declared bounds ACCEPT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+elif [ "$s156o_tv" -ge 2 ]; then
+  ng "156q: §156a's executed condition could not be evaluated at n=$s156o_tn (lifted='${s156o_cond:-<none>}') — the floor is UNTESTED, not satisfied (#673)"
+elif [ "$s156o_tv" -eq 0 ]; then
+  ng "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the guard's EXECUTED condition ACCEPTS it (declared floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643, #673)"
 else
-  ok "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the declared bounds REJECT it — the ceiling does not blind the floor (#643)"
+  ok "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the guard's EXECUTED condition REJECTS it — the ceiling does not blind the floor (#643, #673)"
 fi
 
 # §156r — AC4, a BOUND (not a witness; passes before and after). The two rejections
@@ -2601,35 +2679,27 @@ elif [ "$s156o_hn" -lt 0 ]; then
   ng "156r: healthy fixture not built or the guard's extractor could not be lifted from its source — bound UNTESTED (#643)"
 elif [ "$s156o_hn" -ne "$s156_n" ]; then
   ng "156r: healthy fixture window ($s156o_hn) disagrees with the live §156a window ($s156_n) — the fixture path no longer reproduces the guard (#643)"
-elif s156o_accepts "$s156o_hn"; then
-  ok "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is ACCEPTED by both declared bounds (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+elif [ "$s156o_hv" -ge 2 ]; then
+  ng "156r: §156a's executed condition could not be evaluated at n=$s156o_hn (lifted='${s156o_cond:-<none>}') — the healthy-window bound is UNTESTED, not satisfied (#673)"
+elif [ "$s156o_hv" -eq 0 ]; then
+  ok "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is ACCEPTED by the guard's EXECUTED condition (declared floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643, #673)"
 else
-  ng "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is REJECTED by the declared bounds (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the bounds are always-failing (#643)"
+  ng "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is REJECTED by the guard's EXECUTED condition (declared floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the bounds are always-failing (#643, #673)"
 fi
 
-# ---------- §156s/§156u: DECLARED bounds vs the EXECUTED condition (#673) -----------
-# The four arms above decide from the bounds §156a DECLARES in its assertion messages;
-# the property they claim is about the bound §156a EXECUTES. Measured at 469d9fb:
-# deleting only the executed ceiling clause and leaving both messages intact leaves the
-# whole suite green, §156o included. The two arms below close that gap in the order the
+# ---------- §156s/§156t/§156u: DECLARED bounds vs the EXECUTED condition (#673) -----------
+# §156p/§156q/§156r above now DECIDE by evaluating the guard's own lifted condition, so a
+# bound the guard executes is measured directly. What they no longer check is the guard's
+# TEXT: §156a also tells a failing reader a floor and a ceiling, and those messages can
+# drift away from the condition without any arm above noticing. Measured at 469d9fb:
+# deleting only the executed ceiling clause and leaving both messages intact left the whole
+# suite green, §156o included. The three arms below close that gap in the order the
 # composition needs — first that the executed condition can be READ at all (§156s), then
-# that it AGREES with what the messages declare (§156u).
+# that the two messages agree with EACH OTHER (§156t), then that they agree with the
+# numerals the condition EXECUTES (§156u).
 #
-# s156o_cbound — the guard's own first `156a` assertion-message line number. It is the
-# LIFT BOUND, and the bound is load-bearing rather than tidy: the lift anchor
-# `^elif .*s156_n.*; then$` is deliberately broad enough to survive a rewrite of the
-# condition's shape, and unbounded it also matches §156r's own
-# `elif [ "$s156o_hn" -ne "$s156_n" ]; then` above. Against a guard refactored to a form
-# that no longer names s156_n, an unbounded -m1 lift picks up THAT line instead and — with
-# s156o_hn bound in-suite — every arm in this block greens with no bounds in force at all.
-# Searching only ahead of the first `156a` message cannot reach any arm of this block.
-s156o_cbound=$(grep -n -m1 -E '^[[:space:]]*(ok|ng) "156a:' "$S156O_SRC" 2>/dev/null | cut -d: -f1)
-# s156o_cond — §156a's executed condition, lifted verbatim out of this suite's own source
-# within that bound and stripped of its `elif`/`; then` wrapper. Empty here: the lift is
-# the Code phase of #673. Both arms below therefore fail CLOSED, which is the direction
-# an unreadable condition must fail in anyway — an arm that cannot see the executed bound
-# must say so, never report the composition as satisfied.
-s156o_cond=""
+# The lift itself (s156o_cbound / s156o_cond) is above, next to the extractor lift, because
+# s156o_accepts consumes it before §156p runs; its bound rationale is documented there.
 
 # §156s — the composition's PRECONDITION. Reading the executed condition is what lets an
 # arm stop re-implementing §156a's decision from its messages; if the lift comes back
@@ -2640,6 +2710,26 @@ elif [ -z "$s156o_cond" ]; then
   ng "156s: §156a's executed condition could not be lifted from this suite's own source (anchor '^elif .*s156_n.*; then\$', bounded to lines 1-$s156o_cbound) — the executed bound is UNTESTED, not satisfied (#673)"
 else
   ok "156s: §156a's executed condition lifts from this suite's own source, bounded to lines 1-$s156o_cbound (#673)"
+fi
+
+# §156t — MESSAGE CONSISTENCY, and specifically the `head -1` blind spot. §156a states its
+# bounds TWICE, once in each branch, and s156o_floor/s156o_ceil keep only the FIRST spelling
+# of each. So changing the ceiling in exactly one of the two messages is invisible to §156o
+# (a ceiling is still named) and can be invisible to §156u too (it compares the first one,
+# which may be the untouched copy). Both messages describe the SAME condition, so more than
+# one distinct value for either bound is a defect on its face: one of them is telling a
+# failing reader a bound the guard does not apply. Counted as DISTINCT values, not
+# occurrences — two branches legitimately repeat the same pair.
+s156t_floors=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | sort -u | tr '\n' ' ')
+s156t_ceils=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | sort -u | tr '\n' ' ')
+s156t_nf=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | sort -u | grep -c .)
+s156t_nc=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | sort -u | grep -c .)
+if [ -z "$s156o_msgs" ]; then
+  ng "156t: cannot read this suite's own 156a assertion messages — message consistency is UNTESTED, not satisfied (#673)"
+elif [ "$s156t_nf" -le 1 ] && [ "$s156t_nc" -le 1 ]; then
+  ok "156t: §156a's two assertion messages declare one bound pair between them (floor={ ${s156t_floors:-<none> }} ceiling={ ${s156t_ceils:-<none> }}) (#673)"
+else
+  ng "156t: §156a's two assertion messages disagree with each other (floor={ ${s156t_floors:-<none> }} ceiling={ ${s156t_ceils:-<none> }}) — one branch tells a failing reader a bound the other does not, and only the first is read below (#673)"
 fi
 
 # §156u — AC1: what the guard TELLS a failing reader must be what it APPLIES. §156o
