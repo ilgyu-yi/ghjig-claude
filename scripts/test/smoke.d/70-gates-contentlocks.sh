@@ -2607,6 +2607,72 @@ else
   ng "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is REJECTED by the declared bounds (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the bounds are always-failing (#643)"
 fi
 
+# ---------- §156s/§156u: DECLARED bounds vs the EXECUTED condition (#673) -----------
+# The four arms above decide from the bounds §156a DECLARES in its assertion messages;
+# the property they claim is about the bound §156a EXECUTES. Measured at 469d9fb:
+# deleting only the executed ceiling clause and leaving both messages intact leaves the
+# whole suite green, §156o included. The two arms below close that gap in the order the
+# composition needs — first that the executed condition can be READ at all (§156s), then
+# that it AGREES with what the messages declare (§156u).
+#
+# s156o_cbound — the guard's own first `156a` assertion-message line number. It is the
+# LIFT BOUND, and the bound is load-bearing rather than tidy: the lift anchor
+# `^elif .*s156_n.*; then$` is deliberately broad enough to survive a rewrite of the
+# condition's shape, and unbounded it also matches §156r's own
+# `elif [ "$s156o_hn" -ne "$s156_n" ]; then` above. Against a guard refactored to a form
+# that no longer names s156_n, an unbounded -m1 lift picks up THAT line instead and — with
+# s156o_hn bound in-suite — every arm in this block greens with no bounds in force at all.
+# Searching only ahead of the first `156a` message cannot reach any arm of this block.
+s156o_cbound=$(grep -n -m1 -E '^[[:space:]]*(ok|ng) "156a:' "$S156O_SRC" 2>/dev/null | cut -d: -f1)
+# s156o_cond — §156a's executed condition, lifted verbatim out of this suite's own source
+# within that bound and stripped of its `elif`/`; then` wrapper. Empty here: the lift is
+# the Code phase of #673. Both arms below therefore fail CLOSED, which is the direction
+# an unreadable condition must fail in anyway — an arm that cannot see the executed bound
+# must say so, never report the composition as satisfied.
+s156o_cond=""
+
+# §156s — the composition's PRECONDITION. Reading the executed condition is what lets an
+# arm stop re-implementing §156a's decision from its messages; if the lift comes back
+# empty there is nothing to compose and the block is back to reading the messages only.
+if [ -z "$s156o_cbound" ]; then
+  ng "156s: cannot locate this suite's own 156a assertion message — the condition lift has no search bound, so the executed condition is UNTESTED, not satisfied (#673)"
+elif [ -z "$s156o_cond" ]; then
+  ng "156s: §156a's executed condition could not be lifted from this suite's own source (anchor '^elif .*s156_n.*; then\$', bounded to lines 1-$s156o_cbound) — the executed bound is UNTESTED, not satisfied (#673)"
+else
+  ok "156s: §156a's executed condition lifts from this suite's own source, bounded to lines 1-$s156o_cbound (#673)"
+fi
+
+# §156u — AC1: what the guard TELLS a failing reader must be what it APPLIES. §156o
+# asserts both bounds are named and §156s asserts the condition can be read; neither
+# compares them, so a guard whose messages both say ceiling=40 while its condition
+# executes 60 satisfies both arms. Compared as SETS of numerals: the two surfaces order
+# and spell their bounds differently, and neither ordering is a property worth locking.
+#
+# SYMMETRIC PIPELINE, deliberately. Both sides end in the same sort/tr tail, so a bound
+# absent from BOTH surfaces contributes to neither set and the two compare EQUAL. That is
+# the e8aa0db case — floor only, no ceiling in the condition and none in the messages —
+# and it must read as AGREEMENT: an asymmetric pipeline reds there on "" vs " " and costs
+# this block its runnability against the pre-#643 tree, which is #643 round 1's measured
+# deferral reason. Only the DECLARED side is count-guarded, because a guard that declares
+# no numeral at all gives the comparison nothing to bite on — UNTESTED, not agreement.
+#
+# The executed side matches the OPERAND, never a bare integer: the condition names
+# `s156_n`, whose own digits would otherwise enter the set and make parity unsatisfiable.
+s156u_set() { grep -oE '[0-9]+' | sort -un | tr '\n' ' '; }
+s156u_dec=$(printf '%s\n' "$s156o_msgs" | grep -oE '(floor|ceiling)=[0-9]+' | s156u_set)
+s156u_exe=$(printf '%s\n' "$s156o_cond" | grep -oE '([-](lt|gt|le|ge)|[<>]=?)[[:space:]]*[0-9]+' | s156u_set)
+if [ -z "$s156o_cbound" ]; then
+  ng "156u: cannot locate this suite's own 156a assertion message — declared-vs-executed parity is UNTESTED, not satisfied (#673)"
+elif [ -z "$s156o_cond" ]; then
+  ng "156u: §156a's executed condition could not be lifted — declared-vs-executed parity is UNTESTED, not satisfied (#673)"
+elif [ -z "$s156u_dec" ]; then
+  ng "156u: the guard's 156a messages declare no numeric bound — parity has nothing to compare, UNTESTED, not satisfied (#673)"
+elif [ "$s156u_dec" = "$s156u_exe" ]; then
+  ok "156u: the bounds §156a DECLARES agree with the numerals its condition EXECUTES (declared={ $s156u_dec} executed={ $s156u_exe}) (#673)"
+else
+  ng "156u: the bounds §156a DECLARES diverge from the numerals its condition EXECUTES (declared={ $s156u_dec} executed={ $s156u_exe}) — a failing reader is told a bound the guard does not apply, or a bound it applies is invisible here (#673)"
+fi
+
 # §156j — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
 # added for the SSOT change sweep are shaped so §116's OWN derivations count them, and
 # §116's parity therefore still balances. The awk/grep expressions below are
