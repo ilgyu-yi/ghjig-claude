@@ -930,6 +930,200 @@ else
 fi
 rm -rf "$ESC_CLK"
 
+# ---------- §125-12: ON-REJECT audit attribution for the skip token (#653, SPEC §7 "On reject") ----------
+# Phase B (Test), RED-first. SPEC §7's file-token bullets already contract the ON-HONOR record;
+# the new "On reject" bullet contracts its counterpart: every arm of `_escape_token_honored` that
+# CONSUMES the token emits one `audit_log escape <category> reject "<arm-name>"`, at most one per
+# call, with the ARM NAME as the whole payload and NEVER token content. Today all seven consuming
+# arms `rm -f "$tok"; return 1` and write nothing, so a legitimate token destroyed by a transient
+# fault leaves nothing explaining why.
+#
+# WITNESS / BOUND ledger — stated because a guard dressed up as a witness manufactures confidence:
+#   125-12a  WITNESS  RED pre-Code (0 escape/reject records; only the branch block record).
+#   125-12b  WITNESS  RED pre-Code (same).
+#   125-12c  WITNESS  RED pre-Code (both reasons empty → indistinguishable, which is AC2's defect).
+#   125-12d  WITNESS  RED pre-Code (same).
+#   125-12e  BOUND    GREEN pre AND post — AC4/AC7's honor half. Additive observability must not
+#                     perturb the honor path: still exactly ONE record, still escape/branch/skip,
+#                     no extra line. A bound is the correct shape here; there is nothing to fix on
+#                     this side, only something to not break.
+#   125-12f  BOUND    GREEN pre AND post — AC3. The two NON-consuming early returns never examined
+#                     a token, so a record there would report a refusal that did not happen. Also
+#                     correctly a bound: today's silence is already the contracted behaviour.
+#
+# WHICH ARMS. AC1 says all seven; pinning all seven would be seven near-identical probes. The three
+# witnesses are chosen for coverage of the contract's two distinct claims: the composite arm's
+# clause 3 (present-but-empty `created`) and clause 4 (category mismatch) are what SPEC's
+# five-clauses-by-name requirement rests on — a `date` broken AT MINT TIME writes `created=`, which
+# lands in clause 3 and NOT in the malformed-`created` arm, and its remedy is the OPPOSITE of a
+# category mismatch's — and future-dated-or-stale is a NON-composite arm, so AC1 is pinned beyond
+# the composite rather than only inside it.
+#
+# WHY THE FULL HOOK, not a sourced-function probe. Two fixture traps make a direct probe read as a
+# false RED: (1) the token path is `$(ghjig_state_dir)/escape/<CATEGORY>.token` — any other filename
+# takes the NON-consuming `[ -r "$tok" ] || return 1` fast path, which returns 1 and writes nothing,
+# indistinguishable from the defect; (2) `bind` comes from `$ESCAPE_BIND_CMD`, and left unset it is
+# EMPTY, which is clause 5 of the composite — so every probe lands in the composite arm regardless
+# of what it meant to test. Driving the real PreToolUse hook via esc_hook_run avoids both: the hook
+# exports ESCAPE_BIND_CMD=<raw cmd> itself, and esc_write_token writes the canonical path.
+#
+# NON-VACUITY. `esc653_probe_sane` is the guard, and CONSUMPTION is its load-bearing half: rc=2
+# (the matcher really blocked), delta>=1 (the hook really fired and wrote its block record), and
+# token-left=0 (a CONSUMING arm really ran — this is what separates a genuine reject arm from the
+# silent non-consuming fast path). Failing it NGs with a distinct FIXTURE message rather than
+# letting a zero read as agreement.
+ESC653_MARK='esc653-do-not-echo-this-reason'
+esc653_rc=""; esc653_delta=0; esc653_left=0; esc653_lines=""
+esc653_reject_count=0; esc653_reject_reason=""
+# Drive one command through the hook and leave the probe observables in esc653_*.
+esc653_drive() {
+  local _b _a
+  _b=$(audit_lines); [ -z "$_b" ] && _b=0
+  esc653_rc=$(esc_hook_run "$1")
+  _a=$(audit_lines); [ -z "$_a" ] && _a=0
+  esc653_delta=$((_a - _b))
+  if [ "$esc653_delta" -gt 0 ]; then
+    esc653_lines=$(tail -n "$esc653_delta" "$REAL_AUDIT" 2>/dev/null)
+  else
+    esc653_lines=""
+  fi
+  esc653_left=0; [ -e "$ESC_TOKEN_DIR/branch.token" ] && esc653_left=1
+  esc653_reject_count=$(printf '%s\n' "$esc653_lines" \
+    | grep '"event":"escape"' | grep -c '"decision":"reject"' | tr -d ' ')
+  esc653_reject_reason=$(printf '%s\n' "$esc653_lines" \
+    | grep '"event":"escape"' | grep '"decision":"reject"' \
+    | sed -e 's/.*"reason":"//' -e 's/","cwd".*$//')
+  return 0
+}
+# The reject record must exist EXACTLY once (SPEC: "at most one fires per call"; each consuming arm
+# returns immediately), be non-empty, and carry NO token content — neither the token's own `reason`
+# value nor its `cmd_fingerprint`. A record that echoed the token would re-publish into the log
+# exactly what the refusal withheld.
+esc653_probe_sane() { [ "$esc653_rc" = "2" ] && [ "$esc653_delta" -ge 1 ] && [ "$esc653_left" = "0" ]; }
+esc653_record_clean() {
+  [ "$esc653_reject_count" = "1" ] && [ -n "$esc653_reject_reason" ] \
+    && ! printf '%s' "$esc653_reject_reason" | grep -qF "$ESC653_MARK" \
+    && ! printf '%s' "$esc653_reject_reason" | grep -qF "$ESC_FP"
+}
+
+# 125-12a. WITNESS — composite CLAUSE 3, present-but-empty `created`: the shape
+# `scripts/ghjig_skip.sh` mints when `date +%s` is broken AT MINT TIME (`printf 'created=%s\n'`
+# writes `created=`). seen_created=1 with t_created="" → the composite arm at escape.sh, NOT the
+# malformed-`created` arm. Every other field is valid, so exactly one clause is violated and the
+# attribution is meaningful. The arm-name keyword is taken from SPEC's own clause name
+# ("present-but-empty value" / "the empty-value clause"), not an identifier invented here.
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc_write_token branch "category=branch" "reason=$ESC653_MARK" "cmd_fingerprint=$ESC_FP" "created="
+esc653_drive "$ESC_CMD"
+esc653_r3="$esc653_reject_reason"
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if ! esc653_probe_sane; then
+  ng "125-12a: FIXTURE — the empty-\`created\` probe never reached a consuming reject arm (rc=$esc653_rc delta=$esc653_delta token-left=$esc653_left); witnesses nothing (#653)"
+elif esc653_record_clean && printf '%s' "$esc653_r3" | grep -qi 'empty'; then
+  ok "125-12a: composite clause 3 (present-but-empty \`created\`, the broken-\`date\`-at-mint shape) emits one escape/branch/reject record naming the arm, with no token content (#653)"
+else
+  ng "125-12a: a consumed token with an empty \`created\` wrote no arm-naming escape/reject record (count=$esc653_reject_count reason='$esc653_r3') — RED until Code (#653)"
+fi
+
+# 125-12b. WITNESS — composite CLAUSE 4, category mismatch: a well-formed, in-TTL, fingerprint-
+# matching token whose `category` field disagrees with the requested category. Its remedy is the
+# OPPOSITE of 125-12a's (re-mint under the right category vs. fix the clock), which is why SPEC
+# requires the five clauses to be distinguishable by name rather than sharing one.
+esc_write_token branch "category=out-of-scope" "reason=$ESC653_MARK" "cmd_fingerprint=$ESC_FP" "created=$(date +%s)"
+esc653_drive "$ESC_CMD"
+esc653_r4="$esc653_reject_reason"
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if ! esc653_probe_sane; then
+  ng "125-12b: FIXTURE — the category-mismatch probe never reached a consuming reject arm (rc=$esc653_rc delta=$esc653_delta token-left=$esc653_left); witnesses nothing (#653)"
+elif esc653_record_clean && printf '%s' "$esc653_r4" | grep -qi 'categor'; then
+  ok "125-12b: composite clause 4 (category mismatch) emits one escape/branch/reject record naming the arm, with no token content (#653)"
+else
+  ng "125-12b: a consumed token with a mismatched category wrote no arm-naming escape/reject record (count=$esc653_reject_count reason='$esc653_r4') — RED until Code (#653)"
+fi
+
+# 125-12c. WITNESS — AC2's actual requirement: the two clauses above must be DISTINGUISHABLE from
+# each other in the log. One shared name for all five clauses would leave an operator unable to tell
+# a broken mint clock from a wrong category, and those have opposite remedies. Pre-Code both reasons
+# are empty, hence equal — the defect itself, not a fixture miss. Requiring both to be NON-EMPTY
+# first is what keeps this from greening on two absences.
+if [ -n "$esc653_r3" ] && [ -n "$esc653_r4" ] && [ "$esc653_r3" != "$esc653_r4" ]; then
+  ok "125-12c: the composite arm's empty-value and category-mismatch clauses carry DISTINCT arm names — opposite remedies stay tellable apart (#653)"
+else
+  ng "125-12c: composite clauses 3 and 4 are indistinguishable in the audit log (clause3='$esc653_r3' clause4='$esc653_r4') — RED until Code (#653)"
+fi
+
+# 125-12d. WITNESS — a NON-composite arm: future-dated-or-stale (the 60s TTL). Everything else about
+# this token is valid, so it passes the composite arm, both operand-shape guards and the fingerprint
+# bind, and is consumed by the TTL arm alone. This is what pins AC1 beyond the composite: the
+# contract is "every arm that consumes", not "the composite arm".
+esc_write_token branch "category=branch" "reason=$ESC653_MARK" "cmd_fingerprint=$ESC_FP" "created=$(( $(date +%s) - 120 ))"
+esc653_drive "$ESC_CMD"
+esc653_rstale="$esc653_reject_reason"
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if ! esc653_probe_sane; then
+  ng "125-12d: FIXTURE — the stale-token probe never reached a consuming reject arm (rc=$esc653_rc delta=$esc653_delta token-left=$esc653_left); witnesses nothing (#653)"
+elif esc653_record_clean && printf '%s' "$esc653_rstale" | grep -qiE 'stale|ttl|expir|future'; then
+  ok "125-12d: the future-dated-or-stale arm (a NON-composite arm) emits one escape/branch/reject record naming the arm, with no token content (#653)"
+else
+  ng "125-12d: a token consumed by the 60s TTL wrote no arm-naming escape/reject record (count=$esc653_reject_count reason='$esc653_rstale') — RED until Code (#653)"
+fi
+
+# 125-12e. BOUND (GREEN pre AND post) — AC4 + AC7's second side. The new reject records must be
+# PURELY ADDITIVE: a healthy token is still honored, still consumed, and still writes EXACTLY its
+# one escape/branch/skip record and no extra line. `delta` = 1 exactly is the "no extra line" half;
+# zero reject records on an honored call is the "the skip decision stays the honor path's alone"
+# half (a reader must still separate a taken escape from a refused one, and
+# scripts/narrowing_candidates.sh selects event=escape AND decision=skip). This passes today because
+# nothing is emitted at all; it is a regression bound on the fix, not a witness of the defect.
+esc_write_token branch "category=branch" "reason=$ESC653_MARK" "cmd_fingerprint=$ESC_FP" "created=$(date +%s)"
+esc653_drive "$ESC_CMD"
+esc653_skips=$(printf '%s\n' "$esc653_lines" | grep '"event":"escape"' | grep -c '"decision":"skip"' | tr -d ' ')
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc653_rc" != "0" ] || [ "$esc653_left" != "0" ]; then
+  ng "125-12e: FIXTURE — the control token was not honored+consumed (rc=$esc653_rc token-left=$esc653_left); the honor-side bound would assert nothing (#653)"
+elif [ "$esc653_delta" = "1" ] && [ "$esc653_skips" = "1" ] && [ "$esc653_reject_count" = "0" ]; then
+  ok "125-12e: an honored token still writes EXACTLY one escape/branch/skip record and no extra line — reject attribution is additive only (#653)"
+else
+  ng "125-12e: the honor path's record set changed (delta=$esc653_delta skip=$esc653_skips reject=$esc653_reject_count; want 1/1/0) (#653)"
+fi
+
+# 125-12f. BOUND (GREEN pre AND post) — AC3. The two NON-consuming early returns must stay SILENT:
+# they never examined a token, so a record there would report a refusal that did not happen. Two
+# sub-cases, both driven through the real hook:
+#   (a) token ABSENT — the `[ -r "$tok" ] || return 1` fast path;
+#   (b) token PRESENT but UNREADABLE — the same fast path, and here the discriminator is visible:
+#       the token must survive (token-left=1), because only the CONSUMING arms delete.
+# The unresolvable-state-dir return (the other non-consuming early return) is not reachable through
+# this driver — the hook always resolves a state dir — so it is deliberately NOT claimed here rather
+# than asserted vacuously. Both sub-cases still require delta>=1 (the block record), so a hook that
+# failed to fire NGs loudly instead of reading zero escape records as agreement.
+esc653_ac3_ok=1
+rm -f "$ESC_TOKEN_DIR/branch.token"
+esc653_drive "$ESC_CMD"
+esc653_ac3_escapes=$(printf '%s\n' "$esc653_lines" | grep -c '"event":"escape"' | tr -d ' ')
+[ "$esc653_rc" = "2" ] && [ "$esc653_delta" -ge 1 ] && [ "$esc653_ac3_escapes" = "0" ] || esc653_ac3_ok=0
+esc_write_token branch "category=branch" "reason=$ESC653_MARK" "cmd_fingerprint=$ESC_FP" "created=$(date +%s)"
+chmod 000 "$ESC_TOKEN_DIR/branch.token" 2>/dev/null
+if [ -r "$ESC_TOKEN_DIR/branch.token" ]; then
+  # Could not make it unreadable (e.g. running as root) — the sub-case would silently become the
+  # HONOR path and assert the opposite of what it names. Fail loud instead.
+  esc653_ac3_ok=2
+else
+  esc653_drive "$ESC_CMD"
+  esc653_ac3_escapes2=$(printf '%s\n' "$esc653_lines" | grep -c '"event":"escape"' | tr -d ' ')
+  [ "$esc653_rc" = "2" ] && [ "$esc653_delta" -ge 1 ] \
+    && [ "$esc653_ac3_escapes2" = "0" ] && [ "$esc653_left" = "1" ] || esc653_ac3_ok=0
+fi
+chmod 600 "$ESC_TOKEN_DIR/branch.token" 2>/dev/null
+rm -f "$ESC_TOKEN_DIR/branch.token"
+if [ "$esc653_ac3_ok" = "1" ]; then
+  ok "125-12f: the non-consuming early returns (absent / unreadable token) stay silent and consume nothing — no record for a refusal that did not happen (#653)"
+elif [ "$esc653_ac3_ok" = "2" ]; then
+  ng "125-12f: FIXTURE — the token could not be made unreadable (root?), so the unreadable sub-case would exercise the honor path instead (#653)"
+else
+  ng "125-12f: a non-consuming early return emitted an escape record, or consumed the token it never examined (#653)"
+fi
+
 # ---------- §125-NOOVERRIDE: writer/reader state-dir alignment in LIVE (no GHJIG_STATE_DIR_OVERRIDE) (#483) ----------
 # Phase B (Test), RED-first against current Code. The §125-1..10 arms above pin
 # GHJIG_STATE_DIR_OVERRIDE=$SMOKE_STATE on BOTH the printf writer and the reader,

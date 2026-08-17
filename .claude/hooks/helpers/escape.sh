@@ -19,6 +19,26 @@ should_skip() {
   return 1
 }
 
+# _escape_reject <category> <token-path> <arm-name> — the shared tail of every
+# CONSUMING reject arm of _escape_token_honored (SPEC §7 "On reject"): name the
+# arm that refused, then consume the token. Three properties are load-bearing:
+#   - <arm-name> is the WHOLE payload, NEVER token content. A record echoing the
+#     token would re-publish into the log exactly what the refusal withheld.
+#     <category> is the REQUESTED category (the caller's argument, already the
+#     record's own key), which leaks nothing.
+#   - emit → consume → return, in that ORDER and all UNCONDITIONAL. A failing
+#     `audit_log` must never convert a reject into an honor, so the consume and
+#     the `return 1` may not be made contingent on its status.
+#   - `reject` — not `skip`. The skip decision stays the honor path's alone, so a
+#     reader still separates a taken escape from a refused one and the §6.0 P3
+#     escape-clustering aggregate (event=escape AND decision=skip) is unperturbed.
+# Additive observability only: no arm's refuse/honor verdict changes (#653).
+_escape_reject() {
+  audit_log escape "$1" reject "$3"
+  rm -f "$2"
+  return 1
+}
+
 # _escape_token_honored <category> — consult the per-category file token at
 # $(ghjig_state_dir)/escape/<cat>.token. Honored ONLY when every guard holds;
 # any doubt → fail-safe-to-block (return 1). PURE BASH (no python3 → no
@@ -54,12 +74,31 @@ _escape_token_honored() {
   done < "$tok"
   bind="${ESCAPE_BIND_CMD:-}"
   # Any malformation / missing key / category mismatch / empty bind → block + consume.
-  if [ "$unknown" -ne 0 ] \
-     || [ "${seen_cat}${seen_reason}${seen_fp}${seen_created}" != "1111" ] \
-     || [ -z "$t_category" ] || [ -z "$t_fp" ] || [ -z "$t_created" ] \
-     || [ "$t_category" != "$cat" ] \
-     || [ -z "$bind" ]; then
-    rm -f "$tok"; return 1
+  # The five clauses are checked SEQUENTIALLY and NAMED SEPARATELY rather than
+  # sharing one `||`-chain, because their REMEDIES differ (SPEC §7 "On reject"):
+  # a `date` broken AT MINT TIME makes `scripts/ghjig_skip.sh`'s
+  # `printf 'created=%s\n'` write `created=` — seen_created=1 with t_created=""
+  # — which lands in the present-but-empty clause and NOT in the malformed-
+  # `created` arm further below; "fix the clock" is the opposite instruction
+  # from a category mismatch's "re-mint under the requested category", so one
+  # shared name would leave an operator unable to tell them apart.
+  # The split is semantics-preserving, not a re-derivation: SAME conditions in
+  # the SAME short-circuit order, and every one of them is a side-effect-free
+  # test, so the set of inputs that reach the consume is unchanged (AC5).
+  if [ "$unknown" -ne 0 ]; then
+    _escape_reject "$cat" "$tok" "parse-unknown-key"; return 1
+  fi
+  if [ "${seen_cat}${seen_reason}${seen_fp}${seen_created}" != "1111" ]; then
+    _escape_reject "$cat" "$tok" "parse-missing-key"; return 1
+  fi
+  if [ -z "$t_category" ] || [ -z "$t_fp" ] || [ -z "$t_created" ]; then
+    _escape_reject "$cat" "$tok" "parse-empty-value"; return 1
+  fi
+  if [ "$t_category" != "$cat" ]; then
+    _escape_reject "$cat" "$tok" "category-mismatch"; return 1
+  fi
+  if [ -z "$bind" ]; then
+    _escape_reject "$cat" "$tok" "bind-cmd-empty"; return 1
   fi
   # BOTH operands of the TTL must be a plausible base-10 epoch BEFORE they reach
   # arithmetic, or the TTL/future-date guards below silently fall through to HONOR
@@ -116,14 +155,15 @@ _escape_token_honored() {
   # (rc=127) before `now-malformed` is evaluated. Leaving the accident paths
   # implicit is how a later round reads this back as "it needed a deliberate
   # shim, so the guard was optional".
-  case "$t_created" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
-  [ "${#t_created}" -le 11 ] || { rm -f "$tok"; return 1; }
-  case "$bind" in *"$t_fp"*) : ;; *) rm -f "$tok"; return 1 ;; esac  # fingerprint not a substring → block
+  case "$t_created" in ''|0*|*[!0-9]*) _escape_reject "$cat" "$tok" "created-malformed"; return 1 ;; esac
+  [ "${#t_created}" -le 11 ] || { _escape_reject "$cat" "$tok" "created-over-length"; return 1; }
+  # fingerprint not a substring → block
+  case "$bind" in *"$t_fp"*) : ;; *) _escape_reject "$cat" "$tok" "fingerprint-not-in-bind-cmd"; return 1 ;; esac
   now=$(date +%s)
-  case "$now" in ''|0*|*[!0-9]*) rm -f "$tok"; return 1 ;; esac
-  [ "${#now}" -le 11 ] || { rm -f "$tok"; return 1; }
+  case "$now" in ''|0*|*[!0-9]*) _escape_reject "$cat" "$tok" "clock-malformed"; return 1 ;; esac
+  [ "${#now}" -le 11 ] || { _escape_reject "$cat" "$tok" "clock-over-length"; return 1; }
   if [ "$t_created" -gt "$now" ] || [ "$(( now - t_created ))" -gt 60 ]; then
-    rm -f "$tok"; return 1   # future-dated or stale (TTL 60s) → block
+    _escape_reject "$cat" "$tok" "stale-or-future-dated"; return 1   # TTL 60s
   fi
   audit_log escape "$cat" skip "${t_reason:-unspecified} [token]"
   rm -f "$tok"   # consume-on-read (one-shot)
