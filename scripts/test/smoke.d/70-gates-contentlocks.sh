@@ -2338,8 +2338,9 @@ elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # mode rather than removing it (#643). ONE unbalanced ``` inside §1.3.1 does not
   # make the toggle stick — it INVERTS THE PARITY from that point on, so headings
   # sitting in real prose are ignored while `#`-prefixed lines inside genuine
-  # fenced blocks are honoured as terminators. Measured: the window then spans
-  # SPEC 269-739 and exits at 740 on a shell comment inside a ```bash fence — 368
+  # fenced blocks are honoured as terminators. Measured on the over-extension
+  # fixture (SPEC.md plus one injected marker, 2895 lines): the window spans
+  # 269-739 and exits at 740 on a shell comment inside a ```bash fence — 368
   # non-blank lines against a healthy 22, stable across six injection offsets.
   # Before fence-awareness an unbalanced
   # fence TRUNCATED and the floor caught it loud; after it, the window
@@ -2356,8 +2357,9 @@ elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # renamed heading; ceiling=60 leaves §1.3.1 room to nearly triple while sitting
   # six-fold below the ~368 a desync produces today. The bounds are NAMED in both
   # messages so a failure says which side tripped, and §156o/§156p parse those two
-  # spellings — renaming them fails CLOSED (measured: both arms red, because the
-  # arms' accept-check rejects an empty bound), so it is not a silent hazard.
+  # spellings — renaming them fails CLOSED (measured: both arms red), so it is not
+  # a silent hazard. The mechanism is stated once, at §156o's accept-check below;
+  # it is deliberately not restated here.
   ng "156a: SPEC §1.3.1 window out of bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — below the floor the content locks would pass VACUOUSLY; above the ceiling the window has over-extended past §1.3.1 and the locks would be asserted over unrelated sections (#640, #643)"
 else
   ok "156a: SPEC §1.3.1 window resolves within bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — content locks below are load-bearing (#640, #643)"
@@ -2470,21 +2472,23 @@ fi
 # ---------- §156o–§156r: the §1.3.1 window is bounded on BOTH sides (#643) ----------
 # The count-guard above is a FLOOR only. The fence-awareness that closed the
 # truncation gap (#641) opened the opposite one: with an ODD number of ``` markers
-# inside §1.3.1 INVERTS the `f` parity from that point on, so headings in real prose
-# stop terminating the window and it runs on — measured, to line 740 of 2895,
+# inside §1.3.1 the extra marker INVERTS the `f` parity from that point on, so headings in real prose
+# stop terminating the window and it runs on — measured, to line 740 of the 2895-line
+# over-extension fixture (SPEC.md is 2894),
 # swallowing §1.4 through §3.2. A floor cannot see that; the
 # guard then reports the eleven content locks "load-bearing" over a window whose
 # scope it has not checked, which is anti-pattern #2 in the smoke.sh header wearing
 # the opposite sign.
 #
 # WITNESS HONESTY — only ONE of the four arms below is a witness:
-#   §156p (over-extension) is the WITNESS. It is RED at this commit and greens only
+#   §156p (over-extension) is the WITNESS. It is RED at e8aa0db (the Test commit,
+#   guard floor-only) and greens only
 #          when a ceiling exists.
 #   §156o (both bounds named), §156q (truncation), §156r (healthy) are BOUNDS, not
 #          witnesses. §156q and §156r pass BEFORE and AFTER the fix by construction —
 #          they exist to prove the ceiling does not blind the floor (§156q) and that
 #          the pair is not simply always-failing (§156r). Neither is evidence that the
-#          defect was repaired; only §156p is. (§156o is red today for the same reason
+#          defect was repaired; only §156p is. (§156o is red at e8aa0db for the same reason
 #          §156p is, but it reads the guard's TEXT, not its behaviour.)
 #
 # NO LIVE SPEC MUTATION. All three fixtures are copies under the preamble's $TMP,
@@ -2562,7 +2566,7 @@ else
 fi
 
 # §156p — AC2, THE WITNESS. One unclosed fence inside §1.3.1 must make the guard fail
-# LOUD. RED at this commit: the floor admits the over-extended window.
+# LOUD. RED at e8aa0db: the floor admits the over-extended window.
 if [ "$s156o_hn" -lt 0 ] || [ "$s156o_on" -lt 0 ]; then
   ng "156p: over-extension fixture not built (healthy n=$s156o_hn over n=$s156o_on) — the ceiling is UNTESTED, not satisfied (#643)"
 elif [ "$s156o_ofence" -ne $((s156o_hfence + 1)) ]; then
