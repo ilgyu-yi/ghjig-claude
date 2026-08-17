@@ -2543,8 +2543,10 @@ s156o_prog=""
 # `^elif .*s156_n.*; then$` is deliberately broad enough to survive a rewrite of the
 # condition's shape, and unbounded it also matches §156r's own
 # `elif [ "$s156o_hn" -ne "$s156_n" ]; then` below. Against a guard refactored to a form
-# that no longer names s156_n, an unbounded -m1 lift picks up THAT line instead and — with
-# s156o_hn bound in-suite — every arm in this block greens with no bounds in force at all.
+# that no longer names s156_n, an unbounded -m1 lift picks up THAT line instead — so the
+# arms would decide from a condition that is not §156a's, and their verdicts would say
+# nothing about the guard. Measured, and this is the whole rationale: bounded, the lift
+# returns empty; unbounded, it returns §156r's line.
 # Searching only ahead of the first `156a` message cannot reach any arm of this block.
 #
 # s156o_cond — §156a's executed condition, lifted verbatim within that bound and stripped
@@ -2720,8 +2722,8 @@ fi
 # one distinct value for either bound is a defect on its face: one of them is telling a
 # failing reader a bound the guard does not apply. Counted as DISTINCT values, not
 # occurrences — two branches legitimately repeat the same pair.
-s156t_floors=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | sort -u | tr '\n' ' ')
-s156t_ceils=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | sort -u | tr '\n' ' ')
+s156t_floors=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' ' ')
+s156t_ceils=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' ' ')
 s156t_nf=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | sort -u | grep -c .)
 s156t_nc=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | sort -u | grep -c .)
 if [ -z "$s156o_msgs" ]; then
