@@ -2342,9 +2342,8 @@ elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # fixture (SPEC.md plus one injected marker, 2895 lines): the window spans
   # 269-739 and exits at 740 on a shell comment inside a ```bash fence — 368
   # non-blank lines against a healthy 22, stable across six injection offsets.
-  # Before fence-awareness an unbalanced
-  # fence TRUNCATED and the floor caught it loud; after it, the window
-  # over-extends and a floor alone reports the locks "load-bearing" over §1.4–§3.
+  # When the window over-extends like that, a floor alone reports the locks
+  # "load-bearing" over §1.4–§3.
   #
   # 22 non-blank lines at this commit — RE-MEASURED, not carried forward from the
   # stale 21 this comment used to carry (#643 AC5). No history is reconstructed
@@ -2358,8 +2357,7 @@ elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # six-fold below the ~368 a desync produces today. The bounds are NAMED in both
   # messages so a failure says which side tripped, and §156o/§156p parse those two
   # spellings — renaming them fails CLOSED (measured: both arms red), so it is not
-  # a silent hazard. The mechanism is stated once, at §156o's accept-check below;
-  # it is deliberately not restated here.
+  # a silent hazard.
   ng "156a: SPEC §1.3.1 window out of bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — below the floor the content locks would pass VACUOUSLY; above the ceiling the window has over-extended past §1.3.1 and the locks would be asserted over unrelated sections (#640, #643)"
 else
   ok "156a: SPEC §1.3.1 window resolves within bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — content locks below are load-bearing (#640, #643)"
@@ -2470,7 +2468,7 @@ else
 fi
 
 # ---------- §156o–§156r: the §1.3.1 window is bounded on BOTH sides (#643) ----------
-# The count-guard above is a FLOOR only. The fence-awareness that closed the
+# The count-guard above was a FLOOR only at e8aa0db. The fence-awareness that closed the
 # truncation gap (#641) opened the opposite one: with an ODD number of ``` markers
 # inside §1.3.1 the extra marker INVERTS the `f` parity from that point on, so headings in real prose
 # stop terminating the window and it runs on — measured, to line 740 of the 2895-line
