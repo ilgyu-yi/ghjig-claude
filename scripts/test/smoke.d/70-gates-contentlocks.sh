@@ -2734,8 +2734,12 @@ fi
 
 # §156u — AC1: what the guard TELLS a failing reader must be what it APPLIES. §156o
 # asserts both bounds are named and §156s asserts the condition can be read; neither
-# compares them, so a guard whose messages both say ceiling=40 while its condition
-# executes 60 satisfies both arms. Compared as SETS of numerals: the two surfaces order
+# compares them, so a guard whose two messages CONSISTENTLY declare a ceiling its
+# condition does not execute satisfies both arms. (Numerals are deliberately not used
+# to illustrate that here: this block went from four hand-synced copies of the bound
+# to two, and an example numeral is one more thing a reader can mistake for the real
+# value once the real value moves — #673.)
+# Compared as SETS of numerals: the two surfaces order
 # and spell their bounds differently, and neither ordering is a property worth locking.
 #
 # SYMMETRIC PIPELINE, deliberately. Both sides end in the same sort/tr tail, so a bound
