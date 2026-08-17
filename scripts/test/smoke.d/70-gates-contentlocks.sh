@@ -2333,12 +2333,34 @@ s156_fx() { printf '%s\n' "$s156_win" | grep -qF "$1"; }
 
 if [ ! -f "$S156_SPEC" ]; then
   ng "156: SPEC.md absent — cannot assert the §1.3.1 SSOT change sweep protocol (#640)"
-elif [ "$s156_n" -lt 18 ]; then
-  # 21 non-blank lines at this commit; a floor of 18 catches a collapsed/renamed
-  # heading or a gutted section while tolerating ordinary prose tightening.
-  ng "156a: SPEC §1.3.1 window empty or collapsed (non-blank lines=$s156_n, floor=18) — the content locks below would pass VACUOUSLY (#640)"
+elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
+  # TWO-SIDED, because the extractor is fence-aware and that INVERTED the failure
+  # mode rather than removing it (#643). ONE unbalanced ``` inside §1.3.1 does not
+  # make the toggle stick — it INVERTS THE PARITY from that point on, so headings
+  # sitting in real prose are ignored while `#`-prefixed lines inside genuine
+  # fenced blocks are honoured as terminators. Measured on the over-extension
+  # fixture (SPEC.md plus one injected marker, 2895 lines): the window spans
+  # 269-739 and exits at 740 on a shell comment inside a ```bash fence — 368
+  # non-blank lines against a healthy 22, stable across six injection offsets.
+  # When the window over-extends like that, a floor alone reports the locks
+  # "load-bearing" over §1.4–§3.
+  #
+  # 22 non-blank lines at this commit — RE-MEASURED, not carried forward from the
+  # stale 21 this comment used to carry (#643 AC5). No history is reconstructed
+  # here on purpose: the count is deliberately NOT pinned by an arm (per §156j's
+  # neighbouring note), so nothing can ever catch a narrative about it drifting,
+  # and this line has already carried two successive wrong provenance stories.
+  # Re-measure it; do not re-tell it.
+  #
+  # floor=18 tolerates ordinary prose tightening and catches a collapsed or
+  # renamed heading; ceiling=60 leaves §1.3.1 room to nearly triple while sitting
+  # six-fold below the ~368 a desync produces today. The bounds are NAMED in both
+  # messages so a failure says which side tripped, and §156o/§156p parse those two
+  # spellings — renaming them fails CLOSED (measured: both arms red), so it is not
+  # a silent hazard.
+  ng "156a: SPEC §1.3.1 window out of bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — below the floor the content locks would pass VACUOUSLY; above the ceiling the window has over-extended past §1.3.1 and the locks would be asserted over unrelated sections (#640, #643)"
 else
-  ok "156a: SPEC §1.3.1 window resolves non-empty (non-blank lines=$s156_n) — content locks below are load-bearing (#640)"
+  ok "156a: SPEC §1.3.1 window resolves within bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — content locks below are load-bearing (#640, #643)"
 
   # §156b: the two commit-trailer KEYS, anchored to the code form (line-start inside the
   # fenced grammar block), not a backticked prose mention — the later Execution Issues
@@ -2424,7 +2446,12 @@ else
   # §156m: the MONOTONICITY DIRECTION — widen-yes / narrow-never — plus the re-anchor
   # carve-out the parent Directive states. §156d locks the `inconclusive` machinery;
   # this locks the rule that machinery guards.
-  if s156_re 'widened' && s156_re 'never be narrowed' && s156_re 're-anchor'; then
+  # PHRASES, not bare words (#643 AC6). `widened` and `re-anchor` were each
+  # individually satisfiable by unrelated prose anywhere in the window; only the
+  # conjunction carried the lock. Pinned to the forms §1.3.1 actually uses, so
+  # each conjunct now bites on its own.
+  if s156_re 'may be \*\*widened\*\*' && s156_re 'never be narrowed' \
+     && s156_re '\*\*re-anchor\*\* accompanying a heading rename'; then
     ok "156m: §1.3.1 keeps widen-yes / narrow-never with the re-anchor carve-out (#640)"
   else
     ng "156m: §1.3.1 lost the monotonicity direction or the re-anchor carve-out (#640)"
@@ -2438,6 +2465,144 @@ else
   else
     ng "156n: §1.3.1 lost the empty-declaration token from the trailer grammar (#640)"
   fi
+fi
+
+# ---------- §156o–§156r: the §1.3.1 window is bounded on BOTH sides (#643) ----------
+# The count-guard above was a FLOOR only at e8aa0db. The fence-awareness that closed the
+# truncation gap (#641) opened the opposite one: with an ODD number of ``` markers
+# inside §1.3.1 the extra marker INVERTS the `f` parity from that point on, so headings in real prose
+# stop terminating the window and it runs on — measured, to line 740 of the 2895-line
+# over-extension fixture (SPEC.md is 2894),
+# swallowing §1.4 through §3.2. A floor cannot see that; the
+# guard then reports the eleven content locks "load-bearing" over a window whose
+# scope it has not checked, which is anti-pattern #2 in the smoke.sh header wearing
+# the opposite sign.
+#
+# WITNESS HONESTY — only ONE of the four arms below is a witness:
+#   §156p (over-extension) is the WITNESS. It is RED at e8aa0db (the Test commit,
+#   guard floor-only) and greens only
+#          when a ceiling exists.
+#   §156o (both bounds named), §156q (truncation), §156r (healthy) are BOUNDS, not
+#          witnesses. §156q and §156r pass BEFORE and AFTER the fix by construction —
+#          they exist to prove the ceiling does not blind the floor (§156q) and that
+#          the pair is not simply always-failing (§156r). Neither is evidence that the
+#          defect was repaired; only §156p is. (§156o is red at e8aa0db for the same reason
+#          §156p is, but it reads the guard's TEXT, not its behaviour.)
+#
+# NO LIVE SPEC MUTATION. All three fixtures are copies under the preamble's $TMP,
+# removed by its EXIT trap; $S156_SPEC is only ever read.
+#
+# The arms drive the live guard's EXTRACTOR verbatim, but its DECISION is
+# re-implemented here from the two integers scraped out of the assertion messages
+# — so an executed condition that diverges from the declared bounds is NOT caught
+# by these arms (#643 round-1 F4b, deferred). The extractor is lifted
+# verbatim out of the guard's own source line, and the bounds are read out of the
+# `156a:` assertion messages — i.e. the bounds the guard TELLS a failing reader about.
+# This covers the OMISSION direction only — a divergence, where the guard declares
+# a bound it does not execute, is the deferred F4b vector.
+# A bound the guard does not declare cannot bind anything, so an undeclared ceiling
+# reads here exactly as it behaves there: absent.
+S156O_SRC="$SHELL_ROOT/scripts/test/smoke.d/70-gates-contentlocks.sh"
+s156o_msgs=""
+s156o_floor=""
+s156o_ceil=""
+s156o_prog=""
+if [ -f "$S156O_SRC" ]; then
+  s156o_msgs=$(grep -E '^[[:space:]]*(ok|ng) "156a:' "$S156O_SRC")
+  s156o_floor=$(printf '%s\n' "$s156o_msgs" | grep -oE 'floor=[0-9]+' | head -1 | cut -d= -f2)
+  s156o_ceil=$(printf '%s\n' "$s156o_msgs" | grep -oE 'ceiling=[0-9]+' | head -1 | cut -d= -f2)
+  # Line-anchored so this arm's own quoted copy of the pattern cannot match first.
+  s156o_line=$(grep -m1 -E '^[[:space:]]*s156_win=\$\(awk ' "$S156O_SRC")
+  case "$s156o_line" in
+    *"awk '"*) s156o_prog=${s156o_line#*awk \'}; s156o_prog=${s156o_prog%\'*} ;;
+  esac
+fi
+
+# s156o_accepts <non-blank-line-count> — 0 when the guard's DECLARED bounds admit a
+# window of that size. Mirrors §156a's decision; an undeclared bound is inert.
+s156o_accepts() {
+  local n="$1"
+  [ -n "$s156o_floor" ] && [ "$n" -lt "$s156o_floor" ] && return 1
+  [ -n "$s156o_ceil" ] && [ "$n" -gt "$s156o_ceil" ] && return 1
+  return 0
+}
+
+# Fixtures. -1 means NOT MEASURED, so no arm can read a zero as agreement.
+S156O_DIR="$TMP/s156o"
+s156o_hn=-1; s156o_on=-1; s156o_tn=-1
+s156o_hfence=-1; s156o_ofence=-1
+if [ -f "$S156_SPEC" ] && [ -n "$s156o_prog" ] && mkdir -p "$S156O_DIR" 2>/dev/null; then
+  if cp "$S156_SPEC" "$S156O_DIR/healthy.md" 2>/dev/null && [ -s "$S156O_DIR/healthy.md" ]; then
+    # (b) over-extension: ONE unclosed fence opened immediately after the §1.3.1
+    # heading — the minimum mutation that desyncs the toggle. (c) truncation: the
+    # heading renamed, so the window never opens.
+    awk '{print} /^#### 1\.3\.1 /{print "```"}' "$S156O_DIR/healthy.md" > "$S156O_DIR/overextended.md" 2>/dev/null
+    awk '/^#### 1\.3\.1 /{sub(/^#### 1\.3\.1 /, "#### 1.3.1-renamed ")} {print}' \
+      "$S156O_DIR/healthy.md" > "$S156O_DIR/renamed.md" 2>/dev/null
+    s156o_hfence=$(grep -c '^```' "$S156O_DIR/healthy.md")
+    [ -s "$S156O_DIR/overextended.md" ] && s156o_ofence=$(grep -c '^```' "$S156O_DIR/overextended.md")
+    s156o_hn=$(awk "$s156o_prog" "$S156O_DIR/healthy.md" | grep -c .)
+    [ -s "$S156O_DIR/overextended.md" ] && s156o_on=$(awk "$s156o_prog" "$S156O_DIR/overextended.md" | grep -c .)
+    # The renamed fixture is validated by its MARKER, not by its count: a count of 0
+    # is the very thing §156q asserts, so reading 0 as proof the fixture built would
+    # be circular. Only if the rename actually landed is the count trusted.
+    if [ -s "$S156O_DIR/renamed.md" ] && grep -q '^#### 1\.3\.1-renamed ' "$S156O_DIR/renamed.md" \
+       && ! grep -q '^#### 1\.3\.1 ' "$S156O_DIR/renamed.md"; then
+      s156o_tn=$(awk "$s156o_prog" "$S156O_DIR/renamed.md" | grep -c .)
+    fi
+  fi
+fi
+
+# §156o — AC1: the guard names BOTH bounds in its own assertion message, so a failure
+# says WHICH SIDE tripped. Reads the guard's text; §156p reads its behaviour.
+if [ -z "$s156o_msgs" ]; then
+  ng "156o: cannot read this suite's own 156a assertion messages — the window-bound arms below would be vacuous (#643)"
+elif [ -n "$s156o_floor" ] && [ -n "$s156o_ceil" ]; then
+  ok "156o: the §1.3.1 window guard names both bounds in its assertion message (floor=$s156o_floor ceiling=$s156o_ceil) — a failure names which side tripped (#643)"
+else
+  ng "156o: the §1.3.1 window guard declares only one bound (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — a failure cannot name which side tripped (#643)"
+fi
+
+# §156p — AC2, THE WITNESS. One unclosed fence inside §1.3.1 must make the guard fail
+# LOUD. RED at e8aa0db: the floor admits the over-extended window.
+if [ "$s156o_hn" -lt 0 ] || [ "$s156o_on" -lt 0 ]; then
+  ng "156p: over-extension fixture not built (healthy n=$s156o_hn over n=$s156o_on) — the ceiling is UNTESTED, not satisfied (#643)"
+elif [ "$s156o_ofence" -ne $((s156o_hfence + 1)) ]; then
+  ng "156p: over-extension fixture did not take (fence markers healthy=$s156o_hfence over=$s156o_ofence, expected +1) — arm would be vacuous (#643)"
+elif [ "$s156o_on" -le "$s156o_hn" ]; then
+  ng "156p: over-extension fixture did not over-extend (over n=$s156o_on vs healthy n=$s156o_hn) — arm would be vacuous (#643)"
+elif s156o_accepts "$s156o_on"; then
+  ng "156p: an unclosed fence in §1.3.1 runs the window to $s156o_on non-blank lines (healthy=$s156o_hn) and the declared bounds ACCEPT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the content locks would be called load-bearing over §1.4–§3 (#643)"
+else
+  ok "156p: an unclosed fence in §1.3.1 over-extends the window to $s156o_on non-blank lines and the declared bounds REJECT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+fi
+
+# §156q — AC3, a BOUND (not a witness; passes before and after). The ceiling must not
+# blind the floor: a renamed heading still collapses the window and still fails loud.
+if [ "$s156o_tn" -lt 0 ]; then
+  ng "156q: renamed-heading fixture not built or rename did not land — the floor is UNTESTED, not satisfied (#643)"
+elif [ "$s156o_tn" -ne 0 ]; then
+  ng "156q: renamed-heading fixture left a non-empty window (n=$s156o_tn, expected 0) — arm would be vacuous (#643)"
+elif s156o_accepts "$s156o_tn"; then
+  ng "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the declared bounds ACCEPT it (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+else
+  ok "156q: a renamed §1.3.1 heading collapses the window to 0 non-blank lines and the declared bounds REJECT it — the ceiling does not blind the floor (#643)"
+fi
+
+# §156r — AC4, a BOUND (not a witness; passes before and after). The two rejections
+# above are not an always-fail: the unmodified SPEC still passes. The count equality
+# is also the anti-drift check — a fixture path that no longer reproduces the live
+# window fails loud instead of quietly measuring something else.
+if [ ! -f "$S156_SPEC" ]; then
+  ng "156r: SPEC.md absent — the healthy-window bound is UNTESTED, not satisfied (#643)"
+elif [ "$s156o_hn" -lt 0 ]; then
+  ng "156r: healthy fixture not built or the guard's extractor could not be lifted from its source — bound UNTESTED (#643)"
+elif [ "$s156o_hn" -ne "$s156_n" ]; then
+  ng "156r: healthy fixture window ($s156o_hn) disagrees with the live §156a window ($s156_n) — the fixture path no longer reproduces the guard (#643)"
+elif s156o_accepts "$s156o_hn"; then
+  ok "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is ACCEPTED by both declared bounds (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) (#643)"
+else
+  ng "156r: the unmodified SPEC §1.3.1 window ($s156o_hn non-blank lines) is REJECTED by the declared bounds (floor=${s156o_floor:-<none>} ceiling=${s156o_ceil:-<none>}) — the bounds are always-failing (#643)"
 fi
 
 # §156j — POSITIVE parity assertion: the §1.8 lever row and the §1.9 posture row
