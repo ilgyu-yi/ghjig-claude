@@ -2335,23 +2335,29 @@ if [ ! -f "$S156_SPEC" ]; then
   ng "156: SPEC.md absent — cannot assert the §1.3.1 SSOT change sweep protocol (#640)"
 elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
   # TWO-SIDED, because the extractor is fence-aware and that INVERTED the failure
-  # mode rather than removing it (#643). The window closes on a heading only while
-  # the fence toggle `f` is 0, so ONE unbalanced ``` inside §1.3.1 desyncs the
-  # toggle, no heading ever terminates it, and it runs to EOF — measured, 368
-  # non-blank lines against a healthy 22. Before fence-awareness an unbalanced
+  # mode rather than removing it (#643). ONE unbalanced ``` inside §1.3.1 does not
+  # make the toggle stick — it INVERTS THE PARITY from that point on, so headings
+  # sitting in real prose are ignored while `#`-prefixed lines inside genuine
+  # fenced blocks are honoured as terminators. Measured: the window then spans
+  # SPEC 269-739 and exits at 740 on a shell comment inside a ```bash fence — 368
+  # non-blank lines against a healthy 22, stable across six injection offsets.
+  # Before fence-awareness an unbalanced
   # fence TRUNCATED and the floor caught it loud; after it, the window
   # over-extends and a floor alone reports the locks "load-bearing" over §1.4–§3.
   #
-  # 22 non-blank lines at this commit — RE-MEASURED, not carried forward: this
-  # comment previously read 21, which was correct at f5af42c and went stale when
-  # that same commit added a prose line (#643 AC5). The count is deliberately NOT
-  # pinned by an arm, per §156j's neighbouring note.
+  # 22 non-blank lines at this commit — RE-MEASURED, not carried forward from the
+  # stale 21 this comment used to carry (#643 AC5). No history is reconstructed
+  # here on purpose: the count is deliberately NOT pinned by an arm (per §156j's
+  # neighbouring note), so nothing can ever catch a narrative about it drifting,
+  # and this line has already carried two successive wrong provenance stories.
+  # Re-measure it; do not re-tell it.
   #
   # floor=18 tolerates ordinary prose tightening and catches a collapsed or
   # renamed heading; ceiling=60 leaves §1.3.1 room to nearly triple while sitting
-  # six-fold below the ~368 a desync produces. The bounds are NAMED in both
-  # messages so a failure says which side tripped — and §156o/§156p parse those
-  # two spellings, so renaming them silently unbinds the arms that check them.
+  # six-fold below the ~368 a desync produces today. The bounds are NAMED in both
+  # messages so a failure says which side tripped, and §156o/§156p parse those two
+  # spellings — renaming them fails CLOSED (measured: both arms red, because the
+  # arms' accept-check rejects an empty bound), so it is not a silent hazard.
   ng "156a: SPEC §1.3.1 window out of bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — below the floor the content locks would pass VACUOUSLY; above the ceiling the window has over-extended past §1.3.1 and the locks would be asserted over unrelated sections (#640, #643)"
 else
   ok "156a: SPEC §1.3.1 window resolves within bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — content locks below are load-bearing (#640, #643)"
@@ -2464,8 +2470,9 @@ fi
 # ---------- §156o–§156r: the §1.3.1 window is bounded on BOTH sides (#643) ----------
 # The count-guard above is a FLOOR only. The fence-awareness that closed the
 # truncation gap (#641) opened the opposite one: with an ODD number of ``` markers
-# inside §1.3.1 the `f` toggle sticks at 1, the heading terminator never fires, and
-# the window runs to EOF — swallowing §1.4 through §3. A floor cannot see that; the
+# inside §1.3.1 INVERTS the `f` parity from that point on, so headings in real prose
+# stop terminating the window and it runs on — measured, to line 740 of 2895,
+# swallowing §1.4 through §3.2. A floor cannot see that; the
 # guard then reports the eleven content locks "load-bearing" over a window whose
 # scope it has not checked, which is anti-pattern #2 in the smoke.sh header wearing
 # the opposite sign.
@@ -2483,9 +2490,14 @@ fi
 # NO LIVE SPEC MUTATION. All three fixtures are copies under the preamble's $TMP,
 # removed by its EXIT trap; $S156_SPEC is only ever read.
 #
-# The arms drive the LIVE guard, not a paraphrase of it: the extractor is lifted
+# The arms drive the live guard's EXTRACTOR verbatim, but its DECISION is
+# re-implemented here from the two integers scraped out of the assertion messages
+# — so an executed condition that diverges from the declared bounds is NOT caught
+# by these arms (#643 round-1 F4b, deferred). The extractor is lifted
 # verbatim out of the guard's own source line, and the bounds are read out of the
 # `156a:` assertion messages — i.e. the bounds the guard TELLS a failing reader about.
+# This covers the OMISSION direction only — a divergence, where the guard declares
+# a bound it does not execute, is the deferred F4b vector.
 # A bound the guard does not declare cannot bind anything, so an undeclared ceiling
 # reads here exactly as it behaves there: absent.
 S156O_SRC="$SHELL_ROOT/scripts/test/smoke.d/70-gates-contentlocks.sh"
