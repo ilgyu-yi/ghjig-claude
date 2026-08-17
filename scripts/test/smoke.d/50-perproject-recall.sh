@@ -2670,8 +2670,23 @@ S116_END_RE='^## |^### '
 # terminator rule but still opens on the literal `### 1.9 `, so it collapses to 0 on
 # a §1.9 renumber (measured: 66 -> 0). That is a KNOWN residual, out of scope for
 # #670 and unhardened here on purpose — recorded so the next editor does not read
-# the posture helper as already conforming. §156j is held to AGREEMENT with these,
-# not ahead of them, and §156v reds if the two stop agreeing.
+# the posture helper as already conforming.
+#
+# WHERE THE AGREEMENT IS ENFORCED, and its one deliberate asymmetry. §156v reds if the
+# two stop agreeing; it compares the two sides' window OPENNESS on shared $TMP fixtures,
+# on the LEVER half, where both conform. The POSTURE half is held instead by §156x, as a
+# renumber bound on §156j alone — not as agreement with the helper below. That is forced,
+# not chosen: #670 requires §156j's posture to survive a §1.9 renumber and puts hardening
+# `s116_posture_rows` out of scope, so once §156x is satisfied §156j's posture is AHEAD of
+# this helper by exactly that residual, and a posture-vs-posture comparison would red on
+# the two legitimately differing. The lever half is held to agreement, not ahead.
+#
+# THE LIFT DEPENDS ON THESE THREE LINE SHAPES, not on their contents: `S116_END_RE=` at
+# column 0, `s116_lever_rows() {` / `s116_posture_rows() {` at column 0, and a closing `}`
+# at column 0. §156v/§156x lift them by source text (they must not CALL them — the
+# reservation above), so a reshaping of the definitions is fail-closed there: the lift
+# returns empty and every arm reds as UNTESTED rather than reporting agreement it never
+# measured. Reshape freely; just expect to re-anchor §156v.
 
 # NEITHER END IS A SECTION NUMBER (#668). The window used to open on the literal
 # `### 1.8 ` and close on the literal `### 1.9 `, so it broke in both directions:
