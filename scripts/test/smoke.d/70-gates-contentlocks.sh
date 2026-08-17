@@ -2333,12 +2333,28 @@ s156_fx() { printf '%s\n' "$s156_win" | grep -qF "$1"; }
 
 if [ ! -f "$S156_SPEC" ]; then
   ng "156: SPEC.md absent — cannot assert the §1.3.1 SSOT change sweep protocol (#640)"
-elif [ "$s156_n" -lt 18 ]; then
-  # 21 non-blank lines at this commit; a floor of 18 catches a collapsed/renamed
-  # heading or a gutted section while tolerating ordinary prose tightening.
-  ng "156a: SPEC §1.3.1 window empty or collapsed (non-blank lines=$s156_n, floor=18) — the content locks below would pass VACUOUSLY (#640)"
+elif [ "$s156_n" -lt 18 ] || [ "$s156_n" -gt 60 ]; then
+  # TWO-SIDED, because the extractor is fence-aware and that INVERTED the failure
+  # mode rather than removing it (#643). The window closes on a heading only while
+  # the fence toggle `f` is 0, so ONE unbalanced ``` inside §1.3.1 desyncs the
+  # toggle, no heading ever terminates it, and it runs to EOF — measured, 368
+  # non-blank lines against a healthy 22. Before fence-awareness an unbalanced
+  # fence TRUNCATED and the floor caught it loud; after it, the window
+  # over-extends and a floor alone reports the locks "load-bearing" over §1.4–§3.
+  #
+  # 22 non-blank lines at this commit — RE-MEASURED, not carried forward: this
+  # comment previously read 21, which was correct at f5af42c and went stale when
+  # that same commit added a prose line (#643 AC5). The count is deliberately NOT
+  # pinned by an arm, per §156j's neighbouring note.
+  #
+  # floor=18 tolerates ordinary prose tightening and catches a collapsed or
+  # renamed heading; ceiling=60 leaves §1.3.1 room to nearly triple while sitting
+  # six-fold below the ~368 a desync produces. The bounds are NAMED in both
+  # messages so a failure says which side tripped — and §156o/§156p parse those
+  # two spellings, so renaming them silently unbinds the arms that check them.
+  ng "156a: SPEC §1.3.1 window out of bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — below the floor the content locks would pass VACUOUSLY; above the ceiling the window has over-extended past §1.3.1 and the locks would be asserted over unrelated sections (#640, #643)"
 else
-  ok "156a: SPEC §1.3.1 window resolves non-empty (non-blank lines=$s156_n) — content locks below are load-bearing (#640)"
+  ok "156a: SPEC §1.3.1 window resolves within bounds (non-blank lines=$s156_n, floor=18, ceiling=60) — content locks below are load-bearing (#640, #643)"
 
   # §156b: the two commit-trailer KEYS, anchored to the code form (line-start inside the
   # fenced grammar block), not a backticked prose mention — the later Execution Issues
@@ -2424,7 +2440,12 @@ else
   # §156m: the MONOTONICITY DIRECTION — widen-yes / narrow-never — plus the re-anchor
   # carve-out the parent Directive states. §156d locks the `inconclusive` machinery;
   # this locks the rule that machinery guards.
-  if s156_re 'widened' && s156_re 'never be narrowed' && s156_re 're-anchor'; then
+  # PHRASES, not bare words (#643 AC6). `widened` and `re-anchor` were each
+  # individually satisfiable by unrelated prose anywhere in the window; only the
+  # conjunction carried the lock. Pinned to the forms §1.3.1 actually uses, so
+  # each conjunct now bites on its own.
+  if s156_re 'may be \*\*widened\*\*' && s156_re 'never be narrowed' \
+     && s156_re '\*\*re-anchor\*\* accompanying a heading rename'; then
     ok "156m: §1.3.1 keeps widen-yes / narrow-never with the re-anchor carve-out (#640)"
   else
     ng "156m: §1.3.1 lost the monotonicity direction or the re-anchor carve-out (#640)"
