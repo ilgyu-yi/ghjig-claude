@@ -2775,14 +2775,34 @@ fi
 # re-derived here under an s156_ prefix rather than reading §116's s116_* variables,
 # because the smoke.sh header reserves cross-section symbols for smoke.d/_preamble.sh.
 #
-# THEY ARE NO LONGER §116'S VERBATIM, and nothing enforces that they ever were
-# (#670). An earlier revision of this comment claimed byte-identity; measured, the
-# claim is false in BOTH halves — the posture window diverged at #644/#667 (§116
-# moved to a shared terminator while this copy kept `/^## 2\. /`) and the lever
-# window at #668/#669 (§116 moved to a title anchor). Neither divergence reddened
-# anything, because no arm compares the two files: a claim of byte-identity that
-# nothing checks decays silently, which is why #670 is scoped to that claim's
-# ENFORCEABILITY and not only to the windows.
+# THE SHARED CONTRACT (#670). Byte-identity is the wrong thing to claim — it decayed
+# twice unnoticed, which is why #670 is scoped to ENFORCEABILITY. What these two
+# windows must agree ABOUT is stated once, here and at the §116 definitions, as two
+# rules:
+#
+#   START RULE    — a window opens on the SECTION'S TITLE, never on its number
+#                   (#668). A number is not a stable id: renumbering collapses the
+#                   window silently, and a collapsed window reports "row absent"
+#                   when the row is present.
+#   TERMINATOR    — a window closes on the SHARED terminator `^## |^### `, never on
+#                   a hand-picked next-heading literal (#644). `#### ` is NOT a
+#                   terminator (position 3 is `#`, not a space), so a genuine
+#                   sub-section stays in scope.
+#
+# Measured at this commit, BOTH halves of this copy violate the start rule and the
+# posture half also violates the terminator rule:
+#   lever   — opens `/^### 1\.8 /`, closes `/^### 1\.9 /`   (§116: title anchor +
+#             shared terminator, hardened at #668/#669)
+#   posture — opens `/^### 1\.9 /`, closes `/^## 2\. /`      (§116: SAME number-based
+#             start, shared terminator)
+#
+# So the posture halves do NOT diverge on the start anchor — §116's posture opens on
+# a number too, and measured, IT COLLAPSES ON A RENUMBER EXACTLY AS THIS COPY DOES
+# (66 -> 0). #670's own table reads as if only this copy were fragile there; it is
+# not. Hardening §116's posture is #670-out-of-scope, so this copy is brought to
+# AGREE with §116 rather than ahead of it, and the shared residual is disclosed here
+# rather than silently inherited. The arm below is what makes any future divergence
+# loud instead of silent.
 #
 # The live consequence here is bounded and one-sided: renumbering §1.8 collapses
 # this copy's lever window, so `s156_lever` reads 0 and the `ng` below reports the
