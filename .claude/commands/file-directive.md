@@ -20,6 +20,11 @@ Create a new Directive as a GitHub Issue. Body authored from `.claude/templates/
    - **Priority** — one of `P0` / `P1` / `P2` / `P3`; ask the user. Defaults to `P2` in unattended mode if not specified. The matching label is applied to the Issue at create time.
    - **Confidence** — 0-100; ask the user.
 
+1.7. **Citation check** (SPEC §1.10, #676) — resolve the body's quoted spans before the gate step below, so a site-mismatched or fabricated quotation is corrected by the author rather than found by the reviewer:
+   - `mkdir -p .claude/state/tmp`, write the proposed body verbatim to `.claude/state/tmp/proposed-directive-body.md` (in-registry, already gitignored), then run `bash .claude/ghjig-root/scripts/lint_citations.sh .claude/state/tmp/proposed-directive-body.md` — plain argv, the path as one quoted argument.
+   - Surface the report to the author as returned: it prints one line per span plus the literal `git grep -F` it ran, and the per-class totals on stderr. Fix a `site-mismatch` (the wording is real, the file it is hung on does not carry it) or an `unresolved` span by re-reading the artifact and re-quoting it; `normalized`, `unresolvable-locally` and `no-attribution` are informational.
+   - **The report is advisory.** The reader exits 0 unconditionally and gates nothing: a finding is never a refusal to file, never a park in unattended mode, and never an input to the `activation-reviewer` verdict below. A clean report is the floor the author owes the reviewer, not verification (§1.10).
+
 2. **Reviewer gate** — invoke the `activation-reviewer` subagent (SPEC §4.9) on the proposed body. Pass: proposed body, list of currently `Active` Directives (`gh issue list --label directive --label '-status:proposed' --state open --json number,title,body --limit 100`), MISSION.md content. Parse the verdict line.
 
    Verdict dispatch (SPEC §2.1, §5.7.1 operating-mode coupling):
