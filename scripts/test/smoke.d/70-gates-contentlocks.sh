@@ -3406,3 +3406,157 @@ else
   ng "158d: every execution-verifying contract must carry exactly one '## Scratch discipline (#646)' heading and one mktemp -d template — checked $s158d_n of 2, offenders:$s158d_miss (#646)"
 fi
 
+
+# ---------- §174: citation resolution at the attributed site (#676) ----------
+# SPEC §1.10 states the evidence discipline for durable-artifact bodies. Part (a)
+# — the only mechanized half — says a quoted span resolves in the FILE it is
+# attributed to, so a real string hung on a file that does not contain it is a
+# site-mismatch and not a pass. scripts/lint_citations.sh is the born-advisory
+# reader of that half: it extracts a proposed body's quoted spans, reports per
+# span the search it ran and the outcome, and always exits 0.
+#
+# §174a is a Doc lock over SPEC §1.10. §174b-§174d exercise the reader through its
+# public interface (argv path in, report on stdout, status out) against the
+# committed fixture body — no internals, no mocking. Each of the three is guarded
+# so an absent checker or fixture fails CLEANLY as ng, never a hard error.
+#
+# The discriminator is §174b's site-mismatch assertion: an existence-anywhere
+# check passes that span (the wording is real, it just lives in CHANGELOG.md) and
+# therefore fails this arm. A reader that greens §174b is doing the job the rule
+# names; one that greens every other arm and reds this one is not.
+S174_SPEC="$SHELL_ROOT/SPEC.md"
+S174_CHECKER="$SHELL_ROOT/scripts/lint_citations.sh"
+S174_FX="$SHELL_ROOT/scripts/test/fixtures/citation/proposed-issue-body.md"
+S174_ABSENT="$SHELL_ROOT/scripts/test/fixtures/citation/no-such-body.md"
+S174_CMDS=("$SHELL_ROOT/.claude/commands/file-directive.md" "$SHELL_ROOT/.claude/commands/file-issue.md")
+
+# §174a (DOC LOCK, AC4): SPEC §1.10 exists and states BOTH parts with their
+# load-bearing halves — (a) resolution at the attributed file plus the
+# site-mismatch case that motivates it, (b) the literal command AND its literal
+# output, with the extent rule (neither broader nor narrower). A §1.10 that kept
+# the heading and lost either part's operative clause reds here.
+if [ ! -f "$S174_SPEC" ]; then
+  ng "174a: SPEC.md absent — cannot lock the §1.10 evidence discipline (#676)"
+elif grep -qF '### 1.10 Evidence discipline for durable-artifact bodies' "$S174_SPEC" \
+   && grep -qF '**(a) A quotation resolves in the file it is attributed to.**' "$S174_SPEC" \
+   && grep -qF 'site-mismatch' "$S174_SPEC" \
+   && grep -qF '**(b) A corpus-quantified claim carries the literal command and its literal output.**' "$S174_SPEC" \
+   && grep -qF 'neither broader nor narrower' "$S174_SPEC"; then
+  ok "174a: SPEC §1.10 states both parts — (a) resolution at the attributed file incl. site-mismatch, (b) literal command + output, neither broader nor narrower (#676)"
+else
+  ng "174a: SPEC §1.10 must carry the heading, part (a) with the site-mismatch case, and part (b) with the neither-broader-nor-narrower extent rule (#676)"
+fi
+
+# §174b (CHECKER DEMONSTRATION, AC2/AC3/AC6 — the load-bearing arm): the reader's
+# per-span classification of the committed fixture body. Asserted as counts by
+# class, so the arm reads one line per span and nothing else carries a class token.
+#   - exactly ONE site-mismatch, and it names scripts/lint_bash_idioms.sh (the real
+#     wording that lives only in CHANGELOG.md) — the AC-6 discriminator;
+#   - exactly ONE unresolved, and it names .claude/agents/issue-reviewer.md (the
+#     fabricated span). Exactly one, because the fixture's two silent bounds — the
+#     sub-four-word span and the span inside the fenced block — each add a second
+#     defect line when the four-word floor or the fence exclusion is dropped (the
+#     first as a second unresolved, the second as a second site-mismatch);
+#   - at least TWO resolves: the plain-delimited span and the star-delimited one, so
+#     dropping either delimiter form reds;
+#   - the GitHub-attributed span reported unresolvable-locally and the unattributed
+#     one no-attribution — both non-defect classes, which is why the defect counts
+#     above are 1 and not 2 or 3;
+#   - every reported span backed by an indented `search:` line carrying the literal
+#     git grep -F invocation (AC1: report the search, not just the verdict);
+#   - the fenced draft line never extracted.
+if [ ! -f "$S174_FX" ]; then
+  ng "174b: citation fixture body absent ($S174_FX) — the per-span classification is unmeasured (#676)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174b: scripts/lint_citations.sh absent — the per-span classification of the fixture body is unmeasured (#676)"
+else
+  s174b_out="$(bash "$S174_CHECKER" "$S174_FX" 2>/dev/null)"
+  s174b_mm=$(printf '%s\n' "$s174b_out" | grep -cF 'site-mismatch' || true)
+  s174b_mm_site=$(printf '%s\n' "$s174b_out" | grep -F 'site-mismatch' | grep -cF 'scripts/lint_bash_idioms.sh' || true)
+  s174b_un=$(printf '%s\n' "$s174b_out" | grep -cw 'unresolved' || true)
+  s174b_un_site=$(printf '%s\n' "$s174b_out" | grep -w 'unresolved' | grep -cF '.claude/agents/issue-reviewer.md' || true)
+  s174b_res=$(printf '%s\n' "$s174b_out" | grep -cw 'resolves' || true)
+  s174b_gh=$(printf '%s\n' "$s174b_out" | grep -cF 'unresolvable-locally' || true)
+  s174b_na=$(printf '%s\n' "$s174b_out" | grep -cF 'no-attribution' || true)
+  s174b_search=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search:.*git grep -F' || true)
+  s174b_fenced=$(printf '%s\n' "$s174b_out" | grep -cF 'the wording blended from two sources in the parked draft' || true)
+  if [ "$s174b_mm" -eq 1 ] && [ "$s174b_mm_site" -eq 1 ] \
+     && [ "$s174b_un" -eq 1 ] && [ "$s174b_un_site" -eq 1 ] \
+     && [ "$s174b_res" -ge 2 ] && [ "$s174b_gh" -ge 1 ] && [ "$s174b_na" -ge 1 ] \
+     && [ "$s174b_search" -ge 1 ] && [ "$s174b_fenced" -eq 0 ]; then
+    ok "174b: lint_citations.sh classifies the fixture per span — 1 site-mismatch at lint_bash_idioms.sh, 1 unresolved at issue-reviewer.md, both clean spans resolve, GitHub-attributed and unattributed spans stay non-defects, fenced text unread (#676)"
+  else
+    ng "174b: the fixture body must report exactly one site-mismatch (at scripts/lint_bash_idioms.sh) and one unresolved (at .claude/agents/issue-reviewer.md), >=2 resolves, >=1 unresolvable-locally, >=1 no-attribution, >=1 indented 'search:' git grep -F line, and 0 hits from the fenced block — got site-mismatch=$s174b_mm/site=$s174b_mm_site unresolved=$s174b_un/site=$s174b_un_site resolves=$s174b_res unresolvable-locally=$s174b_gh no-attribution=$s174b_na search=$s174b_search fenced=$s174b_fenced (#676)"
+  fi
+fi
+
+# §174c (ADVISORY POSTURE, AC1/AC3): the reader is born advisory — status 0 on a
+# body it has findings about AND status 0 on input it cannot read, where the
+# unreadable case still says so with a `fail-open` sentinel rather than going
+# silent. A caller can therefore never be gated by it, and a silent no-op can
+# never be mistaken for a clean body.
+if [ ! -f "$S174_FX" ]; then
+  ng "174c: citation fixture body absent ($S174_FX) — the always-exit-0 posture is unmeasured (#676)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174c: scripts/lint_citations.sh absent — the always-exit-0 + fail-open-sentinel posture is unmeasured (#676)"
+else
+  bash "$S174_CHECKER" "$S174_FX" >/dev/null 2>&1; s174c_rc_fx=$?
+  s174c_absent_out="$(bash "$S174_CHECKER" "$S174_ABSENT" 2>&1)"; s174c_rc_absent=$?
+  s174c_sentinel=$(printf '%s\n' "$s174c_absent_out" | grep -cF 'fail-open' || true)
+  if [ "$s174c_rc_fx" -eq 0 ] && [ "$s174c_rc_absent" -eq 0 ] && [ "$s174c_sentinel" -ge 1 ]; then
+    ok "174c: lint_citations.sh exits 0 on a body carrying defects and on unreadable input, and marks the unreadable case with a fail-open sentinel (#676)"
+  else
+    ng "174c: the reader must exit 0 on both the fixture and a nonexistent path and print a 'fail-open' sentinel for the unreadable one — got rc(fixture)=$s174c_rc_fx rc(absent)=$s174c_rc_absent sentinel=$s174c_sentinel (#676)"
+  fi
+fi
+
+# §174d (WIRING LOCK, AC5): both authoring commands run the reader on the proposed
+# body BEFORE their reviewer gate, and say the report is advisory. Asserted
+# positionally rather than by a hardcoded step label: the step number in effect at
+# the lint_citations.sh mention must sort numerically BELOW the step number of the
+# 'Reviewer gate' step in the same file (/file-directive gates at 2, /file-issue at
+# 4), so renumbering the procedure keeps the arm true while moving the check after
+# the gate reds it. A count-guard pins that BOTH command files were read.
+s174d_bad=""
+s174d_n=0
+for s174d_f in "${S174_CMDS[@]}"; do
+  s174d_base=$(basename "$s174d_f")
+  s174d_n=$(( s174d_n + 1 ))
+  if [ ! -f "$s174d_f" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=ABSENT"
+    continue
+  fi
+  # cite = step in effect where lint_citations.sh is first named; gate = step of the
+  # reviewer gate; adv = the citation step states the advisory posture.
+  s174d_scan=$(awk '
+    {
+      if (match($0, /^[0-9]+(\.[0-9]+)*\./)) {
+        step = substr($0, RSTART, RLENGTH - 1)
+        if (inblk && step != cite) inblk = 0
+        cur = step
+      }
+      if (cite == "" && index($0, "lint_citations.sh") > 0) { cite = cur; inblk = 1 }
+      if (inblk && $0 ~ /[Aa]dvisory/) adv = 1
+      if (gate == "" && index($0, "Reviewer gate") > 0) gate = cur
+    }
+    END { printf "%s|%s|%s\n", cite, gate, (adv ? "adv" : "noadv") }
+  ' "$s174d_f")
+  s174d_cite=${s174d_scan%%|*}
+  s174d_rest=${s174d_scan#*|}
+  s174d_gate=${s174d_rest%%|*}
+  s174d_adv=${s174d_rest#*|}
+  if [ -z "$s174d_cite" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=no-citation-step"
+  elif [ -z "$s174d_gate" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=no-reviewer-gate-step"
+  elif ! awk -v a="$s174d_cite" -v b="$s174d_gate" 'BEGIN { exit !(a + 0 < b + 0) }'; then
+    s174d_bad="$s174d_bad ${s174d_base}=step${s174d_cite}-not-before-gate${s174d_gate}"
+  elif [ "$s174d_adv" != "adv" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=step${s174d_cite}-silent-on-advisory"
+  fi
+done
+if [ "$s174d_n" -eq 2 ] && [ -z "$s174d_bad" ]; then
+  ok "174d: /file-directive and /file-issue both run lint_citations.sh at a step numbered below their reviewer gate, stating the report is advisory — checked $s174d_n of 2 (#676)"
+else
+  ng "174d: each authoring command must name lint_citations.sh at a step numbered below its 'Reviewer gate' step and state the report is advisory — checked $s174d_n of 2, offenders:$s174d_bad (#676)"
+fi
