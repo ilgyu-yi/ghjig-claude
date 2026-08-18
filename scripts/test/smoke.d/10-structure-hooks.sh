@@ -607,9 +607,38 @@ export SHIP_PARK_LOG_PATH="$MODE_TMP/unattended-park.log"
   fi
 ) && ok "mode: unattended + clean → merge" || ng "mode: unattended + clean should decide merge (ship_mode.sh missing or wrong)"
 
+# A `gh` shim on PATH, shared by every arm that calls `ship_park_pr` (§11c, §11h,
+# and the whitespace arm below). It must be defined HERE, above the first of them:
+# `ship_park_pr` decides between its fresh-park and repeat-park branches by reading
+# the CURRENT BRANCH's PR labels through real `gh`, so an arm that runs unstubbed is
+# reporting on whether the shell's own open PR happens to carry `unattended-parked`
+# at the moment the suite runs, not on the property it names. §11c ran unstubbed and
+# went red the first time this very branch was parked (PR #677) — the suite's own
+# instance of the defect §1.10 is about, so it is fixed rather than worked around.
+GH_SHIM_DIR="$MODE_TMP/gh-shim"
+mkdir -p "$GH_SHIM_DIR"
+cat > "$GH_SHIM_DIR/gh" <<'SHIM'
+#!/bin/sh
+# Smoke shim — mimics `gh pr view --json labels --jq '.labels[].name'`:
+# outputs one label name per line (the real gh's --jq behavior).
+case "$*" in
+  *"pr view"*"--jq"*)
+    if [ -f "$GH_SHIM_STATE/labeled" ]; then
+      printf 'unattended-parked\n'
+    fi
+    ;;
+esac
+SHIM
+chmod +x "$GH_SHIM_DIR/gh"
+
 # 11c. unattended + hard blocker → park (+ comment string + log line)
 (
   export GHJIG_SHELL_MODE=unattended
+  # No `labeled` marker in this state dir → the fresh-park branch, which is the
+  # one this arm asserts. §11h owns the repeat-park branch.
+  export GH_SHIM_STATE="$MODE_TMP/park-11c"
+  mkdir -p "$GH_SHIM_STATE"
+  export PATH="$GH_SHIM_DIR:$PATH"
   if command -v ship_classify_blocker >/dev/null 2>&1 \
      && command -v ship_decide_post_ready >/dev/null 2>&1 \
      && command -v ship_park_pr >/dev/null 2>&1; then
@@ -799,26 +828,10 @@ rm -f "$MODE_TMP/.claude/state/mode" 2>/dev/null
 ) && ok "classify: whitespace-only / scalar / array (non-object) → hard (fail-closed) (#621)" || ng "classify: well-formed non-object or whitespace input must classify hard, not clean (#621)"
 
 # 11h. ship_park_pr idempotent on repeat (#10)
-# Stubs `gh` via a tmpdir on PATH so the helper can check label presence
-# without a real PR. First call: gh returns []; helper emits comment +
-# appends park log. Second call: gh returns the unattended-parked label;
-# helper writes `park-suppressed: <reason>` and emits nothing.
-GH_SHIM_DIR="$MODE_TMP/gh-shim"
-mkdir -p "$GH_SHIM_DIR"
-cat > "$GH_SHIM_DIR/gh" <<'SHIM'
-#!/bin/sh
-# Smoke shim — mimics `gh pr view --json labels --jq '.labels[].name'`:
-# outputs one label name per line (the real gh's --jq behavior).
-case "$*" in
-  *"pr view"*"--jq"*)
-    if [ -f "$GH_SHIM_STATE/labeled" ]; then
-      printf 'unattended-parked\n'
-    fi
-    ;;
-esac
-SHIM
-chmod +x "$GH_SHIM_DIR/gh"
-
+# Uses the shared `gh` shim hoisted above §11c. First call: gh returns no
+# labels; helper emits comment + appends park log. Second call: gh returns the
+# unattended-parked label; helper writes `park-suppressed: <reason>` and emits
+# nothing.
 (
   export GH_SHIM_STATE="$MODE_TMP"
   export PATH="$GH_SHIM_DIR:$PATH"
