@@ -16,6 +16,7 @@ Per span, left to right: the attribution, then what the reader must return.
   6. .claude/agents/code-reviewer.md   under the four-word floor, not a span  -> not extracted
   7. no attribution on the line        schematic placeholder                  -> no-attribution
   8. inside a fenced block             quoted draft line, not body prose      -> not extracted
+  9. scripts/lint_bash_idioms.sh       real wording, but split by a line wrap    -> normalized
 
 Spans 6 and 8 are the two silent bounds: each lands as a second defect line if
 the four-word floor or the fence exclusion is dropped -- span 6 as a second
@@ -35,6 +36,7 @@ The shell binds its judges and reviewers to evidence-with-command, and binds the
 - The first-round review comment on `#676` reads *"two defects the audit could not see"*, which lives in a GitHub comment and nowhere in the working tree.
 - `.claude/agents/code-reviewer.md` names the axis *"advisory idiom notes"* rather than a gate.
 - The acceptance line is still schematic: *"one verifiable condition per acceptance criterion"* — nothing is named for it yet.
+- `scripts/lint_bash_idioms.sh:22` states *"the exit code is always 0 on a normal run"*, a wording its header carries across a line wrap and never on one line.
 
 The parked draft's own citation, quoted verbatim for the record:
 

@@ -3415,10 +3415,14 @@ fi
 # reader of that half: it extracts a proposed body's quoted spans, reports per
 # span the search it ran and the outcome, and always exits 0.
 #
-# §174a is a Doc lock over SPEC §1.10. §174b-§174d exercise the reader through its
+# §174a is a Doc lock over SPEC §1.10. §174b-§174h exercise the reader through its
 # public interface (argv path in, report on stdout, status out) against the
-# committed fixture body — no internals, no mocking. Each of the three is guarded
-# so an absent checker or fixture fails CLEANLY as ng, never a hard error.
+# committed fixture body and throwaway repos — no internals, no mocking. Each arm
+# is guarded so an absent checker or fixture fails CLEANLY as ng, never a hard
+# error. §174e-§174h are the #677 review round: the printed search must reproduce
+# its own result, the attributed path must stay inside the repository, a closed
+# pipe must not turn the advisory posture into a 141, and the normalising rung
+# must not stall on a large file.
 #
 # The discriminator is §174b's site-mismatch assertion: an existence-anywhere
 # check passes that span (the wording is real, it just lives in CHANGELOG.md) and
@@ -3449,7 +3453,9 @@ fi
 
 # §174b (CHECKER DEMONSTRATION, AC2/AC3/AC6 — the load-bearing arm): the reader's
 # per-span classification of the committed fixture body. Asserted as counts by
-# class, so the arm reads one line per span and nothing else carries a class token.
+# class: stdout carries one report line per span for EVERY class except
+# `no-attribution`, whose spans are GROUPED into a single line, and nothing else
+# on stdout carries a class token.
 #   - exactly ONE site-mismatch, and it names scripts/lint_bash_idioms.sh (the real
 #     wording that lives only in CHANGELOG.md) — the AC-6 discriminator;
 #   - exactly ONE unresolved, and it names .claude/agents/issue-reviewer.md (the
@@ -3463,7 +3469,8 @@ fi
 #     one no-attribution — both non-defect classes, which is why the defect counts
 #     above are 1 and not 2 or 3;
 #   - every reported span backed by an indented `search:` line carrying the literal
-#     git grep -F invocation (AC1: report the search, not just the verdict);
+#     invocation that produced it — `git grep -F` on rungs 1, 3 and 4 (AC1: report
+#     the search, not just the verdict); rung 2's own search is asserted by §174e;
 #   - the fenced draft line never extracted.
 if [ ! -f "$S174_FX" ]; then
   ng "174b: citation fixture body absent ($S174_FX) — the per-span classification is unmeasured (#676)"
@@ -3560,3 +3567,138 @@ if [ "$s174d_n" -eq 2 ] && [ -z "$s174d_bad" ]; then
 else
   ng "174d: each authoring command must name lint_citations.sh at a step numbered below its 'Reviewer gate' step and state the report is advisory — checked $s174d_n of 2, offenders:$s174d_bad (#676)"
 fi
+
+# §174e (THE PRINTED SEARCH REPRODUCES ITS OWN RESULT, #677): `normalized` is the
+# one rung whose search is not a `git grep`, and its report used to print rung 1's
+# `git grep` — a command that by construction returns NOTHING, since control
+# reaches rung 2 only because that grep came back empty. So this arm does not read
+# the printed command, it RUNS it: the fixture's `normalized` line names a file and
+# a line number, and its own `search:` line, eval'd from the repo root, must print
+# that same number. The fixture carries the span (a wording lint_bash_idioms.sh
+# holds only across a line wrap) so the class is exercised at all — without it the
+# rung is untested and a non-reproducing search ships green.
+if [ ! -f "$S174_FX" ]; then
+  ng "174e: citation fixture body absent ($S174_FX) — the normalized rung and its printed search are unmeasured (PR #677)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174e: scripts/lint_citations.sh absent — the normalized rung and its printed search are unmeasured (PR #677)"
+else
+  s174e_out="$(bash "$S174_CHECKER" "$S174_FX" 2>/dev/null)"
+  s174e_n=$(printf '%s\n' "$s174e_out" | grep -cF ': normalized — ' || true)
+  s174e_rep=$(printf '%s\n' "$s174e_out" | grep -F ': normalized — ' | head -n 1)
+  s174e_site=$(printf '%s\n' "$s174e_rep" | sed -E 's/^.*: normalized — ([^ :]+):([0-9]+).*$/\1/')
+  s174e_lno=$(printf '%s\n' "$s174e_rep" | sed -E 's/^.*: normalized — ([^ :]+):([0-9]+).*$/\2/')
+  s174e_cmd=$(printf '%s\n' "$s174e_out" \
+    | awk '/: normalized — /{ getline; sub(/^[[:space:]]*search: /, ""); print; exit }')
+  s174e_rerun=""
+  if [ -n "$s174e_cmd" ]; then
+    s174e_rerun=$( ( cd "$SHELL_ROOT" && eval "$s174e_cmd" ) 2>/dev/null | head -n 1)
+  fi
+  if [ "$s174e_n" -eq 1 ] && [ "$s174e_site" = "scripts/lint_bash_idioms.sh" ] \
+     && [ -n "$s174e_lno" ] && [ "$s174e_rerun" = "$s174e_lno" ]; then
+    ok "174e: the fixture exercises the normalized rung once (at scripts/lint_bash_idioms.sh:$s174e_lno) and its printed search, re-run verbatim, returns that same line — the report states a search that reproduces it (PR #677)"
+  else
+    ng "174e: the fixture must report exactly one normalized span at scripts/lint_bash_idioms.sh whose printed 'search:' command, re-run from the repo root, prints the reported line — got n=$s174e_n site=$s174e_site line=$s174e_lno rerun=$s174e_rerun (PR #677)"
+  fi
+fi
+
+# §174f (THE ATTRIBUTED PATH STAYS INSIDE THE TRACKED REPOSITORY, #677): three
+# attributions built in a throwaway repo, each carrying the SAME span verbatim at
+# the place it points to, and none of which the reader may resolve or normalise:
+#   - a `..` traversal to a file outside the repository. Rung 2 read the attributed
+#     file directly, so a body could confirm guesses about any readable path on the
+#     machine ("does this file contain X?"). Must be refused BEFORE the read.
+#   - an untracked file, present in the tree. Rung 1 (git grep) sees only tracked
+#     files, so the verbatim span missed there and rung 2's direct read then
+#     reported `normalized` — a normalisation that never happened.
+#   - git pathspec magic in the attribution. As a rung-1 pathspec it INVERTED the
+#     search into "everywhere but this file" and reported `resolves` for a span
+#     living somewhere else entirely.
+# All three must land on `unresolvable-locally` — a non-defect, so a benign
+# attribution is never converted into a false defect either.
+S174F_DIR=$(mktemp -d)
+S174F_WORK="$S174F_DIR/work"
+S174F_SPAN="the boundary probe span carried verbatim at every attributed site"
+mkdir -p "$S174F_WORK"
+printf '%s\n' "$S174F_SPAN" > "$S174F_DIR/outside.md"
+git init -q "$S174F_WORK" 2>/dev/null
+(
+  cd "$S174F_WORK" || exit 1
+  git config user.email t@t; git config user.name t; git config commit.gpgsign false
+  printf '%s\n' "$S174F_SPAN" > tracked.md
+  printf '%s\n' "$S174F_SPAN" > elsewhere.md
+  printf '%s\n' "$S174F_SPAN" > untracked.md
+  : > ':(exclude,top)tracked.md'
+  git add tracked.md elsewhere.md >/dev/null 2>&1
+  git commit -q -m seed >/dev/null 2>&1
+) >/dev/null 2>&1
+{
+  printf '# boundary probe\n\n'
+  printf -- '- `../outside.md` states *"%s"* — outside the repository.\n' "$S174F_SPAN"
+  printf -- '- `untracked.md` states *"%s"* — present but untracked.\n' "$S174F_SPAN"
+  printf -- '- `:(exclude,top)tracked.md` states *"%s"* — pathspec magic.\n' "$S174F_SPAN"
+} > "$S174F_WORK/probe.md"
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174f: scripts/lint_citations.sh absent — the repository-boundary posture is unmeasured (PR #677)"
+else
+  s174f_out="$(bash "$S174_CHECKER" "$S174F_WORK/probe.md" 2>/dev/null)"
+  s174f_remote=$(printf '%s\n' "$s174f_out" | grep -cF 'unresolvable-locally' || true)
+  s174f_leak=$(printf '%s\n' "$s174f_out" | grep -cE 'normalized|resolves|site-mismatch|unresolved' || true)
+  s174f_untracked=$(printf '%s\n' "$s174f_out" | grep -cF 'the working tree carries but git does not track' || true)
+  if [ "$s174f_remote" -eq 3 ] && [ "$s174f_leak" -eq 0 ] && [ "$s174f_untracked" -eq 1 ]; then
+    ok "174f: a traversal, an untracked file and a pathspec-magic attribution all report unresolvable-locally — nothing outside the tracked repository is read, and the untracked case names its own reason instead of claiming a normalisation (PR #677)"
+  else
+    ng "174f: the three out-of-corpus attributions must all report unresolvable-locally with no resolves/normalized/site-mismatch/unresolved line, and the untracked one must say so — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak untracked-worded=$s174f_untracked (PR #677)"
+  fi
+fi
+rm -rf "$S174F_DIR"
+
+# §174g (ADVISORY POSTURE SURVIVES A CLOSED PIPE, #677): §174c measures the UNPIPED
+# invocation only, and the reader died of SIGPIPE with status 141 the moment a
+# caller read part of the report and stopped (a `head -n 2` on the pipe) — the
+# exit-0 guarantee four artifacts assert, broken by the most ordinary way to read a
+# long report.
+if [ ! -f "$S174_FX" ] || [ ! -f "$S174_CHECKER" ]; then
+  ng "174g: fixture or checker absent — the closed-pipe exit status is unmeasured (PR #677)"
+else
+  bash "$S174_CHECKER" "$S174_FX" 2>/dev/null | head -n 2 >/dev/null
+  s174g_rc=${PIPESTATUS[0]}
+  if [ "$s174g_rc" -eq 0 ]; then
+    ok "174g: the reader still exits 0 when the caller closes the pipe after two lines — SIGPIPE never turns the advisory posture into a 141 (PR #677)"
+  else
+    ng "174g: a piped invocation truncated after two lines must still exit 0 — got $s174g_rc (PR #677)"
+  fi
+fi
+
+# §174h (THE NORMALISING RUNG IS BOUNDED, #677): rung 2 joined the WHOLE attributed
+# file into one awk string, one concatenation per line — quadratic, with no size cap
+# and no timeout. A body citing a large tracked artifact plus a phrase it does not
+# carry stalled the caller for minutes with no human present (measured: 9.6 MB → over
+# 10 minutes). The scan is now a sliding window, linear in file size. The bound below
+# is deliberately loose (a 4 MB file, 20 s) — it separates linear from quadratic by
+# more than an order of magnitude without pinning machine speed.
+S174H_DIR=$(mktemp -d)
+S174H_WORK="$S174H_DIR/work"
+mkdir -p "$S174H_WORK"
+git init -q "$S174H_WORK" 2>/dev/null
+(
+  cd "$S174H_WORK" || exit 1
+  git config user.email t@t; git config user.name t; git config commit.gpgsign false
+  awk 'BEGIN { for (i = 0; i < 60000; i++) print "line " i " of a large generated lock-like artifact with filler words" }' > big.md
+  git add big.md >/dev/null 2>&1
+  git commit -q -m seed >/dev/null 2>&1
+) >/dev/null 2>&1
+printf '# size probe\n\n- `big.md` states *"a phrase this large artifact does not carry at all"* — absent.\n' > "$S174H_WORK/probe.md"
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174h: scripts/lint_citations.sh absent — the normalising rung's cost is unmeasured (PR #677)"
+else
+  s174h_t0=$SECONDS
+  s174h_out="$(bash "$S174_CHECKER" "$S174H_WORK/probe.md" 2>/dev/null)"
+  s174h_el=$(( SECONDS - s174h_t0 ))
+  s174h_cls=$(printf '%s\n' "$s174h_out" | grep -cw 'unresolved' || true)
+  if [ "$s174h_el" -lt 20 ] && [ "$s174h_cls" -eq 1 ]; then
+    ok "174h: a span absent from a 4 MB tracked file is classified in ${s174h_el}s — the normalising rung scans linearly instead of stalling the caller (PR #677)"
+  else
+    ng "174h: the normalising rung must finish a 4 MB tracked file well under 20s and still report the span unresolved — took ${s174h_el}s, unresolved=$s174h_cls (PR #677)"
+  fi
+fi
+rm -rf "$S174H_DIR"
