@@ -1,129 +1,118 @@
 #!/usr/bin/env bash
 # scripts/lint_citations.sh — born-advisory, non-gating citation reader (#676).
-# See SPEC §1.10.
+# The contract is SPEC §1.10; it is referenced here, not restated (§9). What this
+# header carries is the RATIONALE a reader of the code needs — the mechanisms that
+# were demonstrated to break, since each one is a trap the next edit can re-enter.
 #
-# Mechanizes the LEXICAL half of §1.10 part (a) — a quoted span in a
-# durable-artifact body resolves in the FILE it is attributed to — and nothing
-# else. Part (b) (a corpus-quantified claim carries its literal command and
-# output) is reviewer judgment and is deliberately not mechanized; so is a
-# quotation read out of its paragraph, which a lexical reader is blind to by
-# construction.
+# Mechanizes the LEXICAL half of §1.10 part (a) and nothing else. Part (b), and a
+# quotation read out of its paragraph, are reviewer judgment.
 #
-#   1. EXTRACT the body's quoted spans, one line at a time: both `*"…"*` and
-#      plain `"…"`, non-greedy. Fenced code blocks are excluded (an awk ```
-#      toggle — the only multi-line state this reader keeps). Spans under four
-#      words are skipped: below that floor scare-quotes and `${#X}` forms
-#      dominate and every extra finding measured on the corpus was false. Spans
-#      over SPAN_MAX characters are skipped too — a prose quotation is not
-#      hundreds of thousands of characters long, and an over-long one is the
-#      first half of rung 2's cost product (PR #677).
-#   2. ATTRIBUTE each span to the nearest path-shaped inline-code token on the
-#      SAME LINE, preceding-preferred, else nearest following. A bare `:NN`
-#      inherits the last path on that line. There is no paragraph lookback: on
-#      the measured corpus a <=3-lines-back fallback fired twice and was wrong
-#      both times.
-#   3. RESOLVE on a four-rung ladder, stating for each span it classifies the
-#      search it ran:
+#   1. EXTRACT the body's quoted spans, one line at a time: both `*"…"*` and plain
+#      `"…"`, non-greedy. Fenced blocks are excluded (draft text, not body prose).
+#   2. ATTRIBUTE each span to the nearest path-shaped inline-code token on the SAME
+#      LINE, preceding-preferred, else nearest following. A bare `:NN` inherits the
+#      last path on that line. No paragraph lookback: on the measured corpus a
+#      <=3-lines-back fallback fired twice and was wrong both times.
+#   3. RESOLVE on a four-rung ladder, stating the search that produced each result:
 #        (1) `git grep -F` at the attributed path            -> resolves
 #        (2) same path, whitespace/line-wrap normalized       -> normalized
 #        (3) repo-wide, excluding the body's own path         -> site-mismatch
 #        (4) nowhere                                          -> unresolved
-#      §1.10 makes the FILE the binding half of an attribution and a `:NN`
-#      informational, so a line that has drifted is noted, never a defect.
 #
-# CONTAINMENT (PR #677, round 3). The ladder is entered only for an attribution
-# that passes THREE independent tests, because the first two decide different
-# questions than the third:
+# CONTAINMENT — a filesystem question that neither a textual nor an index test
+# decides. Three tests gate the ladder, and the third exists because the first two
+# were demonstrated insufficient (PR #677):
+#   * `in_repo_path` — TEXTUAL. Refuses absolute paths, `..`, pathspec magic, and
+#     `.git/` (which containment would otherwise admit, since it is under the root).
+#   * `tracked_path` — an INDEX test. It holds rung 2 — the one rung that reads a
+#     file directly rather than through `git grep` — to the same tracked corpus
+#     rungs 1 and 3 search, so a verbatim span in an UNTRACKED file can never be
+#     reported as `normalized`, a normalisation that did not happen.
+#   * `phys_path` — a FILESYSTEM test. A tracked symlink to `/etc/passwd` passes
+#     both tests above and `-f` FOLLOWS it, so rung 2 became a confirm-guess oracle
+#     over any readable path; and a tracked leaf whose parent directory was swapped
+#     for an outward symlink passes both too, with rung 1's `git grep` reading
+#     THROUGH it — `git grep` enforces a pathspec boundary, never a filesystem one.
 #
-#   * `in_repo_path` — TEXTUAL. Refuses an absolute path, a `..` component, and
-#     git pathspec magic.
-#   * `tracked_path` — an INDEX test (`git ls-files --error-unmatch` under
-#     `:(literal)`). It holds rung 2 — the one rung that reads a file directly
-#     instead of through `git grep` — to the same tracked corpus rungs 1 and 3
-#     search, so a verbatim span in an UNTRACKED file can never be reported as
-#     `normalized`, a normalisation that did not happen.
-#   * `phys_path` — a FILESYSTEM test. Neither of the above decides a filesystem
-#     question, and two reviewers demonstrated the gap: a tracked `abs.md` whose
-#     index mode is 120000 pointing at `/etc/passwd` passes both tests and `-f`
-#     FOLLOWS the link, so rung 2 became a confirm-guess oracle over any
-#     readable path on the machine; and a tracked `sub/x.md` whose `sub` is
-#     replaced by a symlink in the worktree also passes both, and rung 1's
-#     `git grep` then read THROUGH it — `git grep` enforces a pathspec boundary,
-#     never a filesystem one. So the attributed path is resolved PHYSICALLY and
-#     required to land on a non-symlink leaf under the physical repository root.
+# Every refusal reports `unresolvable-locally`, a NON-defect, so containment cannot
+# manufacture a finding. The filesystem is probed only for a path already textually
+# in-repo AND physically contained: a bare `-e` on an arbitrary attribution is an
+# existence oracle over the machine.
 #
-# A refusal on any of the three lands on `unresolvable-locally` — a non-defect —
-# so containment never manufactures a finding. Whether the *file* exists is
-# probed ONLY for a path that is already textually in-repo AND physically
-# contained: a bare `-e` on an arbitrary attribution is an existence oracle over
-# the machine, which is the thing being denied.
+# TWO RESIDUALS, stated because they are open (PR #677):
+#   * A HARDLINK inside the tree to a file outside it defeats `phys_path` by
+#     construction — no symlink exists for `cd -P` or `-L` to see, so rung 1 reads
+#     outside content through the attributed path. What the physical test closes is
+#     the SYMLINK forms of the author-chosen axis, not the axis.
+#   * Rung 3 is a repo-wide `git grep` over the WORKTREE, so a worktree whose
+#     directory entries have been replaced by symlinks can bring outside content
+#     into that corpus. The file is not author-chosen, but the QUERY is, so it is a
+#     content-confirm oracle over whatever such a link exposes.
+# Both need write access to the developer's own worktree, which `git checkout` will
+# not produce; whoever has it can read those files directly.
 #
-# The residual is stated rather than claimed shut: rung 3 is a repo-wide
-# `git grep` over the worktree, so a worktree whose *directory entries* have been
-# replaced by symlinks can still have content outside the tree entering that
-# corpus. That path is not author-chosen (rung 3 takes no attribution), and it
-# requires write access to the developer's own worktree — whoever has that can
-# read the files directly. The attributed-path axis, which an author DOES choose,
-# is what the physical test closes.
+# BOUNDED COST. Every factor of the reader's cost is capped, and each cap STATES
+# what it skipped — a skipped rung is not a ruled-out one, and a silent cap in a
+# tool whose subject is unstated claims is the defect it exists to catch:
+#   SPAN_MAX         a span too long to be prose             (extraction)
+#   SPAN_COUNT_MAX   more spans than a body plausibly has    (extraction)
+#   BODY_LINE_MAX    a body line long enough to make the extractor's own scan
+#                    quadratic — 4 MB on one line measured 99.5 s in extraction
+#                    alone, and the body is the axis its AUTHOR controls
+#   LINE_MAX         a CITED artifact's absurd line, inside NORM_PROG, whose
+#                    per-record normalisation is quadratic in line length: 4 MB as
+#                    one line measured 66.9 s against 0.28 s as 60 000 lines
+#   R2_BUDGET        total bytes rung 2 may read per run, tested BEFORE the read
+#                    against the file's size, so the bound is exact rather than
+#                    exceeded by one file
+# A closed report pipe also stops the WORK, not only the writing: the reader used
+# to grind for another 10.6 s after its caller had stopped reading.
 #
-# A defect class (site-mismatch / unresolved) is therefore reachable ONLY through
-# an attribution to a tracked, contained file. An attribution to a GitHub
-# artifact (`#N`, an issues/pull URL, a `gh issue`/`gh pr` reference, an adjacent
-# `comment` token) or to anything this reader may not search — untracked, absent,
-# a directory, a symlink, or outside the repository — is `unresolvable-locally`,
-# keyed on the ATTRIBUTION, never on the failure, so this reader never guesses
-# fabricated-vs-remote. A span with no attribution at all is `no-attribution`,
-# grouped into one informational line.
+# STREAMS. stdout carries one report line plus one indented `search:` line, one
+# such PAIR per classified span — except `no-attribution`, whose spans are GROUPED
+# into a single pair. Per-class totals and every cap's skip-note go to STDERR.
 #
-# BOUNDED COST (PR #677, round 3). Rung 2 is the only unbounded rung, and its
-# cost is a PRODUCT — file bytes x span length x span count. The sliding window
-# made a single scan linear in file size; three caps bound the other two factors
-# and the total: SPAN_MAX drops an absurd span at extraction, LINE_MAX (inside
-# NORM_PROG) skips an absurd input LINE, whose per-record normalisation is
-# quadratic in line length — 4 MB as one line measured 66.9 s against 0.28 s as
-# 60 000 lines — and R2_BUDGET caps the total bytes rung 2 may scan per run. When
-# the budget is spent the skip is STATED on the affected report line, because a
-# span that reaches rung 3 with rung 2 skipped has not had a whitespace-only
-# variant ruled out, and the report must not imply otherwise.
+# COUNTING CLASSES: anchor on the `:<line>: <class> — ` prefix, or read the stderr
+# totals. A bare substring search over stdout is FORGEABLE — the attributed path is
+# author-supplied and path-shaped, so an attribution literally named
+# `site-mismatch.md` puts that token on a line whose class is something else. It
+# cannot hide a finding (the counters and the totals are unreachable from body
+# text), but it can inflate a naive count.
 #
-# Advisory by construction: findings print to stdout and the exit code is
-# ALWAYS 0 — this reader never gates a caller (SPEC §6.0 advisory face, the
-# scripts/lint_bash_idioms.sh precedent at §4.5.1). Unreadable input, an absent
-# `git`, or a non-repo prints a `fail-open` sentinel and still exits 0, so a
-# silent no-op can never be mistaken for a clean body.
-#
-# STREAMS: stdout carries one report line plus one indented `search:` line and
-# nothing else — one such PAIR per span for every class except `no-attribution`,
-# whose spans are GROUPED into a single pair naming all of their lines. The
-# per-class totals go to STDERR, so a caller counting classes on stdout counts
-# report lines and never a summary. A caller that closes stdout mid-report gets a
-# TRUNCATED sentinel on stderr (see the trap below), so a cut report is never
-# indistinguishable from a complete one.
+# Advisory by construction: findings print to stdout, the exit code is ALWAYS 0,
+# and this reader never gates a caller (SPEC §6.0 advisory face, the
+# `scripts/lint_bash_idioms.sh` precedent at §4.5.1). Unreadable input, an absent
+# `git`, or a non-repo prints a `fail-open` sentinel and still exits 0, so a silent
+# no-op can never be mistaken for a clean body.
 set -uo pipefail
 
-# SIGPIPE would kill this reader with status 141 the moment a caller closes the
-# pipe (`… | head -2`), contradicting the exit-0-unconditionally contract above.
-# With the signal ignored the write fails and the status stays 0 — but the
-# disposition is inherited across `exec`, so on its own it makes a TRUNCATED
-# report indistinguishable from a complete one: partial stdout, exit 0, nothing
-# marking the cut. Two things restore the distinction (PR #677): every stdout
-# write goes through `emit`, which turns a failed write into a stated sentinel on
-# stderr; and each capture subshell that pipes a child into `head` resets PIPE to
-# its default, so those children still die at the closed pipe rather than running
-# on with a write error.
+# SIGPIPE would kill this reader with status 141 the moment a caller closed the
+# pipe (`… | head -2`), contradicting the exit-0 contract. With the signal ignored
+# the write fails and the status stays 0 — but the disposition is inherited across
+# `exec` and a failed write is silent, so on its own it makes a truncated report
+# indistinguishable from a complete one. Three things restore the distinction:
+# every stdout write goes through `emit`, which states the cut on stderr; the
+# classification loop STOPS at that point; and each capture that pipes a child into
+# `head` resets PIPE to default so the child still dies at the closed pipe.
 trap '' PIPE
 
 # Field separator for the extractor -> classifier channel. Deliberately a
 # NON-whitespace control character: with a tab, `read`'s IFS-whitespace rule
 # collapses a leading empty field and an unattributed span silently lands in the
-# attribution slot, erasing the no-attribution class. A literal US byte in the
-# body itself would misalign the same record, so the extractor neutralises it.
+# attribution slot, erasing the no-attribution class. A literal US byte in the body
+# is neutralised by the extractor so it cannot shift a field either.
 US=$(printf '\037')
 
-# Cost caps (PR #677). Overridable for measurement; the defaults are the contract.
-SPAN_MAX=${GHJIG_CITATION_SPAN_MAX:-1000}          # characters, per span
-R2_BUDGET=${GHJIG_CITATION_R2_BUDGET:-33554432}    # bytes rung 2 may scan per run
+# Cost caps. Overridable for measurement; the defaults are the contract. Each is
+# sanitised because it reaches `$(( ))` — an unsanitised value there is an
+# arithmetic-evaluation injection sink.
+SPAN_MAX=${GHJIG_CITATION_SPAN_MAX:-1000}            # characters, per span
+SPAN_COUNT_MAX=${GHJIG_CITATION_SPAN_COUNT_MAX:-200} # classified spans per body
+BODY_LINE_MAX=${GHJIG_CITATION_BODY_LINE_MAX:-20000} # characters, per body line
+R2_BUDGET=${GHJIG_CITATION_R2_BUDGET:-33554432}      # bytes rung 2 may read per run
 case "$SPAN_MAX" in ''|*[!0-9]*) SPAN_MAX=1000 ;; esac
+case "$SPAN_COUNT_MAX" in ''|*[!0-9]*) SPAN_COUNT_MAX=200 ;; esac
+case "$BODY_LINE_MAX" in ''|*[!0-9]*) BODY_LINE_MAX=20000 ;; esac
 case "$R2_BUDGET" in ''|*[!0-9]*) R2_BUDGET=33554432 ;; esac
 R2_LEFT=$R2_BUDGET
 
@@ -141,76 +130,86 @@ c_noattr=0
 c_total=0
 na_lines=""
 
-# Single-quote a value into a literal, copy-pasteable argv element. The spans
-# carry backticks, `$` and `--`, so every search is built as quoted argv and
-# printed in the same form — never eval'd, never word-split.
+# Single-quote a value into a literal, copy-pasteable argv element. The spans carry
+# backticks, `$` and `--`, so every search is built as quoted argv and printed in
+# the same form — never eval'd, never word-split.
 sq() {
   local s="$1" out
   out=${s//\'/\'\\\'\'}
   printf "'%s'" "$out"
 }
 
-# One stdout line. A failed write means the caller closed the pipe: say so once,
-# on stderr, and stop writing. Without this the ignored SIGPIPE above would make
-# a truncated report read as a clean one (PR #677).
+# One advisory line on stderr. Every cap reports through here.
+note() {
+  printf 'citation note (advisory): %s\n' "$1" >&2
+}
+
+# One stdout line. A failed write means the caller closed the pipe: say so once, on
+# stderr, and stop. `main` then stops classifying — continuing to work for a caller
+# that has stopped reading is the same waste in a different place.
 emit() {
   [ "$TRUNCATED" -eq 0 ] || return 0
   if ! printf '%s\n' "$1" 2>/dev/null; then
     TRUNCATED=1
-    printf 'citation report TRUNCATED: the caller closed the report pipe after %d classified span(s) — the lines below the cut were never written (SPEC §1.10; still advisory, still exit 0)\n' \
+    printf 'citation report TRUNCATED: the caller closed the report pipe after %d classified span(s); the rest of the body was not classified (SPEC §1.10; still advisory, still exit 0)\n' \
       "$c_total" >&2
   fi
 }
 
-# One report line, then the indented `search:` line carrying the literal
-# invocation that produced it, run from ROOT. The tool states the search it ran,
-# not a summary of it (SPEC §1.10 part (b), applied to the tool's own output).
+# One report line, then the indented `search:` line carrying the literal invocation
+# that produced it, run from ROOT. The tool states the search it ran, not a summary
+# of it (SPEC §1.10 part (b), applied to the tool's own output).
 report() {
   emit "$(printf '%s:%s: %s — %s' "$BODY" "$2" "$1" "$3")"
   emit "$(printf '    search: %s' "$4")"
 }
 
-# Rung 2's search, verbatim — the awk program norm_hit runs, kept in a variable
-# so the `search:` line can print the SAME program that produced the result. A
-# rung-2 report used to print rung 1's `git grep`, which by construction returns
-# nothing (control reaches rung 2 only because it did), so the printed command
-# could never reproduce the line it was attached to (PR #677).
+# Rung 2's search, verbatim — the awk program `norm_hit` runs, kept in a variable so
+# the `search:` line can print the SAME program that produced the result. A rung-2
+# report used to print rung 1's `git grep`, which by construction returns nothing
+# (control reaches rung 2 only because it did), so the printed command could never
+# reproduce the line it was attached to (PR #677).
 #
 # Every statement is `;`-terminated, so flattening the program to one line for
-# printing leaves it runnable. The scan is a SLIDING WINDOW, not a whole-file
-# join: the window keeps only as many characters as a match ending at the current
-# line can need, which makes the scan linear in file size instead of quadratic —
-# a 9.6 MB attributed file used to stall the caller for minutes (PR #677).
+# printing leaves it runnable. The scan is a SLIDING WINDOW, not a whole-file join:
+# the window keeps only as many characters as a match ending at the current line can
+# need, making the scan linear in file size instead of quadratic.
 #
-# The per-record normalisation is itself quadratic in the length of ONE line, so
-# a line longer than LINE_MAX is skipped: 4 MB arriving as a single line (a
-# minified bundle, a one-line JSON dump, an inlined SVG) measured 66.9 s where
-# the same bytes as 60 000 lines took 0.28 s. The cost of the cap is that a
-# whitespace-variant match inside such a line is missed; rung 1's `git grep`
-# still finds an exact one there at any size.
+# A line longer than LINE_MAX is skipped and COUNTED, and the count is reported at
+# END when no match was found — without that count the caller cannot tell a genuine
+# miss from a rung that was never attempted on the line that mattered, which turned
+# a `normalized` (non-defect) into an `unresolved` (defect) silently.
 #
 # Continuation lines of a wrapped comment keep a `# ` prefix, so that prefix is
-# stripped before joining — without it a wrapped source misses and `unresolved`
-# over-reports. Prints the 1-based line the match starts on.
+# stripped before joining. Prints the 1-based line the match starts on.
 NORM_PROG='
-BEGIN { s = ENVIRON["SPAN"]; gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); slen = length(s); if (slen == 0) exit; head = 1; tail = 0; abs = 0; buf = ""; LINE_MAX = 65536; }
+BEGIN { s = ENVIRON["SPAN"]; gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); slen = length(s); if (slen == 0) exit; head = 1; tail = 0; abs = 0; buf = ""; found = 0; skipped = 0; LINE_MAX = 65536; }
 {
-if (length($0) > LINE_MAX) next;
+if (length($0) > LINE_MAX) { skipped++; next; };
 l = $0; sub(/^[ \t]*#[ \t]?/, "", l); gsub(/[ \t]+/, " ", l); sub(/^ /, "", l); sub(/ $/, "", l);
 if (l == "") next;
 tail++; ln[tail] = NR;
 if (buf == "") { head = tail; st[tail] = abs; buf = l; } else { st[tail] = abs + length(buf) + 1; buf = buf " " l; };
 p = index(buf, s);
-if (p > 0) { a = abs + p - 1; r = ln[head]; for (i = head; i <= tail; i++) if (st[i] <= a) r = ln[i]; print r; exit; };
+if (p > 0) { a = abs + p - 1; r = ln[head]; for (i = head; i <= tail; i++) if (st[i] <= a) r = ln[i]; print r; found = 1; exit; };
 while (head < tail && length(buf) - (st[head + 1] - abs) >= slen) { o = st[head + 1] - abs; buf = substr(buf, o + 1); delete st[head]; delete ln[head]; head++; abs = st[head]; };
 }
+END { if (found == 0 && skipped > 0) print "skipped-long-lines=" skipped; }
 '
 
 # Rung 2, run. The file operand goes in by redirect, never as an argv element: a
-# path opening with `-` would otherwise be read as an awk option (PR #677).
+# path opening with `-` would otherwise be read as an awk option. awk's own failure
+# is REPORTED rather than swallowed — a discarded error degraded rung 2 to a silent
+# miss, which is the same unstated skip in a portability costume.
 norm_hit() {
-  local f="$1" s="$2"
-  SPAN="$s" awk "$NORM_PROG" < "$f" 2>/dev/null
+  local f="$1" s="$2" out rc
+  out=$(SPAN="$s" awk "$NORM_PROG" < "$f" 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'awk-failed=%d\n' "$rc"
+    return 0
+  fi
+  printf '%s\n' "$out"
 }
 
 # Rung 2, printed — the same program, flattened to the one line the `search:`
@@ -221,92 +220,116 @@ norm_search() {
   printf 'SPAN=%s awk %s < %s' "$(sq "$s")" "$(sq "$prog")" "$(sq "$ap")"
 }
 
-# Is the attribution a plain, repository-relative path? An absolute path, a `..`
-# component, or a leading `:` (git pathspec magic) is refused: downstream either
-# hands a resolved path to a reader or "$ap" to git, and neither may leave the
-# repository (PR #677). Purely textual — see phys_path for the filesystem half.
+# Is the attribution a plain, repository-relative path? Purely textual — see
+# phys_path for the filesystem half. `.git/` is refused here because it IS under the
+# repository root, so containment admits it, and the working-tree probe below would
+# then answer existence questions about the object store.
 in_repo_path() {
   case "$1" in
     "" | /* | :*) return 1 ;;
     ".." | "../"* | *"/.." | *"/../"*) return 1 ;;
+    ".git" | ".git/"* | *"/.git" | *"/.git/"*) return 1 ;;
   esac
   return 0
 }
 
 # Does git track the attribution? `:(literal)` disarms pathspec magic that would
-# otherwise widen or invert the search — a committed `:(exclude)decoy.md`
-# attribution made rung 1 search everything BUT the decoy and report `resolves`
-# for a span living elsewhere (PR #677). An INDEX test only.
+# otherwise widen or invert the search — a committed `:(exclude)decoy.md` attribution
+# made rung 1 search everything BUT the decoy and report `resolves` for a span living
+# elsewhere. An INDEX test only.
 tracked_path() {
   git -C "$ROOT" ls-files --error-unmatch -- ":(literal)$1" >/dev/null 2>&1
 }
 
 # The FILESYSTEM half of containment: resolve the attribution's directory chain
-# physically and print the absolute path only if it stays under the physical root
-# and its leaf is not itself a symlink. Prints nothing (and reads nothing) for
-# anything else — a tracked symlink to `/etc/passwd`, or a tracked path whose
-# parent directory has been swapped for a symlink out of the tree, both pass the
-# textual and index tests and are refused here (PR #677).
+# physically and accept the path only if it stays under the physical root and its
+# leaf is not itself a symlink.
+#
+# Prints its whole answer — `ok:<absolute path>` or `no:<which test refused>` — on
+# ONE channel, because the caller reads it through a command substitution and a
+# subshell cannot set a variable in its parent. A first version of this returned the
+# reason in a global, so the reason was ALWAYS empty, every refusal fell through to
+# the generic wording, and the honest-sentence fix was inert (PR #677).
+#
+# The reason is what makes the wording honest: it used to GUESS ("a symlink, or a
+# path leaving the tree") and was false for a merely-absent parent directory. Each
+# arm below is a test that actually ran.
 phys_path() {
   local ap="$1" d b pd
-  [ -n "$ROOT_P" ] || return 1
+  if [ -z "$ROOT_P" ]; then printf 'no:no-root\n'; return 0; fi
   d=$(dirname -- "$ap")
   b=$(basename -- "$ap")
-  pd=$(cd -P -- "$ROOT_P/$d" 2>/dev/null && pwd -P) || return 1
-  [ -n "$pd" ] || return 1
+  pd=$(cd -P -- "$ROOT_P/$d" 2>/dev/null && pwd -P)
+  if [ -z "$pd" ]; then printf 'no:absent-parent\n'; return 0; fi
   case "$pd/" in
     "$ROOT_P"/*) ;;
-    *) return 1 ;;
+    *) printf 'no:escapes\n'; return 0 ;;
   esac
-  [ ! -L "$pd/$b" ] || return 1
-  printf '%s\n' "$pd/$b"
+  if [ -L "$pd/$b" ]; then printf 'no:symlink\n'; return 0; fi
+  printf 'ok:%s\n' "$pd/$b"
 }
 
-# The honest sentence for an attribution the ladder is not entered for. The arms
-# are keyed on what is TRUE about the path — the index answer plus a directory
-# test — and never on a bare `-e`, which for an uncontained attribution is an
-# existence oracle over the machine. Wording matters here beyond tidiness: this
-# is the tool that ships "state what is true about the file you name", and it
-# used to tell an author "git does not track" a path git demonstrably tracked
-# (PR #677).
+# The honest sentence for an attribution the ladder is not entered for. Every arm
+# states a test that RAN — the index answer, a directory test, or the specific
+# containment refusal `phys_path` reported — and none states a conclusion beyond it.
+# This is the
+# tool that ships "state what is true about the file you name", so the wording is
+# load-bearing, not cosmetic.
 out_of_reach() {
-  local ln="$1" ap="$2" tracked="$3" pp="$4"
+  local ln="$1" ap="$2" tracked="$3" pp="$4" why="$5" msg
   c_remote=$((c_remote + 1))
   if [ -n "$pp" ] && [ -d "$pp" ]; then
-    report unresolvable-locally "$ln" \
-      "attributed to $ap, a directory rather than a file — §1.10 binds a quotation to the file it names, so there is no single file here to resolve it in; not a defect" \
-      "(none — a directory attribution names no file to search)"
-  elif [ "$tracked" = "1" ] && [ -z "$pp" ]; then
-    report unresolvable-locally "$ln" \
-      "attributed to $ap, which git tracks but which does not resolve to a plain file inside this repository — a symlink, or a path leaving the tree; refused before any read, not a defect" \
-      "(none — the attributed path does not resolve to a contained regular file)"
+    msg="attributed to $ap, which resolves to a directory, not a file — §1.10 binds a quotation to the file it names, so there is no single file here to resolve it in; not a defect"
   elif [ "$tracked" = "1" ]; then
-    report unresolvable-locally "$ln" \
-      "attributed to $ap, which git tracks but the working tree does not carry as a readable regular file — out of this reader's reach, not a defect" \
-      "(none — the tracked path is not a readable regular file in the working tree)"
+    case "$why" in
+      symlink)
+        msg="attributed to $ap, which git tracks, but the working-tree entry there is a symlink and this reader does not follow one — refused before any read, not a defect" ;;
+      escapes)
+        msg="attributed to $ap, which git tracks, but its directory chain resolves physically to a path outside this repository — refused before any read, not a defect" ;;
+      absent-parent)
+        msg="attributed to $ap, which git tracks, but its parent directory is not present in the working tree, so there is nothing at that path to read — not a defect" ;;
+      *)
+        msg="attributed to $ap, which git tracks, but the working tree does not carry it as a readable regular file — out of this reader's reach, not a defect" ;;
+    esac
   elif [ -n "$pp" ] && [ -e "$pp" ]; then
-    report unresolvable-locally "$ln" \
-      "attributed to $ap, which the working tree carries but git does not track — this reader searches tracked files only, so it is out of reach, not a defect" \
-      "(none — an untracked path is outside the tracked corpus this reader searches)"
+    # Both halves are tests that ran, and they can disagree: on a case-insensitive
+    # filesystem `TRACKED.md` exists while the index refuses that spelling. The
+    # sentence states the two results and names the disagreement rather than
+    # concluding that the file is untracked.
+    msg="attributed to $ap, where the working tree has an entry but \`git ls-files --error-unmatch\` refuses that path, so it is outside the tracked corpus this reader searches — on a case-insensitive filesystem the two can disagree about the same file; either way, not a defect"
   else
-    report unresolvable-locally "$ln" \
-      "attributed to $ap, which is not a tracked path in this repository — out of this reader's reach, not a defect" \
-      "(none — nothing local to search)"
+    msg="attributed to $ap, which is not a tracked path in this repository — out of this reader's reach, not a defect"
   fi
+  report unresolvable-locally "$ln" "$msg" "(none — the attributed path is outside the corpus this reader searches)"
 }
 
 # The extractor. Emits one US-separated record per kept span:
 #   <body line>US<attributed path>US<cited :NN>US<github-artifact flag>US<span>
+# Every skip it performs is counted and stated at END.
 extract() {
-  awk -v US="$US" -v spanmax="$SPAN_MAX" '
-    # A fenced block quotes draft text, not body prose — never extracted.
-    /^[ \t]*(```|~~~)/ { fence = 1 - fence; next }
-    fence { next }
+  awk -v US="$US" -v spanmax="$SPAN_MAX" -v spancountmax="$SPAN_COUNT_MAX" \
+      -v bodylinemax="$BODY_LINE_MAX" '
+    # A fenced block quotes draft text, not body prose — never extracted. The
+    # delimiter run is matched by CHARACTER and LENGTH, not parity: CommonMark closes
+    # an N-backtick fence only with >= N backticks, so a 4-backtick block wrapping a
+    # literal ``` line — the ordinary way to document fenced markdown, which this
+    # corpus does constantly — is three hits on a parity toggle and silently voided
+    # the check for the whole rest of the body.
+    match($0, /^[ \t]*(```+|~~~+)/) {
+      tok = substr($0, RSTART, RLENGTH); sub(/^[ \t]+/, "", tok)
+      fenced++
+      if (!fence) { fence = 1; fch = substr(tok, 1, 1); flen = length(tok); fline = NR }
+      else if (substr(tok, 1, 1) == fch && length(tok) >= flen) { fence = 0 }
+      next
+    }
+    fence { fenced++; next }
+    # A body line long enough to make the scan below quadratic in its own length.
+    length($0) > bodylinemax { longline++; next }
     {
       line = $0
-      # A literal US byte in the body would shift a span into or out of the
-      # attribution slot of the record below. Neutralised to a space, which
-      # preserves every column offset computed from `line` (PR #677).
+      # A literal US byte would shift a span into or out of the attribution slot of
+      # the record below. Neutralised to a space, which preserves every column offset
+      # computed from `line`.
       gsub(/\037/, " ", line)
       ntok = 0; lastpath = ""
       rest = line; base = 0
@@ -330,15 +353,16 @@ extract() {
         }
         p = tok; cited = ""
         if (match(p, /:[0-9]+$/)) { cited = substr(p, RSTART + 1); p = substr(p, 1, RSTART - 1) }
-        # Path-shaped: no whitespace, and either a directory separator or a
-        # trailing extension. `#676`, `${#X}` and prose in backticks miss.
+        # Path-shaped: no whitespace, and either a directory separator or a trailing
+        # extension. `#676`, `${#X}` and prose in backticks miss.
         if (p != "" && p !~ /[ \t]/ && (index(p, "/") > 0 || p ~ /\.[A-Za-z0-9]+$/)) {
           lastpath = p
           ntok++; ts[ntok] = start; tp[ntok] = p; tl[ntok] = cited
         }
       }
-      # GitHub-artifact markers on the line — consulted only when no path
-      # attribution was found, so a real path always wins.
+      # GitHub-artifact markers on the line — consulted only when no path attribution
+      # was found, so a real path always wins and this can never convert a defect
+      # into a non-defect.
       gh = 0
       if (line ~ /(^|[^A-Za-z0-9_])#[0-9]+/) gh = 1
       if (line ~ /github\.com\/[^ )]*\/(issues|pull)\//) gh = 1
@@ -360,9 +384,9 @@ extract() {
         sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t)
         if (t == "") continue
         if (split(t, W, /[ \t]+/) < 4) continue   # the four-word floor
-        # …and the ceiling: an over-long span is the first factor of rung 2s
-        # cost product, and no prose quotation reaches it (PR #677).
         if (length(t) > spanmax) { toolong++; continue }
+        kept++
+        if (kept > spancountmax) { over++; continue }
         ai = 0
         for (k = 1; k <= ntok; k++) if (ts[k] < sstart) ai = k       # nearest preceding
         if (ai == 0) for (k = 1; k <= ntok; k++) if (ts[k] > sstart) { ai = k; break }
@@ -370,96 +394,138 @@ extract() {
       }
     }
     END {
-      if (toolong > 0) {
-        printf "citation note (advisory): %d span(s) over %d characters were not classified — over-long spans are skipped to bound the normalising rung (SPEC §1.10)\n", toolong, spanmax > "/dev/stderr"
-      }
+      pre = "citation note (advisory): "
+      if (toolong > 0)
+        printf "%s%d span(s) over %d characters were not classified — an over-long span is not prose, and it is one factor of the normalising rung s cost (SPEC §1.10)\n", pre, toolong, spanmax > "/dev/stderr"
+      if (over > 0)
+        printf "%s%d span(s) beyond the first %d were not classified — the per-span cost is a git process, so span count is capped (SPEC §1.10)\n", pre, over, spancountmax > "/dev/stderr"
+      if (longline > 0)
+        printf "%s%d body line(s) over %d characters were not scanned for spans — the scan is quadratic in one line s length (SPEC §1.10)\n", pre, longline, bodylinemax > "/dev/stderr"
+      if (fenced > 0)
+        printf "%s%d line(s) inside fenced blocks were not scanned for spans — fenced text is draft, not body prose (SPEC §1.10)\n", pre, fenced > "/dev/stderr"
+      if (fence != 0)
+        printf "%sthe fenced block opened at line %d is never closed, so the %d line(s) after it were treated as fenced and not scanned for spans (SPEC §1.10)\n", pre, fline, NR - fline > "/dev/stderr"
     }
   ' < "$1"
 }
 
+# Rungs 1 through 4, for an attribution already known to be tracked, contained and
+# readable. `pp` is the physically-resolved leaf; `ap` is the ROOT-relative path the
+# printed searches use.
+run_ladder() {
+  local ln="$1" ap="$2" al="$3" span="$4" pp="$5"
+  local qspan qpath searchcmd out hitline nline drift first nsites extra fsize nout r2note=""
+
+  qspan=$(sq "$span")
+  qpath=$(sq ":(literal)$ap")
+  # Rung 1 — literal, at the attributed path. `-I` keeps a binary file out: without
+  # it `git grep` answers "Binary file X matches", which has no line number, and the
+  # report parsed that sentence as one. PIPE is reset inside the capture so `git grep`
+  # still dies at `head`'s closed pipe.
+  searchcmd="git grep -I -F -h -n -e $qspan -- $qpath"
+  out=$( trap - PIPE; git -C "$ROOT" grep -I -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
+  if [ -n "$out" ]; then
+    hitline=${out%%:*}
+    drift=""
+    if [ -n "$al" ] && [ "$al" != "$hitline" ]; then
+      drift=" (cited :$al, carried at :$hitline — line drift; the file is the binding half, §1.10)"
+    fi
+    c_resolves=$((c_resolves + 1))
+    report resolves "$ln" "$ap:$hitline$drift" "$searchcmd"
+    return
+  fi
+
+  # Rung 2 — same path, whitespace and line-wrap normalized. Informational, and
+  # reported with its OWN search, since rung 1's returned nothing. The budget is
+  # tested against this file's size BEFORE the read, so the stated bound is the bound
+  # in force; the consequence — a single file larger than the whole remaining budget
+  # is never normalised — is stated on the line it affects rather than hidden.
+  nline=""
+  fsize=$(wc -c < "$pp" 2>/dev/null | tr -d ' ')
+  case "$fsize" in ''|*[!0-9]*) fsize=0 ;; esac
+  if [ "$fsize" -le "$R2_LEFT" ]; then
+    R2_LEFT=$((R2_LEFT - fsize))
+    nout=$(norm_hit "$pp" "$span")
+    case "$nout" in
+      '') ;;
+      skipped-long-lines=*)
+        r2note=" (the normalising rung skipped ${nout#*=} line(s) over 65536 characters in $ap, so a whitespace-only variant on such a line is NOT ruled out)" ;;
+      awk-failed=*)
+        r2note=" (the normalising rung could not run — awk exited ${nout#*=} — so a whitespace-only variant is NOT ruled out)" ;;
+      *) nline="$nout" ;;
+    esac
+  else
+    r2note=" (the normalising rung was not run — $ap is larger than this run's remaining rung-2 byte budget — so a whitespace-only variant is NOT ruled out)"
+  fi
+  if [ -n "$nline" ]; then
+    drift=""
+    if [ -n "$al" ] && [ "$al" != "$nline" ]; then
+      drift=" (cited :$al)"
+    fi
+    c_normalized=$((c_normalized + 1))
+    report normalized "$ln" \
+      "$ap:$nline$drift — matched only after whitespace/line-wrap normalisation; informational, not a defect" \
+      "$(norm_search "$ap" "$span")"
+    return
+  fi
+
+  # Rung 3 — repo-wide, minus the body itself. A committed body is tracked, so
+  # without the self-exclusion a fabricated span hits itself and reports as a
+  # site-mismatch it is not. The capture is bounded: a span matching hundreds of
+  # thousands of lines used to be held whole in a shell variable.
+  if [ -n "$RELBODY" ]; then
+    searchcmd="git grep -I -F -n -e $qspan -- $(sq ":(exclude,top,literal)$RELBODY")"
+    out=$( trap - PIPE; git -C "$ROOT" grep -I -F -n -e "$span" -- ":(exclude,top,literal)$RELBODY" 2>/dev/null | head -n 51 )
+  else
+    searchcmd="git grep -I -F -n -e $qspan"
+    out=$( trap - PIPE; git -C "$ROOT" grep -I -F -n -e "$span" 2>/dev/null | head -n 51 )
+  fi
+  if [ -n "$out" ]; then
+    first=$(printf '%s\n' "$out" | head -1 | cut -d: -f1,2)
+    nsites=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+    extra=""
+    if [ "$nsites" -gt 50 ]; then
+      extra=" (+50 or more other site(s))"
+    elif [ "$nsites" -gt 1 ]; then
+      extra=" (+$((nsites - 1)) other site(s))"
+    fi
+    c_mismatch=$((c_mismatch + 1))
+    report site-mismatch "$ln" \
+      "the wording is real but $ap does not carry it; it is carried at $first$extra$r2note" \
+      "$searchcmd"
+  else
+    # Rung 4.
+    c_unresolved=$((c_unresolved + 1))
+    report unresolved "$ln" \
+      "attributed to $ap, and no file in the tree carries the span$r2note" \
+      "$searchcmd"
+  fi
+}
+
+# Containment triage: decide which corpus this span's attribution belongs to, then
+# either run the ladder on it or say why it is out of reach.
 classify() {
   local ln="$1" ap="$2" al="$3" gh="$4" span="$5"
-  local qspan qpath searchcmd out hitline nline note first nsites extra
-  local tracked=0 pp="" fsize r2note=""
+  local tracked=0 pp="" why="" ppr
 
   c_total=$((c_total + 1))
-  qspan=$(sq "$span")
 
   if [ -n "$ap" ]; then
     if in_repo_path "$ap"; then
       tracked_path "$ap" && tracked=1
-      pp=$(phys_path "$ap") || pp=""
+      ppr=$(phys_path "$ap")
+      case "$ppr" in
+        ok:*) pp=${ppr#ok:} ;;
+        *) why=${ppr#no:} ;;
+      esac
+    else
+      why="refused-textually"
     fi
     if [ "$tracked" = "1" ] && [ -n "$pp" ] && [ -f "$pp" ] && [ -r "$pp" ]; then
-      qpath=$(sq ":(literal)$ap")
-      # Rung 1 — literal, at the attributed path. PIPE is reset inside the
-      # capture so `git grep` still dies at `head`'s closed pipe (PR #677).
-      searchcmd="git grep -F -h -n -e $qspan -- $qpath"
-      out=$( trap - PIPE; git -C "$ROOT" grep -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
-      if [ -n "$out" ]; then
-        hitline=${out%%:*}
-        note=""
-        if [ -n "$al" ] && [ "$al" != "$hitline" ]; then
-          note=" (cited :$al, carried at :$hitline — line drift; the file is the binding half, §1.10)"
-        fi
-        c_resolves=$((c_resolves + 1))
-        report resolves "$ln" "$ap:$hitline$note" "$searchcmd"
-        return
-      fi
-      # Rung 2 — same path, whitespace and line-wrap normalized. Informational,
-      # and reported with its OWN search, since rung 1's returned nothing. Held
-      # to the run's byte budget; a skip is stated on whatever line results.
-      nline=""
-      if [ "$R2_LEFT" -gt 0 ]; then
-        fsize=$(wc -c < "$pp" 2>/dev/null | tr -d ' ')
-        case "$fsize" in ''|*[!0-9]*) fsize=0 ;; esac
-        R2_LEFT=$((R2_LEFT - fsize))
-        nline=$(norm_hit "$pp" "$span")
-      else
-        r2note=" (the normalising rung was skipped — this run's rung-2 byte budget is spent, so a whitespace-only variant of this span is NOT ruled out)"
-      fi
-      if [ -n "$nline" ]; then
-        note=""
-        if [ -n "$al" ] && [ "$al" != "$nline" ]; then
-          note=" (cited :$al)"
-        fi
-        c_normalized=$((c_normalized + 1))
-        report normalized "$ln" \
-          "$ap:$nline$note — matched only after whitespace/line-wrap normalisation; informational, not a defect" \
-          "$(norm_search "$ap" "$span")"
-        return
-      fi
-      # Rung 3 — repo-wide, minus the body itself. A committed body is tracked, so
-      # without the self-exclusion a fabricated span hits itself and reports as a
-      # site-mismatch it is not.
-      if [ -n "$RELBODY" ]; then
-        searchcmd="git grep -F -n -e $qspan -- $(sq ":(exclude,top,literal)$RELBODY")"
-        out=$(git -C "$ROOT" grep -F -n -e "$span" -- ":(exclude,top,literal)$RELBODY" 2>/dev/null)
-      else
-        searchcmd="git grep -F -n -e $qspan"
-        out=$(git -C "$ROOT" grep -F -n -e "$span" 2>/dev/null)
-      fi
-      if [ -n "$out" ]; then
-        first=$(printf '%s\n' "$out" | head -1 | cut -d: -f1,2)
-        nsites=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
-        extra=""
-        if [ "$nsites" -gt 1 ]; then
-          extra=" (+$((nsites - 1)) other site(s))"
-        fi
-        c_mismatch=$((c_mismatch + 1))
-        report site-mismatch "$ln" \
-          "the wording is real but $ap does not carry it; it is carried at $first$extra$r2note" \
-          "$searchcmd"
-      else
-        # Rung 4.
-        c_unresolved=$((c_unresolved + 1))
-        report unresolved "$ln" \
-          "attributed to $ap, and no file in the tree carries the span$r2note" \
-          "$searchcmd"
-      fi
-      return
+      run_ladder "$ln" "$ap" "$al" "$span" "$pp"
+    else
+      out_of_reach "$ln" "$ap" "$tracked" "$pp" "$why"
     fi
-    out_of_reach "$ln" "$ap" "$tracked" "$pp"
     return
   fi
 
@@ -480,7 +546,7 @@ fail_open() {
 }
 
 main() {
-  local bodydir line ap al gh span
+  local bodydir bodyroot line ap al gh span
 
   if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
     echo "usage: lint_citations.sh <proposed-body.md>" >&2
@@ -496,17 +562,17 @@ main() {
     fail_open "git is not available"
     return 0
   fi
-  # `--` on both: a body path opening with `-` would otherwise be read as an
-  # option, ROOT would silently fall back to the cwd's repo, and the documented
-  # rung-3 self-exclusion would vanish (PR #677). `-P`/`pwd -P` for the same
-  # reason one step further in: a LOGICAL cwd made the body's directory a
-  # non-prefix of git's physical top level, RELBODY came out empty, and a wholly
-  # fabricated span then matched the body itself and reported `site-mismatch`
-  # citing that body — §1.10's discriminator, backwards. Reproduced on macOS with
-  # no symlink of one's own, since `/var` is one.
+  # `--` on both: a body path opening with `-` would otherwise be read as an option,
+  # ROOT would silently fall back to the cwd's repo, and the documented rung-3
+  # self-exclusion would vanish. `-P`/`pwd -P` for the same reason one step further
+  # in: a LOGICAL cwd made the body's directory a non-prefix of git's physical top
+  # level, RELBODY came out empty, and a wholly fabricated span then matched the body
+  # itself and reported `site-mismatch` — §1.10's discriminator, backwards.
+  # Reproduced on macOS with no symlink of one's own, since `/var` is one.
   bodydir=$(cd -P -- "$(dirname -- "$BODY")" 2>/dev/null && pwd -P)
   if [ -n "$bodydir" ]; then
-    ROOT=$(git -C "$bodydir" rev-parse --show-toplevel 2>/dev/null)
+    bodyroot=$(git -C "$bodydir" rev-parse --show-toplevel 2>/dev/null)
+    ROOT="$bodyroot"
   fi
   if [ -z "$ROOT" ]; then
     ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -517,14 +583,19 @@ main() {
   fi
   ROOT_P=$(cd -P -- "$ROOT" 2>/dev/null && pwd -P)
   [ -n "$ROOT_P" ] || ROOT_P="$ROOT"
-  # git's own answer for "where is this file, relative to the top level", which
-  # is immune to the logical/physical mismatch above.
-  if [ -n "$bodydir" ]; then
+  # The self-exclusion pathspec is set ONLY when the body's own repository is the one
+  # being searched. A body outside any repo fell back to the cwd's repo, and a bare
+  # basename was then excluded from rung 3 — an unrelated tracked file sharing that
+  # basename, so a real site-mismatch was reported `unresolved`. Empty is the safe
+  # value: rung 3 searches ROOT's tracked files, and a body outside ROOT is by
+  # construction not among them, so no self-hit is possible without the exclusion.
+  if [ -n "$bodydir" ] && [ -n "${bodyroot:-}" ] && [ "$bodyroot" = "$ROOT" ]; then
     RELBODY="$(git -C "$bodydir" rev-parse --show-prefix 2>/dev/null)$(basename -- "$BODY")"
   fi
 
   emit "$(printf '# citation report: %s (SPEC §1.10 part (a) — advisory, exit 0 always)' "$BODY")"
   while IFS="$US" read -r line ap al gh span; do
+    [ "$TRUNCATED" -eq 0 ] || break
     [ -n "$span" ] || continue
     classify "$line" "$ap" "$al" "$gh" "$span"
   done < <(extract "$BODY")
@@ -535,8 +606,9 @@ main() {
     emit '    search: (none — a span with no attributed file has nothing to search against)'
   fi
 
-  # Totals on stderr: stdout stays report lines + search lines only, so a caller
-  # can count classes there without subtracting a summary.
+  # Totals on stderr: no author-supplied text reaches this line, so it is the
+  # authoritative count when a report line's own class token could be shadowed by an
+  # attributed path named after a class.
   printf 'citation totals (advisory): %d span(s) — resolves=%d normalized=%d site-mismatch=%d unresolved=%d unresolvable-locally=%d no-attribution=%d\n' \
     "$c_total" "$c_resolves" "$c_normalized" "$c_mismatch" "$c_unresolved" "$c_remote" "$c_noattr" >&2
 
@@ -544,6 +616,6 @@ main() {
 }
 
 main "$@"
-# SIGPIPE is ignored above, so a closed stdout leaves a failed write, never a
-# 141 exit. Status is stated once, here.
+# SIGPIPE is ignored above, so a closed stdout leaves a failed write, never a 141
+# exit. Status is stated once, here.
 exit 0
