@@ -607,8 +607,9 @@ export SHIP_PARK_LOG_PATH="$MODE_TMP/unattended-park.log"
   fi
 ) && ok "mode: unattended + clean → merge" || ng "mode: unattended + clean should decide merge (ship_mode.sh missing or wrong)"
 
-# A `gh` shim on PATH, shared by every arm that calls `ship_park_pr` (§11c, §11h,
-# and the whitespace arm below). It must be defined HERE, above the first of them:
+# A `gh` shim on PATH, used by the two arms that call `ship_park_pr` for its own
+# sake (§11c and §11h — the whitespace arm below builds its own, `GH_SHIM_PAD_DIR`,
+# because it tests padded label output). It must be defined HERE, above the first:
 # `ship_park_pr` decides between its fresh-park and repeat-park branches by reading
 # the CURRENT BRANCH's PR labels through real `gh`, so an arm that runs unstubbed is
 # reporting on whether the shell's own open PR happens to carry `unattended-parked`
