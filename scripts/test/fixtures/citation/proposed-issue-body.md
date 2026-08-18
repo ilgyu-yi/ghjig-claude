@@ -21,8 +21,9 @@ Per span, left to right: the attribution, then what the reader must return.
 Spans 6 and 8 are the two silent bounds: each lands as a second defect line if
 the four-word floor or the fence exclusion is dropped -- span 6 as a second
 unresolved, span 8 as a second site-mismatch (its wording is carried by the smoke
-file that asserts it is never extracted) -- so 174b's defect counts measure both. This comment carries no quotation marks on purpose --
-the reader extracts by delimiter and does not special-case HTML comments.
+file that asserts it is never extracted) -- so 174b's defect counts measure both.
+This comment carries no quotation marks on purpose: the reader extracts by
+delimiter and does not special-case HTML comments.
 -->
 
 ## What

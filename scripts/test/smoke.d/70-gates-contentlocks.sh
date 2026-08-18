@@ -3414,7 +3414,7 @@ fi
 # passes. `scripts/lint_citations.sh` mechanizes the lexical half of part (a) and is
 # born advisory (§6.0 P3): it prints findings and exits 0 unconditionally.
 #
-# §174a is a Doc lock over SPEC §1.10. §174b–§174j exercise the reader through its
+# §174a is a Doc lock over SPEC §1.10. §174b–§174k exercise the reader through its
 # CLI, which is the surface both authoring commands use, so an arm cannot green on a
 # code path the commands do not take.
 #
@@ -3423,27 +3423,32 @@ fi
 # the printed search must reproduce its own result, the attributed path must stay
 # inside the physically-resolved repository, the closed-pipe posture must hold and be
 # stated, every factor of the cost must be bounded, and the body's own path must be
-# resolved so the rung-3 self-exclusion cannot silently vanish. §174j is the
-# anti-silence arm: every bound the reader reaches, it must SAY it reached.
+# resolved so the rung-3 self-exclusion cannot silently vanish. §174j and §174k are the
+# two anti-silence arms: every bound the reader reaches it must SAY it reached, and a
+# producer that dies must say that too rather than leaving a clean-looking report.
 #
 # The discriminator is §174b's site-mismatch assertion: an existence-anywhere check
 # reports that span as resolving, so a reader that greens §174b is doing the job the
 # rule names.
 #
-# COUNTING DISCIPLINE (PR #677): every count below is ANCHORED on the class field via
-# `s174_count`. A bare substring count over stdout is forgeable — the attributed path
-# is author-supplied and path-shaped, so a body attributing a span to a file literally
-# named `site-mismatch.md` puts that token on a line whose class is something else. It
-# cannot hide a finding, but an arm that counted naively could be inflated by body
-# text, which would make these assertions measure the fixture instead of the reader.
+# COUNTING DISCIPLINE (PR #677): every count below goes through `s174_count`, which
+# anchors at COLUMN 0. Two things on the reader's stdout are author-supplied: the
+# attributed path (path-shaped, so a body citing a file named `site-mismatch.md` puts
+# that token on a line whose class is something else) and the SPAN, echoed verbatim into
+# the INDENTED `search:` line, where it can carry a whole forged `…:3: resolves — …`
+# sequence. A count anchored only on `:<line>: <class>` was measured returning 1 where
+# the reader's own stderr totals said 0 — so the anchor must exclude the indented line,
+# which is exactly what column 0 does. Nothing can SUPPRESS a count; the risk is an arm
+# that measures the fixture's text instead of the reader's behaviour.
 S174_SPEC="$SHELL_ROOT/SPEC.md"
 S174_CHECKER="$SHELL_ROOT/scripts/lint_citations.sh"
 S174_FX="$SHELL_ROOT/scripts/test/fixtures/citation/proposed-issue-body.md"
 S174_ABSENT="$SHELL_ROOT/scripts/test/fixtures/citation/no-such-body.md"
 S174_CMDS=("$SHELL_ROOT/.claude/commands/file-directive.md" "$SHELL_ROOT/.claude/commands/file-issue.md")
 
-# Anchored class count: s174_count <class> "<reader stdout>"
-s174_count() { printf '%s\n' "$2" | grep -cE ":[0-9]+: $1 — " || true; }
+# Anchored class count: s174_count <class> "<reader stdout>". Column 0 is load-bearing
+# — see COUNTING DISCIPLINE above.
+s174_count() { printf '%s\n' "$2" | grep -cE "^[^[:space:]].*:[0-9]+: $1 — " || true; }
 
 # §174a (DOC LOCK, AC4): SPEC §1.10 exists and states BOTH parts with their
 # load-bearing halves — part (a) at FILE granularity including the site-mismatch
@@ -3485,15 +3490,20 @@ else
   s174b_res=$(s174_count 'resolves' "$s174b_out")
   s174b_gh=$(s174_count 'unresolvable-locally' "$s174b_out")
   s174b_na=$(printf '%s\n' "$s174b_out" | grep -cF 'no-attribution — ' || true)
-  s174b_search=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search:.*git grep -I -F' || true)
+  # Rung 1 runs WITHOUT -I and rung 3 WITH it, deliberately: the attributed file is
+  # author-chosen so "does the file you named carry this" must be answered even for a
+  # file git calls binary, while the repo-wide provenance sweep is over text. Both
+  # shapes are pinned, so dropping either flag reddens this arm.
+  s174b_search=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search: git grep -F -h -n' || true)
+  s174b_search3=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search: git grep -I -F -n' || true)
   s174b_fenced=$(printf '%s\n' "$s174b_out" | grep -cF 'the wording blended from two sources in the parked draft' || true)
   if [ "$s174b_mm" -eq 1 ] && [ "$s174b_mm_site" -eq 1 ] \
      && [ "$s174b_un" -eq 1 ] && [ "$s174b_un_site" -eq 1 ] \
      && [ "$s174b_res" -ge 2 ] && [ "$s174b_gh" -ge 1 ] && [ "$s174b_na" -ge 1 ] \
-     && [ "$s174b_search" -ge 1 ] && [ "$s174b_fenced" -eq 0 ]; then
+     && [ "$s174b_search" -ge 1 ] && [ "$s174b_search3" -ge 1 ] && [ "$s174b_fenced" -eq 0 ]; then
     ok "174b: lint_citations.sh classifies the fixture per span — 1 site-mismatch at lint_bash_idioms.sh, 1 unresolved at issue-reviewer.md, both clean spans resolve, GitHub-attributed and unattributed spans stay non-defects, fenced text unread (#676)"
   else
-    ng "174b: the fixture body must report exactly one site-mismatch (at scripts/lint_bash_idioms.sh) and one unresolved (at .claude/agents/issue-reviewer.md), >=2 resolves, >=1 unresolvable-locally, >=1 no-attribution, >=1 indented 'search:' git grep -I -F line, and 0 hits from the fenced block — got site-mismatch=$s174b_mm/site=$s174b_mm_site unresolved=$s174b_un/site=$s174b_un_site resolves=$s174b_res unresolvable-locally=$s174b_gh no-attribution=$s174b_na search=$s174b_search fenced=$s174b_fenced (#676)"
+    ng "174b: the fixture body must report exactly one site-mismatch (at scripts/lint_bash_idioms.sh) and one unresolved (at .claude/agents/issue-reviewer.md), >=2 resolves, >=1 unresolvable-locally, >=1 no-attribution, >=1 rung-1 'search: git grep -F -h -n' line, >=1 rung-3 'search: git grep -I -F -n' line, and 0 hits from the fenced block — got site-mismatch=$s174b_mm/site=$s174b_mm_site unresolved=$s174b_un/site=$s174b_un_site resolves=$s174b_res unresolvable-locally=$s174b_gh no-attribution=$s174b_na search1=$s174b_search search3=$s174b_search3 fenced=$s174b_fenced (#676)"
   fi
 fi
 
@@ -3618,12 +3628,14 @@ fi
 #     reads through is rung 1's `git grep`, which falsified the premise that the git
 #     rungs are boundary-safe: git enforces a pathspec boundary, never a filesystem
 #     one.
-#   - two `.git/` attributions, one present and one absent. `.git/` IS under the
-#     repository root, so physical containment admits it, and the working-tree probe
-#     that picks the out-of-reach wording then answered existence questions about the
-#     object store. Both must produce the SAME sentence — an oracle is a difference,
-#     so identity is the assertion.
-# All seven land on `unresolvable-locally` — a non-defect, so a benign attribution is
+#   - four `.git/` attributions: present and absent, each in lowercase and CASE-VARIED.
+#     `.git/` IS under the repository root, so physical containment admits it, and the
+#     working-tree probe that picks the out-of-reach wording then answered existence
+#     questions about the object store. The refusal was case-sensitive while the
+#     filesystem this shell runs on is not, so `.GIT/config` walked around it. All four
+#     must produce the SAME sentence — an oracle is a difference, so identity is one
+#     assertion here, but NOT the only one: see the mutation lock below.
+# All nine land on `unresolvable-locally` — a non-defect, so a benign attribution is
 # never converted into a false defect either — while the control still resolves.
 S174F_DIR=$(mktemp -d 2>/dev/null)
 S174F_SPAN="the boundary probe span carried verbatim at every attributed site"
@@ -3661,6 +3673,8 @@ else
     printf -- '- `sub/x.md` states *"%s"* — a tracked leaf under a swapped directory.\n' "$S174F_SPAN"
     printf -- '- `.git/config` states *"%s"* — an object-store path that exists.\n' "$S174F_SPAN"
     printf -- '- `.git/definitely-absent-xyz` states *"%s"* — an object-store path that does not.\n' "$S174F_SPAN"
+    printf -- '- `.GIT/config` states *"%s"* — the same path, case-varied, which exists.\n' "$S174F_SPAN"
+    printf -- '- `.GIT/definitely-absent-xyz` states *"%s"* — the same, case-varied, absent.\n' "$S174F_SPAN"
     printf -- '- `tracked.md` states *"%s"* — the ordinary in-tree control.\n' "$S174F_SPAN"
   } > "$S174F_WORK/probe.md"
   s174f_out="$(bash "$S174_CHECKER" "$S174F_WORK/probe.md" 2>/dev/null)"
@@ -3670,15 +3684,27 @@ else
   s174f_ctl=$(printf '%s\n' "$s174f_out" | grep -E ':[0-9]+: resolves — ' | grep -cF 'tracked.md' || true)
   # The two `.git/` lines must be identical apart from the path they name: strip the
   # path and require one distinct sentence, so an existence difference cannot hide.
-  s174f_gitsent=$(printf '%s\n' "$s174f_out" | grep -E ':[0-9]+: unresolvable-locally — attributed to \.git/' \
-    | sed -E 's/^.*:[0-9]+: /<body>: /; s/attributed to \.git\/[^,]*,/attributed to <path>,/' | sort -u | wc -l | tr -d ' ')
-  s174f_gitn=$(printf '%s\n' "$s174f_out" | grep -cE ':[0-9]+: unresolvable-locally — attributed to \.git/' || true)
-  if [ "$s174f_remote" -eq 7 ] && [ "$s174f_leak" -eq 0 ] \
+  s174f_gitsent=$(printf '%s\n' "$s174f_out" | grep -iE ':[0-9]+: unresolvable-locally — attributed to \.git/' \
+    | sed -E 's/^.*:[0-9]+: /<body>: /; s/attributed to \.[gG][iI][tT]\/[^,]*,/attributed to <path>,/' | sort -u | wc -l | tr -d ' ')
+  s174f_gitn=$(printf '%s\n' "$s174f_out" | grep -ciE ':[0-9]+: unresolvable-locally — attributed to \.git/' || true)
+  # THE MUTATION LOCK. Identity of two sentences is NOT enough on its own: a build in
+  # which every refusal degrades to one generic sentence satisfies identity trivially,
+  # and that is exactly the inert-reason regression a reviewer re-introduced while all
+  # ten arms of this section stayed green. So the arm additionally requires that the
+  # refusals carry at least THREE distinct sentences, and that the two physical
+  # refusals name their own test by wording. Collapse the reasons and this reddens.
+  s174f_distinct=$(printf '%s\n' "$s174f_out" | grep -E '^[^[:space:]].*:[0-9]+: unresolvable-locally — ' \
+    | sed -E 's/^.*unresolvable-locally — attributed to [^,]*,//' | sort -u | wc -l | tr -d ' ')
+  s174f_symword=$(printf '%s\n' "$s174f_out" | grep -cF 'the working-tree entry there is a symlink' || true)
+  s174f_escword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves physically to a path outside this repository' || true)
+  if [ "$s174f_remote" -eq 9 ] && [ "$s174f_leak" -eq 0 ] \
      && [ "$s174f_res" -eq 1 ] && [ "$s174f_ctl" -eq 1 ] \
-     && [ "$s174f_gitn" -eq 2 ] && [ "$s174f_gitsent" -eq 1 ]; then
-    ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and two .git/ paths all report unresolvable-locally — the two .git/ paths share one sentence, so existence there is not an oracle — while the in-tree control still resolves (PR #677)"
+     && [ "$s174f_gitn" -eq 4 ] && [ "$s174f_gitsent" -eq 1 ] \
+     && [ "$s174f_distinct" -ge 3 ] \
+     && [ "$s174f_symword" -eq 1 ] && [ "$s174f_escword" -eq 1 ]; then
+    ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and four .git/ paths (two case-varied) all report unresolvable-locally — all four object-store spellings share one sentence so existence there is not an oracle, the refusals carry $s174f_distinct distinct sentences and the two physical ones name their own test — while the in-tree control still resolves (PR #677)"
   else
-    ng "174f: the seven out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line, the two .git/ attributions must yield ONE distinct sentence, and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent (PR #677)"
+    ng "174f: the nine out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all four .git/ spellings (incl. case-varied) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword (PR #677)"
   fi
 fi
 if [ -n "$S174F_DIR" ] && [ -d "$S174F_DIR" ]; then rm -rf "$S174F_DIR"; fi
@@ -3763,11 +3789,18 @@ if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
 #     so a GitHub-legal 64 KB body of minimal spans ran for two minutes.
 # The bounds are deliberately loose (20 s) — they separate linear from quadratic by
 # more than an order of magnitude without pinning machine speed.
+# §174j shares this repo, so it is nested here — but its ng path is duplicated into
+# BOTH guard arms below. Nested inside the success branch alone it emitted neither ok
+# nor ng when the precondition failed, so the suite would report fail=0 with one fewer
+# assertion: the silent-skip-on-an-absent-target anti-pattern this suite's own header
+# names, committed by the section about silent suppression (PR #677).
 S174H_DIR=$(mktemp -d 2>/dev/null)
 if [ ! -f "$S174_CHECKER" ]; then
   ng "174h: scripts/lint_citations.sh absent — the reader's cost is unmeasured (PR #677)"
+  ng "174j: scripts/lint_citations.sh absent — the statement discipline is unmeasured (PR #677)"
 elif [ -z "$S174H_DIR" ] || [ ! -d "$S174H_DIR" ]; then
   ng "174h: mktemp -d failed — the reader's cost is unmeasured (PR #677)"
+  ng "174j: mktemp -d failed — the statement discipline is unmeasured (PR #677)"
 else
   S174H_WORK="$S174H_DIR/work"
   mkdir -p "$S174H_WORK"
@@ -3937,3 +3970,61 @@ else
   fi
 fi
 if [ -n "$S174I_DIR" ] && [ -d "$S174I_DIR" ]; then rm -rf "$S174I_DIR"; fi
+
+# §174k (THE PRODUCER SAYS WHEN IT DIED, AND CANNOT BE KILLED BY BODY TEXT, #677): the
+# extractor is an `awk` program reading author-supplied text, and it was piped in through
+# a process substitution, which discards its exit status. In a UTF-8 locale one invalid
+# byte is FATAL to a regex match, and the extractor applies a regex to every line — so a
+# single stray byte stopped extraction mid-body while stdout still carried the header and
+# a totals line reading zero. No sentinel, no note, exit 0: a body could be made
+# effectively unexaminable behind a report that looked clean. Reachable without contrivance
+# — this repository's work language may be Korean, and quoting a CP949/EUC-KR snippet
+# produces exactly that byte sequence.
+#
+# Two independent halves, because one platform's awk is not every platform's:
+#   (a) BEHAVIOUR — a body carrying invalid UTF-8 must still classify the spans after it.
+#       This is what `LC_ALL=C` on the extractor buys, and it is asserted as an outcome so
+#       it holds on any awk, whether or not that awk would have died.
+#   (b) SOURCE — the extractor is actually invoked under `LC_ALL=C`, pinned by a grep,
+#       because on an awk that tolerates the byte, (a) would pass with the locale fix
+#       reverted.
+#   (c) BACKSTOP — any other producer failure is STATED. Driven with a stub `awk` on PATH
+#       that exits nonzero, so the arm measures the status check rather than a locale.
+S174K_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174k: scripts/lint_citations.sh absent — the producer's failure posture is unmeasured (PR #677)"
+elif [ -z "$S174K_DIR" ] || [ ! -d "$S174K_DIR" ]; then
+  ng "174k: mktemp -d failed — the producer's failure posture is unmeasured (PR #677)"
+else
+  S174K_WORK="$S174K_DIR/work"
+  mkdir -p "$S174K_WORK" "$S174K_DIR/bin"
+  git init -q "$S174K_WORK" 2>/dev/null
+  (
+    cd "$S174K_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'an ordinary tracked artifact\n' > tracked.md
+    git add tracked.md >/dev/null 2>&1
+    git commit -q -m 'chore: seed' >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  # A raw invalid-UTF-8 byte pair on line 1, then a span that is a genuine defect.
+  printf 'Z: \200\377 an invalid byte pair right at the top\n' > "$S174K_WORK/probe.md"
+  printf -- '- `tracked.md` states "a phrase that is a genuine defect here" — must still be reported.\n' >> "$S174K_WORK/probe.md"
+  printf '#!/bin/sh\nexit 7\n' > "$S174K_DIR/bin/awk"
+  chmod +x "$S174K_DIR/bin/awk"
+  s174k_cls=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174K_WORK/probe.md" 2>/dev/null)")
+  s174k_rc=0
+  bash "$S174_CHECKER" "$S174K_WORK/probe.md" >/dev/null 2>&1 || s174k_rc=$?
+  s174k_locale=$(grep -cE '^[[:space:]]*LC_ALL=C awk ' "$S174_CHECKER" || true)
+  s174k_sentinel=$( PATH="$S174K_DIR/bin:$PATH" bash "$S174_CHECKER" "$S174K_WORK/probe.md" 2>&1 >/dev/null \
+    | grep -cF 'the extractor exited' || true )
+  s174k_src=0
+  PATH="$S174K_DIR/bin:$PATH" bash "$S174_CHECKER" "$S174K_WORK/probe.md" >/dev/null 2>&1 || s174k_src=$?
+  if [ "$s174k_cls" -eq 1 ] && [ "$s174k_rc" -eq 0 ] \
+     && [ "$s174k_locale" -ge 1 ] \
+     && [ "$s174k_sentinel" -ge 1 ] && [ "$s174k_src" -eq 0 ]; then
+    ok "174k: a body carrying invalid UTF-8 still reports the defect after it, the extractor is invoked under LC_ALL=C, and a producer that dies for any other reason states so on stderr — while the exit code stays 0 on both paths (PR #677)"
+  else
+    ng "174k: an invalid-UTF-8 body must still classify its later spans (LC_ALL=C on the extractor, pinned in source), a dead producer must state 'the extractor exited' on stderr, and both paths must still exit 0 — got unresolved=$s174k_cls rc=$s174k_rc lc-all-c-sites=$s174k_locale sentinel=$s174k_sentinel rc(stub)=$s174k_src (PR #677)"
+  fi
+fi
+if [ -n "$S174K_DIR" ] && [ -d "$S174K_DIR" ]; then rm -rf "$S174K_DIR"; fi

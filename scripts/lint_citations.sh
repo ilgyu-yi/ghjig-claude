@@ -8,7 +8,12 @@
 # quotation read out of its paragraph, are reviewer judgment.
 #
 #   1. EXTRACT the body's quoted spans, one line at a time: both `*"…"*` and plain
-#      `"…"`, non-greedy. Fenced blocks are excluded (draft text, not body prose).
+#      `"…"`, non-greedy, ASCII double quotes only. Fenced blocks are excluded (draft
+#      text, not body prose). The extractor runs under `LC_ALL=C`: a body is
+#      author-supplied and one invalid UTF-8 byte is FATAL to a regex match in a UTF-8
+#      locale, which killed extraction mid-body and left a report that read clean.
+#      Byte semantics also match `git grep -F`'s, so the caps below count the same
+#      units the searches do.
 #   2. ATTRIBUTE each span to the nearest path-shaped inline-code token on the SAME
 #      LINE, preceding-preferred, else nearest following. A bare `:NN` inherits the
 #      last path on that line. No paragraph lookback: on the measured corpus a
@@ -41,9 +46,11 @@
 #
 # TWO RESIDUALS, stated because they are open (PR #677):
 #   * A HARDLINK inside the tree to a file outside it defeats `phys_path` by
-#     construction — no symlink exists for `cd -P` or `-L` to see, so rung 1 reads
-#     outside content through the attributed path. What the physical test closes is
-#     the SYMLINK forms of the author-chosen axis, not the axis.
+#     construction — no symlink exists for `cd -P` or `-L` to see, so the attributed
+#     path reads outside content. This reaches rung 1 AND rung 2: `-f`, `-r` and a
+#     false `-L` all pass, so the direct `awk` read is exposed exactly as the `git
+#     grep` is. What the physical test closes is the SYMLINK forms of the
+#     author-chosen axis, not the axis.
 #   * Rung 3 is a repo-wide `git grep` over the WORKTREE, so a worktree whose
 #     directory entries have been replaced by symlinks can bring outside content
 #     into that corpus. The file is not author-chosen, but the QUERY is, so it is a
@@ -51,9 +58,14 @@
 # Both need write access to the developer's own worktree, which `git checkout` will
 # not produce; whoever has it can read those files directly.
 #
-# BOUNDED COST. Every factor of the reader's cost is capped, and each cap STATES
-# what it skipped — a skipped rung is not a ruled-out one, and a silent cap in a
-# tool whose subject is unstated claims is the defect it exists to catch:
+# BOUNDED COST, AND ONE CHANNEL FOR EVERY DECLINE. Each factor of the reader's cost
+# is capped, and each cap STATES what it skipped — a skipped rung is not a ruled-out
+# one, and a silent cap in a tool whose subject is unstated claims is the defect it
+# exists to catch. Every decline therefore goes through `drop()`, a single counted
+# channel whose keys are printed in first-seen order at END, so a new decline cannot
+# be silent without bypassing an obvious convention. Two predated it and were silent:
+# the four-word floor, and a quotation delimited by typographic rather than ASCII
+# quotes. Both are counted now. The caps:
 #   SPAN_MAX         a span too long to be prose             (extraction)
 #   SPAN_COUNT_MAX   more spans than a body plausibly has    (extraction)
 #   BODY_LINE_MAX    a body line long enough to make the extractor's own scan
@@ -65,19 +77,42 @@
 #   R2_BUDGET        total bytes rung 2 may read per run, tested BEFORE the read
 #                    against the file's size, so the bound is exact rather than
 #                    exceeded by one file
-# A closed report pipe also stops the WORK, not only the writing: the reader used
-# to grind for another 10.6 s after its caller had stopped reading.
 #
-# STREAMS. stdout carries one report line plus one indented `search:` line, one
-# such PAIR per classified span — except `no-attribution`, whose spans are GROUPED
-# into a single pair. Per-class totals and every cap's skip-note go to STDERR.
+# WHAT IS NOT CAPPED, stated because the enumeration above would otherwise read as
+# complete: rungs 1 and 3 are `git grep` invocations, one pair per classified span,
+# and rung 3's corpus is the repository's whole tracked text. Span COUNT is capped, so
+# the number of invocations is bounded — but the bytes each one reads scale with the
+# repository, and on a very large tracked corpus that is tens of seconds. Measured: 200
+# spans against an 88 MB tracked file, 11.6 s.
 #
-# COUNTING CLASSES: anchor on the `:<line>: <class> — ` prefix, or read the stderr
-# totals. A bare substring search over stdout is FORGEABLE — the attributed path is
-# author-supplied and path-shaped, so an attribution literally named
-# `site-mismatch.md` puts that token on a line whose class is something else. It
-# cannot hide a finding (the counters and the totals are unreachable from body
-# text), but it can inflate a naive count.
+# A closed report pipe stops the CLASSIFICATION loop, not only the writing: the reader
+# used to grind for another 10.6 s after its caller had stopped reading. Extraction has
+# already finished by then — it is captured up front so its exit status is observable —
+# and its own cost is bounded by the caps above.
+#
+# STREAMS. stdout carries one report line plus one indented `search:` line, one such
+# PAIR per classified span — except `no-attribution`, whose spans are GROUPED into a
+# single pair. STDERR carries the per-class totals and the declines counted at
+# extraction time (span length, span count, body-line length, the four-word floor, the
+# quote alphabet, fenced lines, an unclosed fence, a dead extractor). The two caps that
+# are reached DURING classification — a cited artifact's over-long line, and the rung-2
+# byte budget — are stated on the STDOUT report line they affected, because that is the
+# line whose meaning they change. Four on stderr, two on the report line; the split is
+# the point, not an accident.
+#
+# COUNTING CLASSES: anchor at COLUMN 0 — `^[^[:space:]].*:<line>: <class> — ` — or read
+# the stderr totals. Two things on stdout are author-supplied: the attributed path
+# (path-shaped, so an attribution named `site-mismatch.md` carries that token) and the
+# span itself, echoed verbatim into the INDENTED `search:` line, where it can carry a
+# whole forged `…:3: resolves — …` sequence. A count anchored only on `:<line>: <class>`
+# therefore inflates; the column-0 anchor excludes the indented line, and the stderr
+# totals are unreachable from body text altogether. Nothing can SUPPRESS a count.
+#
+# One caveat on the split, since this reader may not overstate its own output: when a
+# caller closes the pipe, bash re-routes the failed write's payload to stderr, so one
+# report line can appear there ahead of the TRUNCATED sentinel. That is the shell's
+# behaviour, not a channel this reader opens, and the `citation note` / `citation
+# totals` prefixes remain unreachable from body text.
 #
 # Advisory by construction: findings print to stdout, the exit code is ALWAYS 0,
 # and this reader never gates a caller (SPEC §6.0 advisory face, the
@@ -92,8 +127,9 @@ set -uo pipefail
 # `exec` and a failed write is silent, so on its own it makes a truncated report
 # indistinguishable from a complete one. Three things restore the distinction:
 # every stdout write goes through `emit`, which states the cut on stderr; the
-# classification loop STOPS at that point; and each capture that pipes a child into
-# `head` resets PIPE to default so the child still dies at the closed pipe.
+# CLASSIFICATION loop stops at that point (extraction is already complete, and
+# bounded); and each capture that pipes a child into `head` resets PIPE to default so
+# the child still dies at the closed pipe.
 trap '' PIPE
 
 # Field separator for the extractor -> classifier channel. Deliberately a
@@ -137,11 +173,6 @@ sq() {
   local s="$1" out
   out=${s//\'/\'\\\'\'}
   printf "'%s'" "$out"
-}
-
-# One advisory line on stderr. Every cap reports through here.
-note() {
-  printf 'citation note (advisory): %s\n' "$1" >&2
 }
 
 # One stdout line. A failed write means the caller closed the pipe: say so once, on
@@ -225,9 +256,19 @@ norm_search() {
 # repository root, so containment admits it, and the working-tree probe below would
 # then answer existence questions about the object store.
 in_repo_path() {
+  local lower
   case "$1" in
     "" | /* | :*) return 1 ;;
     ".." | "../"* | *"/.." | *"/../"*) return 1 ;;
+  esac
+  # `.git` is refused case-INSENSITIVELY. The filesystem this shell runs on is
+  # case-insensitive, so `.GIT/config` reached the working-tree probe and answered an
+  # existence question about the object store — defeating the refusal's own stated
+  # reason. Folded only for names that map onto `.git` itself: refusing anything
+  # merely containing "git" would drop a legitimate `.githooks/` attribution and turn
+  # a resolvable citation into a non-answer (PR #677).
+  lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
     ".git" | ".git/"* | *"/.git" | *"/.git/"*) return 1 ;;
   esac
   return 0
@@ -272,13 +313,19 @@ phys_path() {
 # The honest sentence for an attribution the ladder is not entered for. Every arm
 # states a test that RAN — the index answer, a directory test, or the specific
 # containment refusal `phys_path` reported — and none states a conclusion beyond it.
-# This is the
-# tool that ships "state what is true about the file you name", so the wording is
-# load-bearing, not cosmetic.
+# This is the tool that ships "state what is true about the file you name", so the
+# wording is load-bearing, not cosmetic.
 out_of_reach() {
   local ln="$1" ap="$2" tracked="$3" pp="$4" why="$5" msg
   c_remote=$((c_remote + 1))
-  if [ -n "$pp" ] && [ -d "$pp" ]; then
+  if [ "$why" = "refused-textually" ]; then
+    # Reported FIRST, and keyed on `why` alone: this arm used to be unreachable,
+    # because it was read only under `tracked = 1` while the textual refusal happens
+    # BEFORE `tracked_path` is ever called. Control then fell to the final arm, which
+    # asserts an index result from a lookup that never ran — the same dead-value shape
+    # as the bug this reader fixed one round earlier (PR #677).
+    msg="attributed to $ap, which is not a plain repository-relative path — absolute, \`..\`-bearing, git pathspec magic, or under \`.git/\` — so it was refused before any index or filesystem lookup ran; not a defect"
+  elif [ -n "$pp" ] && [ -d "$pp" ]; then
     msg="attributed to $ap, which resolves to a directory, not a file — §1.10 binds a quotation to the file it names, so there is no single file here to resolve it in; not a defect"
   elif [ "$tracked" = "1" ]; then
     case "$why" in
@@ -307,8 +354,18 @@ out_of_reach() {
 #   <body line>US<attributed path>US<cited :NN>US<github-artifact flag>US<span>
 # Every skip it performs is counted and stated at END.
 extract() {
-  awk -v US="$US" -v spanmax="$SPAN_MAX" -v spancountmax="$SPAN_COUNT_MAX" \
-      -v bodylinemax="$BODY_LINE_MAX" '
+  LC_ALL=C awk -v US="$US" -v spanmax="$SPAN_MAX" -v spancountmax="$SPAN_COUNT_MAX" \
+      -v bodylinemax="$BODY_LINE_MAX" -v APOS="'s" '
+    # The single counted channel every decline reports through, and the ordered key
+    # list that keeps the END output stable. APOS carries an apostrophe in from argv:
+    # the program is single-quoted, so two user-facing notes had been shipping with
+    # the apostrophe simply deleted ("the normalising rung s cost").
+    function drop_n(reason, n) {
+      if (!(reason in dropn)) { order[++nord] = reason }
+      dropn[reason] += n
+    }
+    function drop(reason) { drop_n(reason, 1) }
+
     # A fenced block quotes draft text, not body prose — never extracted. The
     # delimiter run is matched by CHARACTER and LENGTH, not parity: CommonMark closes
     # an N-backtick fence only with >= N backticks, so a 4-backtick block wrapping a
@@ -324,13 +381,22 @@ extract() {
     }
     fence { fenced++; next }
     # A body line long enough to make the scan below quadratic in its own length.
-    length($0) > bodylinemax { longline++; next }
+    length($0) > bodylinemax { drop(sprintf("body line(s) over %d characters were not scanned for spans — the scan is quadratic in one line%s length", bodylinemax, APOS)); next }
     {
       line = $0
       # A literal US byte would shift a span into or out of the attribution slot of
       # the record below. Neutralised to a space, which preserves every column offset
       # computed from `line`.
       gsub(/\037/, " ", line)
+      # Only an ASCII double-quote pair is extracted. Typographic pairs are counted
+      # and stated rather than declined in silence — the two skips that predated the
+      # drop() channel were this and the four-word floor. Measured before choosing to
+      # state rather than widen: zero typographic quotes across the 12-body
+      # calibration corpus and across SPEC.md, MISSION.md and CHANGELOG.md, i.e. 0 of
+      # 251 quotation marks, so the gap is latent in this repo, not active (PR #677).
+      nq = gsub(/\342\200\234/, "&", line) + gsub(/\342\200\230/, "&", line)
+      if (nq > 0)
+        drop_n("quotation candidate(s) delimited by typographic quotes were not classified — only an ASCII double-quote pair is extracted", nq)
       ntok = 0; lastpath = ""
       rest = line; base = 0
       # Inline-code tokens, left to right, with their column in `line`.
@@ -383,10 +449,13 @@ extract() {
         t = span
         sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t)
         if (t == "") continue
-        if (split(t, W, /[ \t]+/) < 4) continue   # the four-word floor
-        if (length(t) > spanmax) { toolong++; continue }
+        # Every decline goes through drop(), so a new one cannot be silent without
+        # bypassing an obvious convention. The four-word floor and the quote alphabet
+        # were the two that predated it and said nothing (PR #677).
+        if (split(t, W, /[ \t]+/) < 4) { drop("span(s) under the four-word floor were not classified — a shorter quotation is too generic to bind to a site"); continue }
+        if (length(t) > spanmax) { drop(sprintf("span(s) over %d characters were not classified — an over-long span is not prose, and it is one factor of the normalising rung%s cost", spanmax, APOS)); continue }
         kept++
-        if (kept > spancountmax) { over++; continue }
+        if (kept > spancountmax) { drop(sprintf("span(s) beyond the first %d were not classified — the per-span cost is a git process, so span count is capped", spancountmax)); continue }
         ai = 0
         for (k = 1; k <= ntok; k++) if (ts[k] < sstart) ai = k       # nearest preceding
         if (ai == 0) for (k = 1; k <= ntok; k++) if (ts[k] > sstart) { ai = k; break }
@@ -394,17 +463,15 @@ extract() {
       }
     }
     END {
-      pre = "citation note (advisory): "
-      if (toolong > 0)
-        printf "%s%d span(s) over %d characters were not classified — an over-long span is not prose, and it is one factor of the normalising rung s cost (SPEC §1.10)\n", pre, toolong, spanmax > "/dev/stderr"
-      if (over > 0)
-        printf "%s%d span(s) beyond the first %d were not classified — the per-span cost is a git process, so span count is capped (SPEC §1.10)\n", pre, over, spancountmax > "/dev/stderr"
-      if (longline > 0)
-        printf "%s%d body line(s) over %d characters were not scanned for spans — the scan is quadratic in one line s length (SPEC §1.10)\n", pre, longline, bodylinemax > "/dev/stderr"
       if (fenced > 0)
-        printf "%s%d line(s) inside fenced blocks were not scanned for spans — fenced text is draft, not body prose (SPEC §1.10)\n", pre, fenced > "/dev/stderr"
+        drop_n("line(s) inside fenced blocks were not scanned for spans — fenced text is draft, not body prose", fenced)
+      # Every counted decline, in first-seen order. Iteration order over an awk
+      # associative array is unspecified, and a report whose lines reshuffle between
+      # runs is not a record — hence the explicit order list.
+      for (i = 1; i <= nord; i++)
+        printf "citation note (advisory): %d %s (SPEC §1.10)\n", dropn[order[i]], order[i] > "/dev/stderr"
       if (fence != 0)
-        printf "%sthe fenced block opened at line %d is never closed, so the %d line(s) after it were treated as fenced and not scanned for spans (SPEC §1.10)\n", pre, fline, NR - fline > "/dev/stderr"
+        printf "citation note (advisory): the fenced block opened at line %d is never closed, so the %d line(s) after it were treated as fenced and not scanned for spans (SPEC §1.10)\n", fline, NR - fline > "/dev/stderr"
     }
   ' < "$1"
 }
@@ -418,20 +485,34 @@ run_ladder() {
 
   qspan=$(sq "$span")
   qpath=$(sq ":(literal)$ap")
-  # Rung 1 — literal, at the attributed path. `-I` keeps a binary file out: without
-  # it `git grep` answers "Binary file X matches", which has no line number, and the
-  # report parsed that sentence as one. PIPE is reset inside the capture so `git grep`
-  # still dies at `head`'s closed pipe.
-  searchcmd="git grep -I -F -h -n -e $qspan -- $qpath"
-  out=$( trap - PIPE; git -C "$ROOT" grep -I -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
+  # Rung 1 — literal, at the attributed path, and NOT `-I`. For a file git deems
+  # binary, `git grep` answers "Binary file X matches" with no line number, and the
+  # report used to parse that sentence as one. `-I` would fix that by hiding the file
+  # instead — which converts a span the attributed file genuinely carries into an
+  # `unresolved`, the suppression-manufactures-a-defect shape this reader exists to
+  # avoid. So the notice is PARSED: the attributed file is author-chosen and the
+  # question "does the file you named carry this" must be answered, with or without a
+  # line number (PR #677). PIPE is reset inside the capture so `git grep` still dies
+  # at `head`'s closed pipe.
+  searchcmd="git grep -F -h -n -e $qspan -- $qpath"
+  out=$( trap - PIPE; git -C "$ROOT" grep -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
   if [ -n "$out" ]; then
-    hitline=${out%%:*}
-    drift=""
-    if [ -n "$al" ] && [ "$al" != "$hitline" ]; then
-      drift=" (cited :$al, carried at :$hitline — line drift; the file is the binding half, §1.10)"
-    fi
     c_resolves=$((c_resolves + 1))
-    report resolves "$ln" "$ap:$hitline$drift" "$searchcmd"
+    case "$out" in
+      "Binary file "*)
+        report resolves "$ln" \
+          "$ap — carried, but git treats that file as binary, so no line number is available" \
+          "$searchcmd"
+        ;;
+      *)
+        hitline=${out%%:*}
+        drift=""
+        if [ -n "$al" ] && [ "$al" != "$hitline" ]; then
+          drift=" (cited :$al, carried at :$hitline — line drift; the file is the binding half, §1.10)"
+        fi
+        report resolves "$ln" "$ap:$hitline$drift" "$searchcmd"
+        ;;
+    esac
     return
   fi
 
@@ -473,6 +554,13 @@ run_ladder() {
   # without the self-exclusion a fabricated span hits itself and reports as a
   # site-mismatch it is not. The capture is bounded: a span matching hundreds of
   # thousands of lines used to be held whole in a shell variable.
+  #
+  # This rung DOES pass `-I`, and the asymmetry with rung 1 is deliberate. Rung 1
+  # answers "does the file you named carry this", which must be answered for whatever
+  # the author named. Rung 3 answers "where does this wording live as text", and a
+  # byte-coincidence inside a binary is not a citation site. The cost of the choice is
+  # stated: a wording carried ONLY in a binary file reports `unresolved` rather than
+  # `site-mismatch`, so the class is the conservative one, not a false site.
   if [ -n "$RELBODY" ]; then
     searchcmd="git grep -I -F -n -e $qspan -- $(sq ":(exclude,top,literal)$RELBODY")"
     out=$( trap - PIPE; git -C "$ROOT" grep -I -F -n -e "$span" -- ":(exclude,top,literal)$RELBODY" 2>/dev/null | head -n 51 )
@@ -532,7 +620,7 @@ classify() {
   if [ "$gh" = "1" ]; then
     c_remote=$((c_remote + 1))
     report unresolvable-locally "$ln" \
-      "attributed to a GitHub artifact (Issue / PR / comment), not a working-tree path — not a defect" \
+      "no working-tree path on its line, which instead names a GitHub artifact (an Issue / PR number, an issues or pull URL, a \`gh\` reference, or the word comment) — so there is nothing local to resolve it against; not a defect" \
       "(none — GitHub artifacts are out of this reader's reach)"
     return
   fi
@@ -546,7 +634,7 @@ fail_open() {
 }
 
 main() {
-  local bodydir bodyroot line ap al gh span
+  local bodydir bodyroot line ap al gh span records xrc
 
   if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
     echo "usage: lint_citations.sh <proposed-body.md>" >&2
@@ -594,11 +682,25 @@ main() {
   fi
 
   emit "$(printf '# citation report: %s (SPEC §1.10 part (a) — advisory, exit 0 always)' "$BODY")"
+  # The extractor is CAPTURED rather than piped in, so its exit status is observable.
+  # Through a process substitution it was not, and an awk that died mid-body — one
+  # invalid UTF-8 byte is fatal to a regex match in a UTF-8 locale — silently dropped
+  # every remaining span while stdout still read like a clean report. `LC_ALL=C` inside
+  # `extract` removes that failure mode at the source; this check is the backstop that
+  # states any other producer failure, and it is the producer-side twin of the
+  # TRUNCATED sentinel (PR #677). The record set is bounded by SPAN_COUNT_MAX, so
+  # holding it is bounded too.
+  records=$(extract "$BODY")
+  xrc=$?
+  if [ "$xrc" -ne 0 ]; then
+    printf 'citation note (advisory): the extractor exited %d — the body was NOT fully scanned for spans, and the report below is partial (SPEC §1.10)\n' \
+      "$xrc" >&2
+  fi
   while IFS="$US" read -r line ap al gh span; do
     [ "$TRUNCATED" -eq 0 ] || break
     [ -n "$span" ] || continue
     classify "$line" "$ap" "$al" "$gh" "$span"
-  done < <(extract "$BODY")
+  done <<< "$records"
 
   if [ "$c_noattr" -gt 0 ]; then
     emit "$(printf '%s: no-attribution — %d span(s) name no file on their line (line(s):%s); informational, never a defect' \
