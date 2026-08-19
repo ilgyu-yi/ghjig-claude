@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # scripts/lint_citations.sh — born-advisory, non-gating citation reader (#676).
-# The contract is SPEC §1.10; it is referenced here, not restated (§9). What this
-# header carries is the RATIONALE a reader of the code needs — the mechanisms that
-# were demonstrated to break, since each one is a trap the next edit can re-enter.
+# The contract is SPEC §1.10; it is referenced here, not restated (§9). This header
+# states, in the present tense, the constraints the code cannot show. How each one
+# was demonstrated — the exploits, the measurements, the review rounds — lives in
+# PR #677's record and in git history, not here: a narrative or a live figure in a
+# comment is itself an unchecked claim, and unchecked claims are this tool's subject.
 #
 # Mechanizes the LEXICAL half of §1.10 part (a) and nothing else. Part (b), and a
 # quotation read out of its paragraph, are reviewer judgment.
@@ -10,14 +12,14 @@
 #   1. EXTRACT the body's quoted spans, one line at a time: both `*"…"*` and plain
 #      `"…"`, non-greedy, ASCII double quotes only. Fenced blocks are excluded (draft
 #      text, not body prose). The extractor runs under `LC_ALL=C`: a body is
-#      author-supplied and one invalid UTF-8 byte is FATAL to a regex match in a UTF-8
-#      locale, which killed extraction mid-body and left a report that read clean.
-#      Byte semantics also match `git grep -F`'s, so the caps below count the same
-#      units the searches do.
+#      author-supplied, and in a UTF-8 locale one invalid byte is fatal to a regex
+#      match — extraction must survive any byte the author feeds it. Byte semantics
+#      also match `git grep -F`'s, so the caps below count the same units the
+#      searches do.
 #   2. ATTRIBUTE each span to the nearest path-shaped inline-code token on the SAME
 #      LINE, preceding-preferred, else nearest following. A bare `:NN` inherits the
-#      last path on that line. No paragraph lookback: on the measured corpus a
-#      <=3-lines-back fallback fired twice and was wrong both times.
+#      last path on that line. No paragraph lookback: measured on real bodies, a
+#      lookback fallback misattributes more than it recovers.
 #   3. RESOLVE on a four-rung ladder, stating the search that produced each result:
 #        (1) `git grep -F` at the attributed path            -> resolves
 #        (2) same path, whitespace/line-wrap normalized       -> normalized
@@ -25,26 +27,37 @@
 #        (4) nowhere                                          -> unresolved
 #
 # CONTAINMENT — a filesystem question that neither a textual nor an index test
-# decides. Three tests gate the ladder, and the third exists because the first two
-# were demonstrated insufficient (PR #677):
+# decides. Three tests gate the ladder, and none subsumes another:
 #   * `in_repo_path` — TEXTUAL. Refuses absolute paths, `..`, pathspec magic, and
 #     `.git/` (which containment would otherwise admit, since it is under the root).
 #   * `tracked_path` — an INDEX test. It holds rung 2 — the one rung that reads a
 #     file directly rather than through `git grep` — to the same tracked corpus
-#     rungs 1 and 3 search, so a verbatim span in an UNTRACKED file can never be
-#     reported as `normalized`, a normalisation that did not happen.
+#     rungs 1 and 3 search, so a verbatim span in a file the index does not name is
+#     not reported as `normalized`, a normalisation that did not happen. It is not
+#     an entry test: `git ls-files --error-unmatch` also succeeds for a DIRECTORY
+#     PREFIX of index entries, so a tracked directory replaced in the worktree by a
+#     regular file passes it, and rung 2 then reads a path git does not track. The
+#     precondition is worktree write, as for the residuals below.
 #   * `phys_path` — a FILESYSTEM test. A tracked symlink to `/etc/passwd` passes
-#     both tests above and `-f` FOLLOWS it, so rung 2 became a confirm-guess oracle
-#     over any readable path; and a tracked leaf whose parent directory was swapped
-#     for an outward symlink passes both too, with rung 1's `git grep` reading
-#     THROUGH it — `git grep` enforces a pathspec boundary, never a filesystem one.
+#     both tests above and `-f` FOLLOWS it, which would make rung 2 a confirm-guess
+#     oracle over any readable path; a tracked leaf whose parent directory was
+#     swapped for an outward symlink passes both too, with rung 1's `git grep`
+#     reading THROUGH it — `git grep` enforces a pathspec boundary, never a
+#     filesystem one.
 #
 # Every refusal reports `unresolvable-locally`, a NON-defect, so containment cannot
 # manufacture a finding. The filesystem is probed only for a path already textually
 # in-repo AND physically contained: a bare `-e` on an arbitrary attribution is an
 # existence oracle over the machine.
 #
-# TWO RESIDUALS, stated because they are open (PR #677):
+# RESIDUALS, stated because they are open, and deliberately uncounted — a census of
+# open items rots as items open and close.
+#   * The out-of-reach sentences DISTINGUISH an untracked path that exists from one
+#     that does not, for any path already textually in-repo and physically contained.
+#     Body text therefore gets a one-bit existence answer over the repository — never
+#     content, never outside it, only paths the author already holds. It is the price
+#     of naming which test refused rather than guessing, and unlike the two below it
+#     needs no worktree write.
 #   * A HARDLINK inside the tree to a file outside it defeats `phys_path` by
 #     construction — no symlink exists for `cd -P` or `-L` to see, so the attributed
 #     path reads outside content. This reaches rung 1 AND rung 2: `-f`, `-r` and a
@@ -55,65 +68,72 @@
 #     directory entries have been replaced by symlinks can bring outside content
 #     into that corpus. The file is not author-chosen, but the QUERY is, so it is a
 #     content-confirm oracle over whatever such a link exposes.
-# Both need write access to the developer's own worktree, which `git checkout` will
-# not produce; whoever has it can read those files directly.
+# The hardlink and the repo-wide rung need write access to the developer's own
+# worktree, which `git checkout` will not produce; whoever has it can read those
+# files directly.
 #
-# BOUNDED COST, AND ONE CHANNEL FOR EVERY DECLINE. Each factor of the reader's cost
-# is capped, and each cap STATES what it skipped — a skipped rung is not a ruled-out
-# one, and a silent cap in a tool whose subject is unstated claims is the defect it
-# exists to catch. Every decline therefore goes through `drop()`, a single counted
-# channel whose keys are printed in first-seen order at END, so a new decline cannot
-# be silent without bypassing an obvious convention. Two predated it and were silent:
-# the four-word floor, and a quotation delimited by typographic rather than ASCII
-# quotes. Both are counted now. The caps:
+# BOUNDED COST. Each factor of the reader's cost is capped, and each cap STATES what
+# it skipped — a skipped rung is not a ruled-out one, and a silent cap in a tool
+# whose subject is unstated claims is the defect it exists to catch. Every decline
+# the EXTRACTOR makes goes through `drop()`, a single counted channel whose keys are
+# printed in first-seen order at END, so a new decline there cannot be silent
+# without bypassing an obvious convention. The bounds reached DURING classification
+# — a cited artifact's over-long line, the rung-2 byte budget, a failed awk — do not
+# go through drop(): each is stated on the report line whose meaning it changes,
+# which is where the STREAMS rule below puts it. The caps:
 #   SPAN_MAX         a span too long to be prose             (extraction)
 #   SPAN_COUNT_MAX   more spans than a body plausibly has    (extraction)
-#   BODY_LINE_MAX    a body line long enough to make the extractor's own scan
-#                    quadratic — 4 MB on one line measured 99.5 s in extraction
-#                    alone, and the body is the axis its AUTHOR controls
+#   BODY_LINE_MAX    a body line long enough to matter — the extractor's own scan
+#                    is quadratic in one line's length, and the body is the axis
+#                    its AUTHOR controls
 #   LINE_MAX         a CITED artifact's absurd line, inside NORM_PROG, whose
-#                    per-record normalisation is quadratic in line length: 4 MB as
-#                    one line measured 66.9 s against 0.28 s as 60 000 lines
+#                    per-record normalisation is quadratic in line length
 #   R2_BUDGET        total bytes rung 2 may read per run, tested BEFORE the read
 #                    against the file's size, so the bound is exact rather than
 #                    exceeded by one file
 #
 # WHAT IS NOT CAPPED, stated because the enumeration above would otherwise read as
 # complete: rungs 1 and 3 are `git grep` invocations, one pair per classified span,
-# and rung 3's corpus is the repository's whole tracked text. Span COUNT is capped, so
-# the number of invocations is bounded — but the bytes each one reads scale with the
-# repository, and on a very large tracked corpus that is tens of seconds. Measured: 200
-# spans against an 88 MB tracked file, 11.6 s.
+# and rung 3's corpus is the repository's whole tracked text. Span COUNT is capped,
+# so the number of invocations is bounded — but the bytes each one reads scale with
+# the repository.
 #
-# A closed report pipe stops the CLASSIFICATION loop, not only the writing: the reader
-# used to grind for another 10.6 s after its caller had stopped reading. Extraction has
-# already finished by then — it is captured up front so its exit status is observable —
-# and its own cost is bounded by the caps above.
+# A closed report pipe stops the CLASSIFICATION loop, not only the writing —
+# grinding on for a caller that has stopped reading is unbounded work for nobody.
+# Extraction is already complete by then; it is captured up front so its exit
+# status is observable, and its own cost is bounded by the caps above.
+#
+# NEUTRALISED BYTES. The extractor turns every C0 control except tab into a space,
+# one byte for one byte so no column offset shifts. US is this channel's field
+# separator, so a literal one would move a span into or out of the attribution
+# slot. CR and ESC are not whitespace, so they pass the path-shape test — and an
+# attribution that reaches the column-0 report line carrying a VT escape sequence
+# can redraw a defect line into a clean-looking one on a terminal. Machine counting
+# is unaffected either way; the channel a human reads is the one at stake, and that
+# is the channel both authoring commands tell the agent to surface.
 #
 # STREAMS. stdout carries one report line plus one indented `search:` line, one such
 # PAIR per classified span — except `no-attribution`, whose spans are GROUPED into a
-# single pair. Where a decline is stated follows one RULE, and the rule is §1.10's: a
-# decline that changes what a report line means is stated ON that line, and every other
-# decline is stated on stderr beside the per-class totals.
+# single pair. Where a decline is stated follows one RULE, and the rule is §1.10's:
+# a decline that changes what a report line means is stated ON that line, and every
+# other decline is stated on stderr beside the per-class totals. The rule stands
+# here in place of a tally of the two sides on purpose — the tally rots as declines
+# are added and the rule does not move.
 #
-# The rule is here instead of a tally on purpose. An earlier version of this paragraph
-# counted the two sides, and the count went stale twice in two rounds while the rule
-# did not move once — which is the same lesson the drop() channel above exists for,
-# applied to a comment about it.
+# COUNTING CLASSES: anchor at COLUMN 0 — `^[^[:space:]].*:<line>: <class> — ` — or
+# read the stderr totals. Two things on stdout are author-supplied: the attributed
+# path (path-shaped, so an attribution named `site-mismatch.md` carries that token)
+# and the span itself, echoed verbatim into the INDENTED `search:` line, where it
+# can carry a whole forged `…:3: resolves — …` sequence. A count anchored only on
+# `:<line>: <class>` therefore inflates; the column-0 anchor excludes the indented
+# line, and the stderr totals are unreachable from body text altogether. Nothing
+# can SUPPRESS a count.
 #
-# COUNTING CLASSES: anchor at COLUMN 0 — `^[^[:space:]].*:<line>: <class> — ` — or read
-# the stderr totals. Two things on stdout are author-supplied: the attributed path
-# (path-shaped, so an attribution named `site-mismatch.md` carries that token) and the
-# span itself, echoed verbatim into the INDENTED `search:` line, where it can carry a
-# whole forged `…:3: resolves — …` sequence. A count anchored only on `:<line>: <class>`
-# therefore inflates; the column-0 anchor excludes the indented line, and the stderr
-# totals are unreachable from body text altogether. Nothing can SUPPRESS a count.
-#
-# One caveat on the split, since this reader may not overstate its own output: when a
-# caller closes the pipe, bash re-routes the failed write's payload to stderr, so one
-# report line can appear there ahead of the TRUNCATED sentinel. That is the shell's
-# behaviour, not a channel this reader opens, and the `citation note` / `citation
-# totals` prefixes remain unreachable from body text.
+# One caveat on the split, since this reader may not overstate its own output: when
+# a caller closes the pipe, bash re-routes the failed write's payload to stderr, so
+# one report line can appear there ahead of the TRUNCATED sentinel. That is the
+# shell's behaviour, not a channel this reader opens, and the `citation note` /
+# `citation totals` prefixes remain unreachable from body text.
 #
 # Advisory by construction: findings print to stdout, the exit code is ALWAYS 0,
 # and this reader never gates a caller (SPEC §6.0 advisory face, the
@@ -197,10 +217,9 @@ report() {
 }
 
 # Rung 2's search, verbatim — the awk program `norm_hit` runs, kept in a variable so
-# the `search:` line can print the SAME program that produced the result. A rung-2
-# report used to print rung 1's `git grep`, which by construction returns nothing
-# (control reaches rung 2 only because it did), so the printed command could never
-# reproduce the line it was attached to (PR #677).
+# the `search:` line can print the SAME program that produced the result. Printing
+# rung 1's `git grep` here instead would be a command that cannot reproduce its own
+# line: control reaches rung 2 only because that grep returned nothing.
 #
 # Every statement is `;`-terminated, so flattening the program to one line for
 # printing leaves it runnable. The scan is a SLIDING WINDOW, not a whole-file join:
@@ -209,8 +228,8 @@ report() {
 #
 # A line longer than LINE_MAX is skipped and COUNTED, and the count is reported at
 # END when no match was found — without that count the caller cannot tell a genuine
-# miss from a rung that was never attempted on the line that mattered, which turned
-# a `normalized` (non-defect) into an `unresolved` (defect) silently.
+# miss from a rung never attempted on the line that mattered, which silently turns
+# a `normalized` (non-defect) into an `unresolved` (defect).
 #
 # Continuation lines of a wrapped comment keep a `# ` prefix, so that prefix is
 # stripped before joining. Prints the 1-based line the match starts on.
@@ -234,11 +253,15 @@ END { if (found == 0 && skipped > 0) print "skipped-long-lines=" skipped; }
 
 # Rung 2, run. The file operand goes in by redirect, never as an argv element: a
 # path opening with `-` would otherwise be read as an awk option. awk's own failure
-# is REPORTED rather than swallowed — a discarded error degraded rung 2 to a silent
+# is REPORTED rather than swallowed — a discarded error degrades rung 2 to a silent
 # miss, which is the same unstated skip in a portability costume.
 norm_hit() {
   local f="$1" s="$2" out rc
-  out=$(SPAN="$s" awk "$NORM_PROG" < "$f" 2>/dev/null)
+  # `LC_ALL=C` for the reason the extractor has it: in a UTF-8 locale one invalid
+  # byte in the CITED artifact is fatal to a regex match, and a rung that dies on it
+  # turns a span that normalises — a non-defect — into `unresolved`. Stated on the
+  # report line if it still happens; prevented at the source here.
+  out=$(LC_ALL=C SPAN="$s" awk "$NORM_PROG" < "$f" 2>/dev/null)
   rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'awk-failed=%d\n' "$rc"
@@ -252,7 +275,7 @@ norm_hit() {
 norm_search() {
   local ap="$1" s="$2" prog
   prog=$(printf '%s' "$NORM_PROG" | tr '\n' ' ' | tr -s ' ')
-  printf 'SPAN=%s awk %s < %s' "$(sq "$s")" "$(sq "$prog")" "$(sq "$ap")"
+  printf 'LC_ALL=C SPAN=%s awk %s < %s' "$(sq "$s")" "$(sq "$prog")" "$(sq "$ap")"
 }
 
 # Is the attribution a plain, repository-relative path? Purely textual — see
@@ -265,12 +288,12 @@ in_repo_path() {
     "" | /* | :*) return 1 ;;
     ".." | "../"* | *"/.." | *"/../"*) return 1 ;;
   esac
-  # `.git` is refused case-INSENSITIVELY. The filesystem this shell runs on is
-  # case-insensitive, so `.GIT/config` reached the working-tree probe and answered an
-  # existence question about the object store — defeating the refusal's own stated
-  # reason. Folded only for names that map onto `.git` itself: refusing anything
-  # merely containing "git" would drop a legitimate `.githooks/` attribution and turn
-  # a resolvable citation into a non-answer (PR #677).
+  # `.git` is refused case-INSENSITIVELY: on a case-insensitive filesystem
+  # `.GIT/config` names the object store just as surely, and a case-sensitive
+  # refusal would let it reach the working-tree probe. Folded only for names that
+  # map onto `.git` itself: refusing anything merely containing "git" would drop a
+  # legitimate `.githooks/` attribution and turn a resolvable citation into a
+  # non-answer.
   lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case "$lower" in
     ".git" | ".git/"* | *"/.git" | *"/.git/"*) return 1 ;;
@@ -292,15 +315,15 @@ tracked_path() {
 #
 # Prints its whole answer — `ok:<absolute path>` or `no:<which test refused>` — on
 # ONE channel, because the caller reads it through a command substitution and a
-# subshell cannot set a variable in its parent. A first version of this returned the
-# reason in a global, so the reason was ALWAYS empty, every refusal fell through to
-# the generic wording, and the honest-sentence fix was inert (PR #677).
+# subshell cannot set a variable in its parent: a reason passed through a global
+# would always arrive empty, and every refusal would fall through to the generic
+# wording.
 #
-# The reason is what makes the wording honest: it used to GUESS ("a symlink, or a
-# path leaving the tree") and was false for a merely-absent parent directory. Each
-# arm below is a test that actually ran.
+# The reason is what makes the out-of-reach wording honest — each arm below names a
+# test that actually ran, never a guessed cause, since a guess ("a symlink, or a
+# path leaving the tree") is false for causes it does not cover.
 phys_path() {
-  local ap="$1" d b pd
+  local ap="$1" d b pd pdrel
   if [ -z "$ROOT_P" ]; then printf 'no:no-root\n'; return 0; fi
   d=$(dirname -- "$ap")
   b=$(basename -- "$ap")
@@ -312,13 +335,17 @@ phys_path() {
   esac
   # …and the object store is refused on the RESOLVED path, not just the spelling.
   # `in_repo_path` folds case, but a tracked symlink whose target is `.git` is a
-  # mode-120000 blob, so a CLONE materialises it and `gitalias/config` walked around
-  # the textual refusal entirely — the one such gap that needed no worktree write.
-  # Checking `pd` closes the aliasing axis rather than one more spelling of it.
-  case "$pd/" in
-    "$ROOT_P"/.git/*) printf 'no:object-store\n'; return 0 ;;
+  # mode-120000 blob, so a CLONE materialises it and an alias like `gitalias/config`
+  # walks around the textual refusal entirely — the one such gap that needs no
+  # worktree write. Checking `pd` closes the aliasing axis rather than one more
+  # spelling of it, and it is checked CASE-FOLDED: `pwd -P` resolves a symlink
+  # TEXTUALLY, appending the link target without canonicalising case, so an alias
+  # pointing at `.GIT` yields a `pd` a case-sensitive pattern admits on a
+  # case-insensitive filesystem.
+  pdrel=$(printf '%s' "${pd#"$ROOT_P"}" | tr '[:upper:]' '[:lower:]')
+  case "$pdrel/" in
+    "/.git/"*) printf 'no:object-store\n'; return 0 ;;
   esac
-  if [ "$pd" = "$ROOT_P/.git" ]; then printf 'no:object-store\n'; return 0; fi
   if [ -L "$pd/$b" ]; then printf 'no:symlink\n'; return 0; fi
   printf 'ok:%s\n' "$pd/$b"
 }
@@ -337,11 +364,10 @@ out_of_reach() {
     # different sentences and the oracle open.
     msg="attributed to $ap, which resolves into this repository's own \`.git\` directory — the object store is not part of the corpus this reader searches, so it is refused before any probe; not a defect"
   elif [ "$why" = "refused-textually" ]; then
-    # Reported FIRST, and keyed on `why` alone: this arm used to be unreachable,
-    # because it was read only under `tracked = 1` while the textual refusal happens
-    # BEFORE `tracked_path` is ever called. Control then fell to the final arm, which
-    # asserts an index result from a lookup that never ran — the same dead-value shape
-    # as the bug this reader fixed one round earlier (PR #677).
+    # Reported FIRST, and keyed on `why` alone — never under `tracked`: the textual
+    # refusal happens BEFORE `tracked_path` is ever called, so a `tracked`-guarded
+    # arm here is unreachable and control would fall to the final arm, which asserts
+    # an index result from a lookup that never ran.
     msg="attributed to $ap, which is not a plain repository-relative path — absolute, \`..\`-bearing, git pathspec magic, or under \`.git/\` — so it was refused before any index or filesystem lookup ran; not a defect"
   elif [ -n "$pp" ] && [ -d "$pp" ]; then
     msg="attributed to $ap, which resolves to a directory, not a file — §1.10 binds a quotation to the file it names, so there is no single file here to resolve it in; not a defect"
@@ -376,8 +402,8 @@ extract() {
       -v bodylinemax="$BODY_LINE_MAX" -v APOS="'s" '
     # The single counted channel every decline reports through, and the ordered key
     # list that keeps the END output stable. APOS carries an apostrophe in from argv:
-    # the program is single-quoted, so two user-facing notes had been shipping with
-    # the apostrophe simply deleted ("the normalising rung s cost").
+    # the program is single-quoted, so a literal apostrophe in a note cannot survive
+    # any other way ("the normalising rung s cost").
     function drop_n(reason, n) {
       if (!(reason in dropn)) { order[++nord] = reason }
       dropn[reason] += n
@@ -402,20 +428,14 @@ extract() {
     length($0) > bodylinemax { drop(sprintf("body line(s) over %d characters were not scanned for spans — the scan is quadratic in one line%s length", bodylinemax, APOS)); next }
     {
       line = $0
-      # A literal US byte would shift a span into or out of the attribution slot of
-      # the record below. Neutralised to a space, which preserves every column offset
-      # computed from `line`.
-      gsub(/\037/, " ", line)
+      # Every C0 control except tab becomes a space — see NEUTRALISED BYTES above.
+      gsub(/[\001-\010\013\014\016-\037\177]/, " ", line)
       # Only an ASCII double-quote pair is extracted. Typographic pairs are counted
-      # and stated rather than declined in silence — the skips that predated the drop()
-      # channel were this and the four-word floor. Measured before choosing to state
-      # rather than widen: ZERO READER-REACHABLE typographic quotes, all four
-      # codepoints, across the 12-body calibration corpus and across SPEC.md,
-      # MISSION.md and CHANGELOG.md. The qualifier is load-bearing and was earned the
-      # hard way: this PR own body now carries all four codepoints, inside the fenced
-      # command that counts them, so an unqualified "zero" is false while the
-      # reachable zero holds — a fence excludes them before this scan. So: latent in
-      # this repo rather than active (PR #677).
+      # and stated rather than declined in silence — or widened into: widening the
+      # alphabet changes the span set for a case with no measured demand, while the
+      # runtime count keeps the decline visible at exactly the rate it fires. The
+      # count the reader prints is the census that cannot go stale; a figure written
+      # here would be one that can.
       nq = gsub(/\342\200\234/, "&", line) + gsub(/\342\200\230/, "&", line)
       if (nq > 0)
         drop_n("quotation candidate(s) delimited by typographic quotes were not classified — only an ASCII double-quote pair is extracted", nq)
@@ -430,11 +450,8 @@ extract() {
         # An unpaired backtick ends the token scan for this line, so any path named
         # after it is never seen — a span on that line can come out attributed to an
         # earlier path or to none. Counted PREEMPTIVELY rather than on demonstrated
-        # demand: every odd-backtick line measured in this corpus is excluded by the
-        # fence rule above before this scan reaches it — they are fence delimiters — so
-        # the reader-reachable count is ZERO. Counted anyway, because the point of one
-        # channel is that a decline cannot be silent, not that each one has been
-        # observed firing (PR #677).
+        # demand: the point of one channel is that a decline cannot be silent, not
+        # that each one has been observed firing.
         if (j == 0) {
           drop("line(s) ended with an unpaired backtick, so any path named after it on that line was not seen — an attribution may be missing or earlier than the author wrote")
           break
@@ -479,14 +496,12 @@ extract() {
         # counting this one break states the wrapped case without changing what is
         # extracted. Unlike the typographic case this one is ACTIVE rather than latent,
         # which is why it is counted instead of declared a stated limitation: lines of
-        # this shape occur in the prose of this very repository — an escaped quote inside
-        # a sentence about escaping, and an unpaired quote inside inline code.
-        #
-        # No count here on purpose. Three successive review rounds found a stale figure
-        # in a comment on this very decline, each time because the corpus that figure
-        # was drawn over contains the artifacts being edited. The count that cannot go
-        # stale is the one the reader prints at runtime; §174j pins that it prints
-        # (PR #677).
+        # this shape occur in ordinary prose — an escaped quote inside a sentence
+        # about escaping, an unpaired quote inside inline code. No figure here on
+        # purpose: a count written in a comment is drawn over a corpus that includes
+        # the artifacts being edited, so it rots on the next commit. The count that
+        # cannot go stale is the one the reader prints at runtime; §174j pins that
+        # it prints.
         if (j == 0) {
           drop("line(s) ended with an unpaired ASCII double quote, so the quotation it opens was not classified — pairing is within one line, which also declines a quotation wrapped across two")
           break
@@ -497,13 +512,11 @@ extract() {
         rest = substr(after, j + 1)
         t = span
         sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t)
-        # No early return for an empty or whitespace-only quotation: `split` gives it 0
-        # words, so the four-word floor below counts it. It was the last decline that
-        # bypassed the channel, and a one-word span being counted while a zero-word one
-        # vanished is the inconsistency the channel exists to remove (PR #677).
-        # Every decline goes through drop(), so a new one cannot be silent without
-        # bypassing an obvious convention. The four-word floor and the quote alphabet
-        # were the two that predated it and said nothing (PR #677).
+        # No early return for an empty or whitespace-only quotation: `split` gives it
+        # 0 words, so the four-word floor below counts it — a one-word span counted
+        # while a zero-word one vanishes is the inconsistency the channel exists to
+        # remove. Every decline goes through drop(), so a new one cannot be silent
+        # without bypassing an obvious convention.
         if (split(t, W, /[ \t]+/) < 4) { drop("span(s) under the four-word floor were not classified — a shorter quotation is too generic to bind to a site"); continue }
         if (length(t) > spanmax) { drop(sprintf("span(s) over %d characters were not classified — an over-long span is not prose, and it is one factor of the normalising rung%s cost", spanmax, APOS)); continue }
         kept++
@@ -538,14 +551,14 @@ run_ladder() {
   qspan=$(sq "$span")
   qpath=$(sq ":(literal)$ap")
   # Rung 1 — literal, at the attributed path, and NOT `-I`. For a file git deems
-  # binary, `git grep` answers "Binary file X matches" with no line number, and the
-  # report used to parse that sentence as one. `-I` would fix that by hiding the file
-  # instead — which converts a span the attributed file genuinely carries into an
-  # `unresolved`, the suppression-manufactures-a-defect shape this reader exists to
-  # avoid. So the notice is PARSED: the attributed file is author-chosen and the
-  # question "does the file you named carry this" must be answered, with or without a
-  # line number (PR #677). PIPE is reset inside the capture so `git grep` still dies
-  # at `head`'s closed pipe.
+  # binary, `git grep` answers "Binary file X matches" with no line number — a
+  # sentence, not a hit, so it must be PARSED rather than read as one. `-I` would
+  # avoid the parse by hiding the file instead, which converts a span the attributed
+  # file genuinely carries into an `unresolved` — the suppression-manufactures-a-
+  # defect shape this reader exists to avoid: the attributed file is author-chosen,
+  # and "does the file you named carry this" must be answered, with or without a
+  # line number. PIPE is reset inside the capture so `git grep` still dies at
+  # `head`'s closed pipe.
   searchcmd="git grep -F -h -n -e $qspan -- $qpath"
   # `LC_ALL=C` because the branch below parses git's own "Binary file …" notice, and a
   # translated catalogue would put a sentence where a line number belongs. Measured
@@ -607,8 +620,8 @@ run_ladder() {
 
   # Rung 3 — repo-wide, minus the body itself. A committed body is tracked, so
   # without the self-exclusion a fabricated span hits itself and reports as a
-  # site-mismatch it is not. The capture is bounded: a span matching hundreds of
-  # thousands of lines used to be held whole in a shell variable.
+  # site-mismatch it is not. The capture is bounded (`head -n 51`): a span can match
+  # hundreds of thousands of lines, and only the first site plus a count is used.
   #
   # This rung DOES pass `-I`, and the asymmetry with rung 1 is deliberate. Rung 1
   # answers "does the file you named carry this", which must be answered for whatever
@@ -714,10 +727,10 @@ main() {
   # `--` on both: a body path opening with `-` would otherwise be read as an option,
   # ROOT would silently fall back to the cwd's repo, and the documented rung-3
   # self-exclusion would vanish. `-P`/`pwd -P` for the same reason one step further
-  # in: a LOGICAL cwd made the body's directory a non-prefix of git's physical top
-  # level, RELBODY came out empty, and a wholly fabricated span then matched the body
-  # itself and reported `site-mismatch` — §1.10's discriminator, backwards.
-  # Reproduced on macOS with no symlink of one's own, since `/var` is one.
+  # in: under a LOGICAL cwd (e.g. macOS `/var`, itself a symlink) the body's
+  # directory is a non-prefix of git's physical top level, RELBODY comes out empty,
+  # and a wholly fabricated span then matches the body itself and reports
+  # `site-mismatch` — §1.10's discriminator, backwards.
   bodydir=$(cd -P -- "$(dirname -- "$BODY")" 2>/dev/null && pwd -P)
   if [ -n "$bodydir" ]; then
     bodyroot=$(git -C "$bodydir" rev-parse --show-toplevel 2>/dev/null)
@@ -732,25 +745,24 @@ main() {
   fi
   ROOT_P=$(cd -P -- "$ROOT" 2>/dev/null && pwd -P)
   [ -n "$ROOT_P" ] || ROOT_P="$ROOT"
-  # The self-exclusion pathspec is set ONLY when the body's own repository is the one
-  # being searched. A body outside any repo fell back to the cwd's repo, and a bare
-  # basename was then excluded from rung 3 — an unrelated tracked file sharing that
-  # basename, so a real site-mismatch was reported `unresolved`. Empty is the safe
-  # value: rung 3 searches ROOT's tracked files, and a body outside ROOT is by
-  # construction not among them, so no self-hit is possible without the exclusion.
+  # The self-exclusion pathspec is set ONLY when the body's own repository is the
+  # one being searched: excluding a bare basename from a repo the body is not in
+  # would exclude an unrelated tracked file that shares the name, turning a real
+  # site-mismatch into `unresolved`. Empty is the safe value — rung 3 searches
+  # ROOT's tracked files, and a body outside ROOT is by construction not among
+  # them, so no self-hit is possible without the exclusion.
   if [ -n "$bodydir" ] && [ -n "${bodyroot:-}" ] && [ "$bodyroot" = "$ROOT" ]; then
     RELBODY="$(git -C "$bodydir" rev-parse --show-prefix 2>/dev/null)$(basename -- "$BODY")"
   fi
 
   emit "$(printf '# citation report: %s (SPEC §1.10 part (a) — advisory, exit 0 always)' "$BODY")"
-  # The extractor is CAPTURED rather than piped in, so its exit status is observable.
-  # Through a process substitution it was not, and an awk that died mid-body — one
-  # invalid UTF-8 byte is fatal to a regex match in a UTF-8 locale — silently dropped
-  # every remaining span while stdout still read like a clean report. `LC_ALL=C` inside
-  # `extract` removes that failure mode at the source; this check is the backstop that
-  # states any other producer failure, and it is the producer-side twin of the
-  # TRUNCATED sentinel (PR #677). The record set is bounded by SPAN_COUNT_MAX, so
-  # holding it is bounded too.
+  # The extractor is CAPTURED rather than piped in, so its exit status is observable
+  # — through a pipe or process substitution it is not, and a producer that dies
+  # mid-body silently drops every remaining span while stdout still reads like a
+  # clean report. `LC_ALL=C` inside `extract` removes the one author-reachable way
+  # to kill it; this check is the backstop that states any other producer failure,
+  # the producer-side twin of the TRUNCATED sentinel. The record set is bounded by
+  # SPAN_COUNT_MAX, so holding it is bounded too.
   records=$(extract "$BODY")
   xrc=$?
   if [ "$xrc" -ne 0 ]; then

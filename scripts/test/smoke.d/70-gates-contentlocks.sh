@@ -3414,18 +3414,11 @@ fi
 # passes. `scripts/lint_citations.sh` mechanizes the lexical half of part (a) and is
 # born advisory (§6.0 P3): it prints findings and exits 0 unconditionally.
 #
-# §174a is a Doc lock over SPEC §1.10. §174b–§174k exercise the reader through its
-# CLI, which is the surface both authoring commands use, so an arm cannot green on a
-# code path the commands do not take.
-#
-# §174b–§174d are the original contract (#676): per-span classification, the
-# advisory posture, and the wiring. §174e–§174i came out of PR #677's review rounds —
-# the printed search must reproduce its own result, the attributed path must stay
-# inside the physically-resolved repository, the closed-pipe posture must hold and be
-# stated, every factor of the cost must be bounded, and the body's own path must be
-# resolved so the rung-3 self-exclusion cannot silently vanish. §174j and §174k are the
-# two anti-silence arms: every bound the reader reaches it must SAY it reached, and a
-# producer that dies must say that too rather than leaving a clean-looking report.
+# §174a is a Doc lock over SPEC §1.10. Every other arm exercises the reader through
+# its CLI, which is the surface both authoring commands use, so an arm cannot green
+# on a code path the commands do not take. Each arm names its own concern in its
+# header comment; no roster of them is kept here, because a roster rots as arms are
+# added while each arm's own header does not.
 #
 # The discriminator is §174b's site-mismatch assertion: an existence-anywhere check
 # reports that span as resolving, so a reader that greens §174b is doing the job the
@@ -3604,11 +3597,12 @@ else
   fi
 fi
 
-# §174f (THE ATTRIBUTED PATH STAYS INSIDE THE TRACKED REPOSITORY, #677): seven
+# §174f (THE ATTRIBUTED PATH STAYS INSIDE THE TRACKED REPOSITORY, #677): a set of
 # attributions built in a throwaway repo, each carrying the SAME span verbatim at the
 # place it points to and none of which the reader may resolve or normalise — plus one
 # ordinary in-tree attribution it MUST still resolve, so the arm separates containment
-# from over-refusal:
+# from over-refusal. The exact counts live in the assertion below, where going stale
+# makes the arm fail instead of the comment lie. The axes:
 #   - a `..` traversal to a file outside the repository. Rung 2 read the attributed
 #     file directly, so a body could confirm guesses about any readable path on the
 #     machine ("does this file contain X?"). Must be refused BEFORE the read.
@@ -3628,15 +3622,17 @@ fi
 #     reads through is rung 1's `git grep`, which falsified the premise that the git
 #     rungs are boundary-safe: git enforces a pathspec boundary, never a filesystem
 #     one.
-#   - four `.git/` attributions: present and absent, each in lowercase and CASE-VARIED.
-#     `.git/` IS under the repository root, so physical containment admits it, and the
-#     working-tree probe that picks the out-of-reach wording then answered existence
-#     questions about the object store. The refusal was case-sensitive while the
-#     filesystem this shell runs on is not, so `.GIT/config` walked around it. All four
-#     must produce the SAME sentence — an oracle is a difference, so identity is one
-#     assertion here, but NOT the only one: see the mutation lock below.
-# All nine land on `unresolvable-locally` — a non-defect, so a benign attribution is
-# never converted into a false defect either — while the control still resolves.
+#   - object-store attributions: present and absent, lowercase and CASE-VARIED, by
+#     spelling and through a tracked symlink alias. `.git/` IS under the repository
+#     root, so physical containment admits it, and the working-tree probe that picks
+#     the out-of-reach wording would otherwise answer existence questions about the
+#     object store; a case-sensitive refusal admits `.GIT/config` on a
+#     case-insensitive filesystem. All spellings must produce the SAME sentence — an
+#     oracle is a difference, so identity is one assertion here, but NOT the only
+#     one: see the mutation lock below.
+# Every probe attribution lands on `unresolvable-locally` — a non-defect, so a benign
+# attribution is never converted into a false defect either — while the control still
+# resolves.
 S174F_DIR=$(mktemp -d 2>/dev/null)
 S174F_SPAN="the boundary probe span carried verbatim at every attributed site"
 if [ ! -f "$S174_CHECKER" ]; then
@@ -4114,3 +4110,137 @@ else
   fi
 fi
 if [ -n "$S174K_DIR" ] && [ -d "$S174K_DIR" ]; then rm -rf "$S174K_DIR"; fi
+
+# §174l (NEUTRALISED BYTES, PR #677): raw C0 control bytes in a body must never
+# reach the reader's stdout. CR and ESC are not whitespace, so without
+# neutralisation an attribution or span carrying a VT escape sequence reaches the
+# column-0 report line, where a terminal renders a redraw instead of the bytes —
+# a clean-looking line over a defect report. The extractor turns every C0 control
+# except tab into a space, one byte for one; the first probe below carries such
+# bytes outside any fence, and a genuine span on the same body must still resolve
+# so the arm cannot green on an empty report.
+S174L_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174l: scripts/lint_citations.sh absent — the control-byte posture is unmeasured (PR #677)"
+elif [ -z "$S174L_DIR" ] || [ ! -d "$S174L_DIR" ]; then
+  ng "174l: mktemp -d failed — the control-byte posture is unmeasured (PR #677)"
+else
+  S174L_WORK="$S174L_DIR/work"
+  git init -q "$S174L_WORK" 2>/dev/null
+  (
+    cd "$S174L_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'a plain control span for the control byte arm\n' > tracked.md
+    git add tracked.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  # Line 1: an ESC[2K/ESC[1G redraw inside the attribution token and a CR inside
+  # the span. Line 2: the ordinary control that must still resolve.
+  printf -- '- `tr\033[2K\033[1Gacked.md` states "a redraw carrying span for\r this control byte arm" here.\n' > "$S174L_WORK/probe.md"
+  printf -- '- `tracked.md` states "a plain control span for the control byte arm" too.\n' >> "$S174L_WORK/probe.md"
+  s174l_out="$(bash "$S174_CHECKER" "$S174L_WORK/probe.md" 2>/dev/null)"
+  s174l_ctl=$(printf '%s\n' "$s174l_out" | LC_ALL=C grep -c "$(printf '[\033\r]')" || true)
+  s174l_res=$(s174_count 'resolves' "$s174l_out")
+  s174l_in=$(LC_ALL=C grep -c "$(printf '[\033\r]')" "$S174L_WORK/probe.md" || true)
+  if [ "$s174l_in" -ge 1 ] && [ "$s174l_ctl" -eq 0 ] && [ "$s174l_res" -ge 1 ]; then
+    ok "174l: CR and ESC bytes in a body are neutralised before they can reach a report line — the reader's stdout carries no control byte while the body does, and the clean span on the same body still resolves (PR #677)"
+  else
+    ng "174l: a body carrying CR/ESC outside fences must yield a stdout with zero control bytes and the clean span must still resolve — got body-control-lines=$s174l_in stdout-control-lines=$s174l_ctl resolves=$s174l_res (PR #677)"
+  fi
+fi
+if [ -n "$S174L_DIR" ] && [ -d "$S174L_DIR" ]; then rm -rf "$S174L_DIR"; fi
+
+# §174m (THE NORMALISING RUNG IS BYTE-ORIENTED, PR #677): in a UTF-8 locale one
+# invalid byte in a CITED artifact is fatal to awk's regex machinery, and a rung
+# that dies there turns a span that normalises — a non-defect — into `unresolved`,
+# a defect. `norm_hit` therefore runs its awk under LC_ALL=C, like the extractor.
+# Asserted as an OUTCOME under a UTF-8 locale (the first one the system offers)
+# so the pin cannot go stale as a string while the behaviour regresses.
+S174M_DIR=$(mktemp -d 2>/dev/null)
+S174M_LOC=""
+# Captured once, and grep runs WITHOUT -q: under pipefail a -q early exit kills
+# `locale -a` with SIGPIPE and the pipeline reads as a miss.
+s174m_all=$(locale -a 2>/dev/null || true)
+for s174m_c in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
+  if printf '%s\n' "$s174m_all" | grep -ixF "$s174m_c" >/dev/null; then S174M_LOC="$s174m_c"; break; fi
+done
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174m: scripts/lint_citations.sh absent — the normalising rung's locale posture is unmeasured (PR #677)"
+elif [ -z "$S174M_DIR" ] || [ ! -d "$S174M_DIR" ]; then
+  ng "174m: mktemp -d failed — the normalising rung's locale posture is unmeasured (PR #677)"
+else
+  S174M_WORK="$S174M_DIR/work"
+  git init -q "$S174M_WORK" 2>/dev/null
+  (
+    cd "$S174M_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    # An invalid UTF-8 byte pair on line 1, then the span WRAPPED across two lines
+    # so rung 1 misses and only the normalising rung can find it.
+    printf 'Z \200\377 an invalid byte pair right at the top\n' > art.md
+    printf 'gamma delta epsilon\nzeta eta theta\n' >> art.md
+    git add art.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  printf -- '- `art.md` states "gamma delta epsilon zeta eta theta" across a wrap.\n' > "$S174M_WORK/probe.md"
+  s174m_out="$(LC_ALL="${S174M_LOC:-C}" LANG="${S174M_LOC:-C}" bash "$S174_CHECKER" "$S174M_WORK/probe.md" 2>/dev/null)"
+  s174m_norm=$(s174_count 'normalized' "$s174m_out")
+  s174m_bad=$(( $(s174_count 'unresolved' "$s174m_out") + $(s174_count 'site-mismatch' "$s174m_out") ))
+  if [ "$s174m_norm" -eq 1 ] && [ "$s174m_bad" -eq 0 ]; then
+    ok "174m: a wrapped span in a cited artifact that also carries an invalid UTF-8 byte still reports normalized under a UTF-8 locale (${S174M_LOC:-none offered; ran under C}) — the rung is byte-oriented, so an author-supplied byte cannot convert a non-defect into a defect (PR #677)"
+  else
+    ng "174m: the wrapped span must report normalized (not unresolved/site-mismatch) although its file carries an invalid UTF-8 byte, under locale ${S174M_LOC:-C} — got normalized=$s174m_norm defect-classes=$s174m_bad (PR #677)"
+  fi
+fi
+if [ -n "$S174M_DIR" ] && [ -d "$S174M_DIR" ]; then rm -rf "$S174M_DIR"; fi
+
+# §174n (OBJECT-STORE REFUSAL ON THE RESOLVED PATH IS CASE-FOLDED, PR #677): a
+# tracked symlink whose TARGET is a case-varied `.GIT` resolves — on a
+# case-insensitive filesystem — to the object store under a spelling a
+# case-sensitive pattern admits, because `pwd -P` appends the link target without
+# canonicalising case. The resolved-path refusal therefore case-folds, and the
+# alias must land on the SAME object-store sentence as a spelled `.git/`
+# attribution. On a case-sensitive filesystem the alias target does not exist, so
+# the honest refusal there is the absent-parent one — still `unresolvable-locally`;
+# the arm asserts the non-defect class on both, and sentence identity where the
+# filesystem makes the alias real.
+S174N_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174n: scripts/lint_citations.sh absent — the case-folded object-store refusal is unmeasured (PR #677)"
+elif [ -z "$S174N_DIR" ] || [ ! -d "$S174N_DIR" ]; then
+  ng "174n: mktemp -d failed — the case-folded object-store refusal is unmeasured (PR #677)"
+else
+  S174N_WORK="$S174N_DIR/work"
+  git init -q "$S174N_WORK" 2>/dev/null
+  (
+    cd "$S174N_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'a case fold probe span for this arm\n' > tracked.md
+    ln -s .GIT gitcased
+    git add tracked.md gitcased >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  : > "$S174N_WORK/S174NCaseProbe"
+  s174n_ci=0
+  [ -e "$S174N_WORK/s174ncaseprobe" ] && s174n_ci=1
+  rm -f "$S174N_WORK/S174NCaseProbe"
+  {
+    printf -- '- `gitcased/config` states "a case fold probe span for this arm" via the alias.\n'
+    printf -- '- `.git/config` states "a case fold probe span for this arm" by spelling.\n'
+  } > "$S174N_WORK/probe.md"
+  s174n_out="$(bash "$S174_CHECKER" "$S174N_WORK/probe.md" 2>/dev/null)"
+  s174n_remote=$(s174_count 'unresolvable-locally' "$s174n_out")
+  s174n_leak=$(( $(s174_count 'resolves' "$s174n_out") + $(s174_count 'normalized' "$s174n_out") + $(s174_count 'site-mismatch' "$s174n_out") + $(s174_count 'unresolved' "$s174n_out") ))
+  s174n_sent=$(printf '%s\n' "$s174n_out" | grep -E '^[^[:space:]].*:[0-9]+: unresolvable-locally — ' \
+    | sed -E 's/^.*unresolvable-locally — attributed to [^,]*,//' | sort -u | wc -l | tr -d ' ')
+  if [ "$s174n_remote" -eq 2 ] && [ "$s174n_leak" -eq 0 ] \
+     && { [ "$s174n_ci" -eq 0 ] || [ "$s174n_sent" -eq 1 ]; }; then
+    if [ "$s174n_ci" -eq 1 ]; then
+      ok "174n: a tracked symlink alias to a case-varied .GIT lands on the SAME object-store sentence as a spelled .git/ attribution — the resolved-path refusal is case-folded, so the alias is not an oracle (PR #677)"
+    else
+      ok "174n: the case-varied .GIT alias stays unresolvable-locally on this case-sensitive filesystem (target absent), and no ladder class leaks — the case-fold path is exercised where the filesystem makes it real (PR #677)"
+    fi
+  else
+    ng "174n: both the .GIT-target alias and the spelled .git/ attribution must report unresolvable-locally with no ladder class leaking, sharing one sentence where the filesystem is case-insensitive — got unresolvable-locally=$s174n_remote leaked=$s174n_leak case-insensitive=$s174n_ci distinct-sentences=$s174n_sent (PR #677)"
+  fi
+fi
+if [ -n "$S174N_DIR" ] && [ -d "$S174N_DIR" ]; then rm -rf "$S174N_DIR"; fi
