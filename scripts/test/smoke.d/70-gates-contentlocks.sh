@@ -3406,3 +3406,841 @@ else
   ng "158d: every execution-verifying contract must carry exactly one '## Scratch discipline (#646)' heading and one mktemp -d template — checked $s158d_n of 2, offenders:$s158d_miss (#646)"
 fi
 
+
+# ---------- §174: citation resolution at the attributed site (#676) ----------
+# SPEC §1.10. The rule: a quoted span in a durable-artifact body resolves in the FILE
+# it is attributed to, and a span carried ELSEWHERE in the tree but not at the
+# attributed site is a `site-mismatch` — the defect an existence-anywhere check
+# passes. `scripts/lint_citations.sh` mechanizes the lexical half of part (a) and is
+# born advisory (§6.0 P3): it prints findings and exits 0 unconditionally.
+#
+# §174a is a Doc lock over SPEC §1.10. Every other arm exercises the reader through
+# its CLI, which is the surface both authoring commands use, so an arm cannot green
+# on a code path the commands do not take. Each arm names its own concern in its
+# header comment; no roster of them is kept here, because a roster rots as arms are
+# added while each arm's own header does not.
+#
+# The discriminator is §174b's site-mismatch assertion: an existence-anywhere check
+# reports that span as resolving, so a reader that greens §174b is doing the job the
+# rule names.
+#
+# COUNTING DISCIPLINE (PR #677): every count below goes through `s174_count`, which
+# anchors at COLUMN 0. Two things on the reader's stdout are author-supplied: the
+# attributed path (path-shaped, so a body citing a file named `site-mismatch.md` puts
+# that token on a line whose class is something else) and the SPAN, echoed verbatim into
+# the INDENTED `search:` line, where it can carry a whole forged `…:3: resolves — …`
+# sequence. A count anchored only on `:<line>: <class>` was measured returning 1 where
+# the reader's own stderr totals said 0 — so the anchor must exclude the indented line,
+# which is exactly what column 0 does. Nothing can SUPPRESS a count; the risk is an arm
+# that measures the fixture's text instead of the reader's behaviour.
+S174_SPEC="$SHELL_ROOT/SPEC.md"
+S174_CHECKER="$SHELL_ROOT/scripts/lint_citations.sh"
+S174_FX="$SHELL_ROOT/scripts/test/fixtures/citation/proposed-issue-body.md"
+S174_ABSENT="$SHELL_ROOT/scripts/test/fixtures/citation/no-such-body.md"
+S174_CMDS=("$SHELL_ROOT/.claude/commands/file-directive.md" "$SHELL_ROOT/.claude/commands/file-issue.md")
+
+# Anchored class count: s174_count <class> "<reader stdout>". Column 0 is load-bearing
+# — see COUNTING DISCIPLINE above.
+s174_count() { printf '%s\n' "$2" | grep -cE "^[^[:space:]].*:[0-9]+: $1 — " || true; }
+
+# §174a (DOC LOCK, AC4): SPEC §1.10 exists and states BOTH parts with their
+# load-bearing halves — part (a) at FILE granularity including the site-mismatch
+# case, part (b) with the neither-broader-nor-narrower extent rule.
+if [ ! -f "$S174_SPEC" ]; then
+  ng "174a: SPEC.md absent — cannot lock the §1.10 evidence discipline (#676)"
+elif grep -qF '### 1.10 Evidence discipline for durable-artifact bodies' "$S174_SPEC" \
+   && grep -qF '**(a) A quotation resolves in the file it is attributed to.**' "$S174_SPEC" \
+   && grep -qF 'site-mismatch' "$S174_SPEC" \
+   && grep -qF '**(b) A corpus-quantified claim carries the literal command and its literal output.**' "$S174_SPEC" \
+   && grep -qF 'neither broader nor narrower' "$S174_SPEC"; then
+  ok "174a: SPEC §1.10 states both parts — (a) resolution at the attributed file incl. site-mismatch, (b) literal command + output, neither broader nor narrower (#676)"
+else
+  ng "174a: SPEC §1.10 must carry the heading, part (a) with the site-mismatch case, and part (b) with the neither-broader-nor-narrower extent rule (#676)"
+fi
+
+# §174b (CHECKER DEMONSTRATION, AC2/AC3/AC6 — the load-bearing arm): the reader's
+# classification of the committed fixture body, per span. The fixture carries one
+# span of each case, so this arm pins the whole class vocabulary at once:
+#   - a span absent from the file it names but present elsewhere -> site-mismatch,
+#     asserted at its site (`scripts/lint_bash_idioms.sh`). This is the arm an
+#     existence-anywhere reader fails.
+#   - a span present nowhere -> unresolved, asserted at its attributed file.
+#   - two clean spans -> resolves.
+#   - a GitHub-attributed span and an unattributed span -> non-defects.
+#   - a span inside a fenced block -> never extracted at all.
+# The `search:` line is asserted to carry the literal git grep (the report states the
+# search, not just the verdict); rung 2's own search is asserted by §174e.
+if [ ! -f "$S174_FX" ]; then
+  ng "174b: citation fixture body absent ($S174_FX) — the per-span classification is unmeasured (#676)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174b: scripts/lint_citations.sh absent — the per-span classification of the fixture body is unmeasured (#676)"
+else
+  s174b_out="$(bash "$S174_CHECKER" "$S174_FX" 2>/dev/null)"
+  s174b_mm=$(s174_count 'site-mismatch' "$s174b_out")
+  s174b_mm_site=$(printf '%s\n' "$s174b_out" | grep -E ':[0-9]+: site-mismatch — ' | grep -cF 'scripts/lint_bash_idioms.sh' || true)
+  s174b_un=$(s174_count 'unresolved' "$s174b_out")
+  s174b_un_site=$(printf '%s\n' "$s174b_out" | grep -E ':[0-9]+: unresolved — ' | grep -cF '.claude/agents/issue-reviewer.md' || true)
+  s174b_res=$(s174_count 'resolves' "$s174b_out")
+  s174b_gh=$(s174_count 'unresolvable-locally' "$s174b_out")
+  s174b_na=$(printf '%s\n' "$s174b_out" | grep -cF 'no-attribution — ' || true)
+  # Rung 1 runs WITHOUT -I and rung 3 WITH it, deliberately: the attributed file is
+  # author-chosen so "does the file you named carry this" must be answered even for a
+  # file git calls binary, while the repo-wide provenance sweep is over text. Both
+  # shapes are pinned, so dropping either flag reddens this arm.
+  s174b_search=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search: git grep -F -h -n' || true)
+  s174b_search3=$(printf '%s\n' "$s174b_out" | grep -cE '^[[:space:]]+search: git grep -I -F -n' || true)
+  s174b_fenced=$(printf '%s\n' "$s174b_out" | grep -cF 'the wording blended from two sources in the parked draft' || true)
+  if [ "$s174b_mm" -eq 1 ] && [ "$s174b_mm_site" -eq 1 ] \
+     && [ "$s174b_un" -eq 1 ] && [ "$s174b_un_site" -eq 1 ] \
+     && [ "$s174b_res" -ge 2 ] && [ "$s174b_gh" -ge 1 ] && [ "$s174b_na" -ge 1 ] \
+     && [ "$s174b_search" -ge 1 ] && [ "$s174b_search3" -ge 1 ] && [ "$s174b_fenced" -eq 0 ]; then
+    ok "174b: lint_citations.sh classifies the fixture per span — 1 site-mismatch at lint_bash_idioms.sh, 1 unresolved at issue-reviewer.md, both clean spans resolve, GitHub-attributed and unattributed spans stay non-defects, fenced text unread (#676)"
+  else
+    ng "174b: the fixture body must report exactly one site-mismatch (at scripts/lint_bash_idioms.sh) and one unresolved (at .claude/agents/issue-reviewer.md), >=2 resolves, >=1 unresolvable-locally, >=1 no-attribution, >=1 rung-1 'search: git grep -F -h -n' line, >=1 rung-3 'search: git grep -I -F -n' line, and 0 hits from the fenced block — got site-mismatch=$s174b_mm/site=$s174b_mm_site unresolved=$s174b_un/site=$s174b_un_site resolves=$s174b_res unresolvable-locally=$s174b_gh no-attribution=$s174b_na search1=$s174b_search search3=$s174b_search3 fenced=$s174b_fenced (#676)"
+  fi
+fi
+
+# §174c (ADVISORY POSTURE, AC1/AC3): the reader is born advisory — status 0 on a
+# body carrying defects AND on unreadable input, and the unreadable case is marked
+# with a fail-open sentinel so a silent no-op cannot pass as a clean body.
+if [ ! -f "$S174_FX" ]; then
+  ng "174c: citation fixture body absent ($S174_FX) — the always-exit-0 posture is unmeasured (#676)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174c: scripts/lint_citations.sh absent — the always-exit-0 + fail-open-sentinel posture is unmeasured (#676)"
+else
+  bash "$S174_CHECKER" "$S174_FX" >/dev/null 2>&1; s174c_rc_fx=$?
+  s174c_absent_out="$(bash "$S174_CHECKER" "$S174_ABSENT" 2>&1)"; s174c_rc_absent=$?
+  s174c_sentinel=$(printf '%s\n' "$s174c_absent_out" | grep -cF 'fail-open' || true)
+  if [ "$s174c_rc_fx" -eq 0 ] && [ "$s174c_rc_absent" -eq 0 ] && [ "$s174c_sentinel" -ge 1 ]; then
+    ok "174c: lint_citations.sh exits 0 on a body carrying defects and on unreadable input, and marks the unreadable case with a fail-open sentinel (#676)"
+  else
+    ng "174c: the reader must exit 0 on both the fixture and a nonexistent path and print a 'fail-open' sentinel for the unreadable one — got rc(fixture)=$s174c_rc_fx rc(absent)=$s174c_rc_absent sentinel=$s174c_sentinel (#676)"
+  fi
+fi
+
+# §174d (WIRING LOCK, AC5): both authoring commands run the reader on the proposed
+# body at a step numbered BELOW their reviewer gate, and state that the report is
+# advisory. The count-guard (`checked N of 2`) keeps an empty iteration from passing.
+s174d_bad=""
+s174d_n=0
+for s174d_f in "${S174_CMDS[@]}"; do
+  s174d_base=$(basename "$s174d_f")
+  s174d_n=$(( s174d_n + 1 ))
+  if [ ! -f "$s174d_f" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=ABSENT"
+    continue
+  fi
+  s174d_scan=$(awk '
+    /^[0-9]+(\.[0-9]+)*\./ { step = $1; sub(/\.$/, "", step) }
+    /lint_citations\.sh/ { if (cite == "") cite = step }
+    /[Rr]eviewer gate/ { if (gate == "") gate = step }
+    /report is advisory/ { adv = 1 }
+    END { printf "%s|%s|%s", cite, gate, (adv ? "adv" : "") }
+  ' "$s174d_f")
+  s174d_cite=${s174d_scan%%|*}
+  s174d_rest=${s174d_scan#*|}
+  s174d_gate=${s174d_rest%%|*}
+  s174d_adv=${s174d_rest#*|}
+  if [ -z "$s174d_cite" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=no-citation-step"
+  elif [ -z "$s174d_gate" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=no-reviewer-gate-step"
+  elif ! awk -v a="$s174d_cite" -v b="$s174d_gate" 'BEGIN { exit !(a + 0 < b + 0) }'; then
+    s174d_bad="$s174d_bad ${s174d_base}=step${s174d_cite}-not-before-gate${s174d_gate}"
+  elif [ "$s174d_adv" != "adv" ]; then
+    s174d_bad="$s174d_bad ${s174d_base}=step${s174d_cite}-silent-on-advisory"
+  fi
+done
+if [ "$s174d_n" -eq 2 ] && [ -z "$s174d_bad" ]; then
+  ok "174d: /file-directive and /file-issue both run lint_citations.sh at a step numbered below their reviewer gate, stating the report is advisory — checked $s174d_n of 2 (#676)"
+else
+  ng "174d: each authoring command must name lint_citations.sh at a step numbered below its 'Reviewer gate' step and state the report is advisory — checked $s174d_n of 2, offenders:$s174d_bad (#676)"
+fi
+
+# §174e (THE PRINTED SEARCH REPRODUCES ITS OWN RESULT, #677): `normalized` is the
+# one rung whose search is not a `git grep`, and its report used to print rung 1's
+# `git grep` — a command that by construction returns NOTHING, since control reaches
+# rung 2 only because that grep came back empty. So this arm does not read the
+# printed command, it RUNS it: the fixture's `normalized` line names a file and a
+# line number, and its own `search:` line, eval'd from the repo root, must print that
+# same number. The fixture carries the span (a wording lint_bash_idioms.sh holds only
+# across a line wrap) so the class is exercised at all — without it the rung is
+# untested and a non-reproducing search ships green.
+#
+# This arm EVALUATES a command string rebuilt from the reader's own output, so it is
+# safe only because its input is a COMMITTED FIXTURE. Reviewers attacked `sq()`
+# directly across three rounds — quote breakout, `$(…)`, backticks, `; echo …; #`,
+# `${IFS}`, a trailing backslash — and none produced a side effect, but do not
+# repoint this arm at a caller-supplied body: that would turn a deliberately quoted
+# printer into an injection sink.
+if [ ! -f "$S174_FX" ]; then
+  ng "174e: citation fixture body absent ($S174_FX) — the normalized rung and its printed search are unmeasured (PR #677)"
+elif [ ! -f "$S174_CHECKER" ]; then
+  ng "174e: scripts/lint_citations.sh absent — the normalized rung and its printed search are unmeasured (PR #677)"
+else
+  s174e_out="$(bash "$S174_CHECKER" "$S174_FX" 2>/dev/null)"
+  s174e_n=$(s174_count 'normalized' "$s174e_out")
+  s174e_rep=$(printf '%s\n' "$s174e_out" | grep -E ':[0-9]+: normalized — ' | head -n 1)
+  s174e_site=$(printf '%s\n' "$s174e_rep" | sed -E 's/^.*: normalized — ([^ :]+):([0-9]+).*$/\1/')
+  s174e_lno=$(printf '%s\n' "$s174e_rep" | sed -E 's/^.*: normalized — ([^ :]+):([0-9]+).*$/\2/')
+  s174e_cmd=$(printf '%s\n' "$s174e_out" \
+    | awk '/: normalized — /{ getline; sub(/^[[:space:]]*search: /, ""); print; exit }')
+  s174e_rerun=""
+  if [ -n "$s174e_cmd" ]; then
+    s174e_rerun=$( ( cd "$SHELL_ROOT" && eval "$s174e_cmd" ) 2>/dev/null | head -n 1)
+  fi
+  if [ "$s174e_n" -eq 1 ] && [ "$s174e_site" = "scripts/lint_bash_idioms.sh" ] \
+     && [ -n "$s174e_lno" ] && [ "$s174e_rerun" = "$s174e_lno" ]; then
+    ok "174e: the fixture exercises the normalized rung once (at scripts/lint_bash_idioms.sh:$s174e_lno) and its printed search, re-run verbatim, returns that same line — the report states a search that reproduces it (PR #677)"
+  else
+    ng "174e: the fixture must report exactly one normalized span at scripts/lint_bash_idioms.sh whose printed 'search:' command, re-run from the repo root, prints the reported line — got n=$s174e_n site=$s174e_site line=$s174e_lno rerun=$s174e_rerun (PR #677)"
+  fi
+fi
+
+# §174f (THE ATTRIBUTED PATH STAYS INSIDE THE TRACKED REPOSITORY, #677): a set of
+# attributions built in a throwaway repo, each carrying the SAME span verbatim at the
+# place it points to and none of which the reader may resolve or normalise — plus one
+# ordinary in-tree attribution it MUST still resolve, so the arm separates containment
+# from over-refusal. The exact counts live in the assertion below, where going stale
+# makes the arm fail instead of the comment lie. The axes:
+#   - a `..` traversal to a file outside the repository. Rung 2 read the attributed
+#     file directly, so a body could confirm guesses about any readable path on the
+#     machine ("does this file contain X?"). Must be refused BEFORE the read.
+#   - an untracked file, present in the tree. Rung 1 (git grep) sees only tracked
+#     files, so the verbatim span missed there and rung 2's direct read then reported
+#     `normalized` — a normalisation that never happened.
+#   - git pathspec magic in the attribution. As a rung-1 pathspec it INVERTED the
+#     search into "everywhere but this file" and reported `resolves` for a span living
+#     somewhere else entirely.
+#   - a TRACKED SYMLINK to a file outside the repository. `in_repo_path` is purely
+#     textual, `git ls-files --error-unmatch` confirms a mode-120000 index entry, and
+#     `-f` FOLLOWS the link, so all three of the round-2 tests passed and rung 2 read
+#     an arbitrary absolute path.
+#   - a tracked path reached through a DIRECTORY swapped for a symlink out of the
+#     tree. The leaf is not itself a link, so refusing `-L` on it is not enough; only
+#     physical resolution of the whole chain catches this one. And here the rung that
+#     reads through is rung 1's `git grep`, which falsified the premise that the git
+#     rungs are boundary-safe: git enforces a pathspec boundary, never a filesystem
+#     one.
+#   - object-store attributions: present and absent, lowercase and CASE-VARIED, by
+#     spelling and through a tracked symlink alias. `.git/` IS under the repository
+#     root, so physical containment admits it, and the working-tree probe that picks
+#     the out-of-reach wording would otherwise answer existence questions about the
+#     object store; a case-sensitive refusal admits `.GIT/config` on a
+#     case-insensitive filesystem. All spellings must produce the SAME sentence — an
+#     oracle is a difference, so identity is one assertion here, but NOT the only
+#     one: see the mutation lock below.
+# Every probe attribution lands on `unresolvable-locally` — a non-defect, so a benign
+# attribution is never converted into a false defect either — while the control still
+# resolves.
+S174F_DIR=$(mktemp -d 2>/dev/null)
+S174F_SPAN="the boundary probe span carried verbatim at every attributed site"
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174f: scripts/lint_citations.sh absent — the repository-boundary posture is unmeasured (PR #677)"
+elif [ -z "$S174F_DIR" ] || [ ! -d "$S174F_DIR" ]; then
+  ng "174f: mktemp -d failed — the repository-boundary posture is unmeasured (PR #677)"
+else
+  S174F_WORK="$S174F_DIR/work"
+  mkdir -p "$S174F_WORK" "$S174F_DIR/outdir"
+  printf '%s\n' "$S174F_SPAN" > "$S174F_DIR/outside.md"
+  printf '%s\n' "$S174F_SPAN" > "$S174F_DIR/outdir/x.md"
+  git init -q "$S174F_WORK" 2>/dev/null
+  (
+    cd "$S174F_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf '%s\n' "$S174F_SPAN" > tracked.md
+    printf '%s\n' "$S174F_SPAN" > elsewhere.md
+    printf '%s\n' "$S174F_SPAN" > untracked.md
+    : > ':(exclude,top)tracked.md'
+    mkdir -p sub realdir
+    printf '%s\n' "$S174F_SPAN" > sub/x.md
+    printf '%s\n' "$S174F_SPAN" > realdir/inside.md
+    ln -s ../outside.md link.md
+    # A tracked symlink whose target is `.git`: a mode-120000 blob, so a CLONE
+    # materialises it. This was the one object-store gap that needed no worktree write,
+    # because the refusal was on the attribution string and not the resolved path.
+    ln -s .git gitalias
+    # A glob-metacharacter filename beside the file it would glob onto. `:(literal)`
+    # disarms the pathspec; without it `a?c.md` matches `abc.md` and a real
+    # site-mismatch reports as a clean `resolves` — a FALSE clean, the direction §1.10
+    # exists to catch. Asserted separately below, because unlike the refusals it is a
+    # classification claim rather than an out-of-corpus one.
+    printf '%s\n' "$S174F_SPAN" > abc.md
+    printf 'a decoy that carries nothing of the sort\n' > 'a?c.md'
+    git add tracked.md elsewhere.md sub/x.md realdir/inside.md link.md gitalias abc.md 'a?c.md' >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+    # The leaf stays tracked and is not itself a link; its PARENT is swapped.
+    rm -rf sub && ln -s "$S174F_DIR/outdir" sub
+  ) >/dev/null 2>&1
+  {
+    printf '# boundary probe\n\n'
+    printf -- '- `../outside.md` states *"%s"* — outside the repository.\n' "$S174F_SPAN"
+    printf -- '- `untracked.md` states *"%s"* — present but untracked.\n' "$S174F_SPAN"
+    printf -- '- `:(exclude,top)tracked.md` states *"%s"* — pathspec magic.\n' "$S174F_SPAN"
+    printf -- '- `link.md` states *"%s"* — a tracked symlink out of the tree.\n' "$S174F_SPAN"
+    printf -- '- `sub/x.md` states *"%s"* — a tracked leaf under a swapped directory.\n' "$S174F_SPAN"
+    printf -- '- `.git/config` states *"%s"* — an object-store path that exists.\n' "$S174F_SPAN"
+    printf -- '- `.git/definitely-absent-xyz` states *"%s"* — an object-store path that does not.\n' "$S174F_SPAN"
+    printf -- '- `.GIT/config` states *"%s"* — the same path, case-varied, which exists.\n' "$S174F_SPAN"
+    printf -- '- `.GIT/definitely-absent-xyz` states *"%s"* — the same, case-varied, absent.\n' "$S174F_SPAN"
+    printf -- '- `gitalias/config` states *"%s"* — the object store through a tracked symlink.\n' "$S174F_SPAN"
+    printf -- '- `gitalias/definitely-absent-xyz` states *"%s"* — the same alias, absent.\n' "$S174F_SPAN"
+    printf -- '- `realdir/` states *"%s"* — a directory, not a file.\n' "$S174F_SPAN"
+    printf -- '- `tracked.md` states *"%s"* — the ordinary in-tree control.\n' "$S174F_SPAN"
+  } > "$S174F_WORK/probe.md"
+  s174f_out="$(bash "$S174_CHECKER" "$S174F_WORK/probe.md" 2>/dev/null)"
+  s174f_remote=$(s174_count 'unresolvable-locally' "$s174f_out")
+  s174f_leak=$(( $(s174_count 'normalized' "$s174f_out") + $(s174_count 'site-mismatch' "$s174f_out") + $(s174_count 'unresolved' "$s174f_out") ))
+  s174f_res=$(s174_count 'resolves' "$s174f_out")
+  s174f_ctl=$(printf '%s\n' "$s174f_out" | grep -E ':[0-9]+: resolves — ' | grep -cF 'tracked.md' || true)
+  # The two `.git/` lines must be identical apart from the path they name: strip the
+  # path and require one distinct sentence, so an existence difference cannot hide.
+  # All object-store spellings — lowercase, case-varied, and through a tracked symlink
+  # alias — must give ONE sentence. An oracle is a difference, and the alias is the only
+  # one of these a plain clone reproduces.
+  s174f_gitsent=$(printf '%s\n' "$s174f_out" | grep -iE ':[0-9]+: unresolvable-locally — attributed to (\.git/|gitalias/)' \
+    | sed -E 's/^.*:[0-9]+: /<body>: /; s/attributed to (\.[gG][iI][tT]|gitalias)\/[^,]*,/attributed to <path>,/' | sort -u | wc -l | tr -d ' ')
+  s174f_gitn=$(printf '%s\n' "$s174f_out" | grep -ciE ':[0-9]+: unresolvable-locally — attributed to (\.git/|gitalias/)' || true)
+  # THE MUTATION LOCK. Identity of two sentences is NOT enough on its own: a build in
+  # which every refusal degrades to one generic sentence satisfies identity trivially,
+  # and that is exactly the inert-reason regression a reviewer re-introduced while all
+  # ten arms of this section stayed green. So the arm additionally requires that the
+  # refusals carry at least THREE distinct sentences, and that the two physical
+  # refusals name their own test by wording. Collapse the reasons and this reddens.
+  s174f_distinct=$(printf '%s\n' "$s174f_out" | grep -E '^[^[:space:]].*:[0-9]+: unresolvable-locally — ' \
+    | sed -E 's/^.*unresolvable-locally — attributed to [^,]*,//' | sort -u | wc -l | tr -d ' ')
+  s174f_symword=$(printf '%s\n' "$s174f_out" | grep -cF 'the working-tree entry there is a symlink' || true)
+  # The textual refusal needs its own wording lock. Re-gating it behind `tracked = 1` —
+  # the literal bug this reader's comment calls a trap the next edit can re-enter — left
+  # ALL of §174 green, because the distinct-sentence count absorbed the collapse. The
+  # traversal and the pathspec-magic attributions are the two that must carry it.
+  s174f_textword=$(printf '%s\n' "$s174f_out" | grep -cF 'refused before any index or filesystem lookup ran' || true)
+  # The regular-file gate. `git ls-files --error-unmatch` answers 0 for a DIRECTORY, so
+  # the index test alone calls it tracked; drop the `-f` test and a span living at
+  # `realdir/inside.md` but attributed to `realdir/` reports `resolves` — an
+  # existence-anywhere-under-a-directory answer, §1.10's discriminator backwards. No
+  # arm pinned it.
+  s174f_dirword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves to a directory, not a file' || true)
+  # And `:(literal)`: a separate body, because this one asserts a CLASSIFICATION rather
+  # than a refusal. Without the literal pathspec, rung 1 globs `a?c.md` onto `abc.md`
+  # and reports `resolves`; with it, rung 1 misses and rung 3 finds the wording at
+  # `abc.md`, which is the site-mismatch this checks for. The class IS the lock.
+  printf -- '- `a?c.md` states *"%s"* — a glob metacharacter beside the file it would match.\n' "$S174F_SPAN" > "$S174F_WORK/glob.md"
+  s174f_glob=$(printf '%s\n' "$(bash "$S174_CHECKER" "$S174F_WORK/glob.md" 2>/dev/null)" \
+    | grep -E '^[^[:space:]].*:[0-9]+: site-mismatch — ' | grep -cF 'abc.md' || true)
+  s174f_escword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves physically to a path outside this repository' || true)
+  if [ "$s174f_remote" -eq 12 ] && [ "$s174f_leak" -eq 0 ] \
+     && [ "$s174f_dirword" -eq 1 ] \
+     && [ "$s174f_glob" -eq 1 ] \
+     && [ "$s174f_res" -eq 1 ] && [ "$s174f_ctl" -eq 1 ] \
+     && [ "$s174f_gitn" -eq 6 ] && [ "$s174f_gitsent" -eq 1 ] \
+     && [ "$s174f_distinct" -ge 3 ] \
+     && [ "$s174f_symword" -eq 1 ] && [ "$s174f_escword" -eq 1 ] \
+     && [ "$s174f_textword" -eq 2 ]; then
+    ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and six object-store paths (case-varied, and through a tracked symlink alias a clone reproduces) all report unresolvable-locally — all four object-store spellings share one sentence so existence there is not an oracle, the refusals carry $s174f_distinct distinct sentences and the two physical ones name their own test — while the in-tree control still resolves (PR #677)"
+  else
+    ng "174f: the twelve out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all six object-store spellings (case-varied and symlink-aliased) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword textual-worded=$s174f_textword directory-worded=$s174f_dirword glob-site-mismatch=$s174f_glob (PR #677)"
+  fi
+fi
+if [ -n "$S174F_DIR" ] && [ -d "$S174F_DIR" ]; then rm -rf "$S174F_DIR"; fi
+
+# §174g (A CLOSED PIPE: STATUS 0, A STATED CUT, AND WORK THAT STOPS, #677): §174c
+# measures the UNPIPED invocation only, and the reader died of SIGPIPE with status 141
+# the moment a caller read part of the report and stopped. Ignoring the signal fixed
+# the status but a failed write is silent, so a TRUNCATED report became
+# indistinguishable from a complete one — and for a reader whose whole output a caller
+# is instructed to surface verbatim, that reads as a clean body. Worse, the reader
+# then kept working for a caller that had stopped reading: measured 10.6 s of grinding
+# after `head -3` had returned.
+#
+# The probe body is GENERATED with many spans rather than reusing the fixture, and
+# that is deliberate: the fixture's report is a few KB, which fits inside the pipe
+# buffer, so every write could succeed before `head` was ever scheduled and the arm
+# would green with no truncation having occurred. A report far larger than the buffer
+# makes the cut certain rather than a race.
+S174G_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174g: scripts/lint_citations.sh absent — the closed-pipe posture is unmeasured (PR #677)"
+elif [ -z "$S174G_DIR" ] || [ ! -d "$S174G_DIR" ]; then
+  ng "174g: mktemp -d failed — the closed-pipe posture is unmeasured (PR #677)"
+else
+  S174G_WORK="$S174G_DIR/work"
+  mkdir -p "$S174G_WORK"
+  git init -q "$S174G_WORK" 2>/dev/null
+  (
+    cd "$S174G_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'an ordinary tracked artifact\n' > tracked.md
+    git add tracked.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  {
+    printf '# pipe probe\n\n'
+    awk 'BEGIN { for (i = 1; i <= 300; i++) printf "- `tracked.md` states *\"absent phrase number %d in a report deliberately built larger than one pipe buffer so the cut is certain rather than scheduled\"* — absent.\n", i }'
+  } > "$S174G_WORK/probe.md"
+  # The span-count cap would otherwise hold the report under the buffer, so this arm
+  # raises it through the documented seam: the property under test is the closed pipe,
+  # not the cap (§174j owns that).
+  export GHJIG_CITATION_SPAN_COUNT_MAX=400
+  s174g_bytes=$(bash "$S174_CHECKER" "$S174G_WORK/probe.md" 2>/dev/null | wc -c | tr -d ' ')
+  s174g_t0=$SECONDS
+  bash "$S174_CHECKER" "$S174G_WORK/probe.md" 2>"$S174G_DIR/err_cut" | head -n 2 >/dev/null
+  s174g_rc=${PIPESTATUS[0]}
+  s174g_cut_el=$(( SECONDS - s174g_t0 ))
+  s174g_t0=$SECONDS
+  bash "$S174_CHECKER" "$S174G_WORK/probe.md" 2>"$S174G_DIR/err_full" >/dev/null
+  s174g_rc_full=$?
+  s174g_full_el=$(( SECONDS - s174g_t0 ))
+  unset GHJIG_CITATION_SPAN_COUNT_MAX
+  s174g_cut=$(grep -cF 'TRUNCATED' "$S174G_DIR/err_cut" || true)
+  s174g_full=$(grep -cF 'TRUNCATED' "$S174G_DIR/err_full" || true)
+  if [ "$s174g_rc" -eq 0 ] && [ "$s174g_rc_full" -eq 0 ] \
+     && [ "$s174g_bytes" -gt 65536 ] \
+     && [ "$s174g_cut" -ge 1 ] && [ "$s174g_full" -eq 0 ] \
+     && [ "$s174g_cut_el" -lt "$s174g_full_el" ]; then
+    ok "174g: on a ${s174g_bytes}-byte report cut after two lines the reader exits 0, states the cut with a TRUNCATED sentinel stderr carries only in that case, and STOPS — ${s174g_cut_el}s against ${s174g_full_el}s for the full run (PR #677)"
+  else
+    ng "174g: a report larger than the pipe buffer, truncated after two lines, must exit 0, write a TRUNCATED sentinel to stderr (and none on a full read), and finish strictly faster than the full run — got rc=$s174g_rc rc_full=$s174g_rc_full bytes=$s174g_bytes sentinel_cut=$s174g_cut sentinel_full=$s174g_full cut=${s174g_cut_el}s full=${s174g_full_el}s (PR #677)"
+  fi
+fi
+if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
+
+# §174h (EVERY FACTOR OF THE COST IS BOUNDED, #677): rung 2 joined the WHOLE
+# attributed file into one awk string — quadratic, no size cap, no timeout: a body
+# citing a large tracked artifact plus a phrase it does not carry stalled the caller
+# for minutes with no human present (measured 9.6 MB -> over 10 minutes). The scan is
+# a sliding window now, but the cost is a PRODUCT and each round found another factor
+# of it. All five are measured here, each against the shape that was slow:
+#   - 4 MB as 60 000 short lines, one span — the file-size axis.
+#   - the SAME 4 MB as ONE line: the per-record normalisation is quadratic in line
+#     length, so a one-line file never entered the trim loop (0.32 s at 256 KB
+#     doubling cleanly to 66.9 s at 4 MB). Reachable with nothing planted — a minified
+#     bundle, a one-line JSON dump, an inlined SVG.
+#   - 30 spans against the same file — the multiplier a one-span arm cannot see.
+#   - a 1.6 MB BODY on one line: the extractor's own scan is quadratic in one BODY
+#     line's length, which is the axis the AUTHOR controls, and it was unbounded while
+#     the cited artifact's lines were capped (measured: 118 s in extraction alone).
+#   - 250 spans against the span-count cap: rungs 1 and 3 fork a git process per span,
+#     so a GitHub-legal 64 KB body of minimal spans ran for two minutes.
+# The bounds are deliberately loose (20 s) — they separate linear from quadratic by
+# more than an order of magnitude without pinning machine speed.
+# §174j shares this repo, so it is nested here — but its ng path is duplicated into
+# BOTH guard arms below. Nested inside the success branch alone it emitted neither ok
+# nor ng when the precondition failed, so the suite would report fail=0 with one fewer
+# assertion: the silent-skip-on-an-absent-target anti-pattern this suite's own header
+# names, committed by the section about silent suppression (PR #677).
+S174H_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174h: scripts/lint_citations.sh absent — the reader's cost is unmeasured (PR #677)"
+  ng "174j: scripts/lint_citations.sh absent — the statement discipline is unmeasured (PR #677)"
+elif [ -z "$S174H_DIR" ] || [ ! -d "$S174H_DIR" ]; then
+  ng "174h: mktemp -d failed — the reader's cost is unmeasured (PR #677)"
+  ng "174j: mktemp -d failed — the statement discipline is unmeasured (PR #677)"
+else
+  S174H_WORK="$S174H_DIR/work"
+  mkdir -p "$S174H_WORK"
+  git init -q "$S174H_WORK" 2>/dev/null
+  (
+    cd "$S174H_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    awk 'BEGIN { for (i = 0; i < 60000; i++) print "line " i " of a large generated lock-like artifact with filler words" }' > big.md
+    awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "minified token " i " "; print s }' > oneline.md
+    git add big.md oneline.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  printf '# size probe\n\n- `big.md` states *"a phrase this large artifact does not carry at all"* — absent.\n' > "$S174H_WORK/probe.md"
+  printf '# one-line probe\n\n- `oneline.md` states *"a phrase this minified artifact does not carry at all"* — absent.\n' > "$S174H_WORK/probe1.md"
+  {
+    printf '# multiplier probe\n\n'
+    awk 'BEGIN { for (i = 1; i <= 30; i++) printf "- `big.md` states *\"absent phrase number %d that this artifact does not carry\"* — absent.\n", i }'
+  } > "$S174H_WORK/probeN.md"
+  awk 'BEGIN { s = ""; for (i = 0; i < 40000; i++) s = s "\"absent phrase number " i " not carried\" "; print "- `big.md` " s }' > "$S174H_WORK/probeB.md"
+  {
+    printf '# span-count probe\n\n'
+    awk 'BEGIN { for (i = 1; i <= 250; i++) printf "- `big.md` states *\"absent phrase number %d not carried anywhere\"* — absent.\n", i }'
+  } > "$S174H_WORK/probeC.md"
+  s174h_t0=$SECONDS
+  s174h_cls=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174H_WORK/probe.md" 2>/dev/null)")
+  s174h_el=$(( SECONDS - s174h_t0 ))
+  s174h_t0=$SECONDS
+  s174h_cls1=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174H_WORK/probe1.md" 2>/dev/null)")
+  s174h_el1=$(( SECONDS - s174h_t0 ))
+  s174h_t0=$SECONDS
+  s174h_clsN=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174H_WORK/probeN.md" 2>/dev/null)")
+  s174h_elN=$(( SECONDS - s174h_t0 ))
+  s174h_t0=$SECONDS
+  bash "$S174_CHECKER" "$S174H_WORK/probeB.md" >/dev/null 2>&1
+  s174h_elB=$(( SECONDS - s174h_t0 ))
+  s174h_t0=$SECONDS
+  s174h_clsC=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174H_WORK/probeC.md" 2>/dev/null)")
+  s174h_elC=$(( SECONDS - s174h_t0 ))
+  if [ "$s174h_el" -lt 20 ] && [ "$s174h_cls" -eq 1 ] \
+     && [ "$s174h_el1" -lt 20 ] && [ "$s174h_cls1" -eq 1 ] \
+     && [ "$s174h_elN" -lt 20 ] && [ "$s174h_clsN" -eq 30 ] \
+     && [ "$s174h_elB" -lt 20 ] \
+     && [ "$s174h_elC" -lt 20 ] && [ "$s174h_clsC" -eq 200 ]; then
+    ok "174h: 4 MB as 60 000 lines (${s174h_el}s), the same 4 MB as ONE line (${s174h_el1}s), 30 spans against it (${s174h_elN}s), a 1.6 MB single-line BODY (${s174h_elB}s) and 250 spans capped to 200 (${s174h_elC}s) all finish inside the bound — every factor of the product is capped (PR #677)"
+  else
+    ng "174h: every factor of the cost must be bounded under 20s — 4 MB many-line (1 unresolved), 4 MB one-line (1 unresolved), 30 spans (30 unresolved), a 1.6 MB one-line body, and 250 spans classified down to the 200 cap — got many=${s174h_el}s/$s174h_cls oneline=${s174h_el1}s/$s174h_cls1 multi=${s174h_elN}s/$s174h_clsN bodyline=${s174h_elB}s spancount=${s174h_elC}s/$s174h_clsC (PR #677)"
+  fi
+
+  # §174j (EVERY BOUND THE READER REACHES, IT STATES, #677) — the anti-silence arm,
+  # sharing §174h's repo. A cap that suppresses work silently is the defect this whole
+  # section is about, committed by the tool that ships the rule: a skipped rung is not
+  # a ruled-out one, and the report must not imply otherwise. Two of these were found
+  # only because a reviewer diffed against the previous round — a `normalized`
+  # (explicitly a non-defect) became an `unresolved` (a defect) with nothing said,
+  # and a nested fence voided the check for an arbitrary tail of the body.
+  # Every decline this arm can drive, and where each is stated — on the report line it
+  # affected where it changes what that line means, on stderr where it does not, which
+  # is the rule §1.10 states. No count of the two sides here: this section removed one
+  # such census for going stale and should not carry a replacement.
+  #   - a span over the length cap
+  #   - spans beyond the count cap
+  #   - a body line over the line cap
+  #   - a line ending on an unpaired ASCII double quote (which also covers a quotation
+  #     wrapped across two lines: both halves end unpaired)
+  #   - a line ending on an unpaired backtick
+  #   - a fenced block that never closes
+  #   - a CITED artifact's line over the normalising rung's own cap
+  #   - a rung-2 byte budget too small for the file
+  #   - a normalising rung whose awk exited nonzero
+  # The fence case uses a FOUR-backtick block wrapping a literal three-backtick line —
+  # the ordinary way to document fenced markdown, and a parity toggle counts it as
+  # three hits and silently drops the rest of the body.
+  (
+    cd "$S174H_WORK" || exit 1
+    awk 'BEGIN { s = ""; for (i = 0; i < 9000; i++) s = s "filler token " i " "; print s "the  double  spaced  phrase  that  only  normalises" }' > longline.md
+    git add longline.md >/dev/null 2>&1
+    git commit -q -m longline >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  # Each bound gets a line that reaches THAT bound and no earlier one, and the bounds
+  # are ORDERED — a fixture has to respect the order or it measures the wrong cap.
+  # Two versions of this fixture got it wrong: the over-long span first sat on a 56 KB
+  # line, so the body-line cap dropped it before the span-length cap saw it; then the
+  # `longline.md` citation sat fourth, so the count cap dropped it before the
+  # normalising rung ran. Both failures looked like a missing statement in the reader.
+  # Hence: the span that must reach the normalising rung comes FIRST among the kept
+  # spans, and the over-long span sits on an ordinary-length line.
+  {
+    printf '# statement probe\n\n'
+    awk 'BEGIN { s = ""; for (i = 0; i < 120; i++) s = s "filler word " i " "; printf "- `big.md` states *\"%s\"* — an over-long span, on an ordinary-length line.\n", s }'
+    printf -- '- `longline.md` states *"the double spaced phrase that only normalises"* — normalises only on a 126 KB line.\n'
+    printf -- '- `big.md` states *"second absent phrase kept under the count cap"* — kept.\n'
+    printf -- '- `big.md` states *"third absent phrase past the count cap"* — dropped.\n'
+    awk 'BEGIN { s = ""; for (i = 0; i < 2000; i++) s = s "filler prose word " i " "; print "- an over-long BODY line: " s }'
+    printf -- '- `big.md` says "two words" and \342\200\234a typographic candidate here\342\200\235 too.\n'
+    printf -- '- `big.md` says "a paired span of four words" and "an unpaired one\n'
+    printf -- '- an unpaired `backtick ends the token scan before "a span of four words here"\n'
+    printf '````text\n'
+    printf '```\n'
+    printf -- '- `big.md` states *"a span the unclosed fence swallows entirely"* — swallowed.\n'
+  } > "$S174H_WORK/probeS.md"
+  s174j_err=$(GHJIG_CITATION_SPAN_COUNT_MAX=2 bash "$S174_CHECKER" "$S174H_WORK/probeS.md" 2>&1 >/dev/null)
+  s174j_out=$(GHJIG_CITATION_SPAN_COUNT_MAX=2 bash "$S174_CHECKER" "$S174H_WORK/probeS.md" 2>/dev/null)
+  s174j_budget=$(GHJIG_CITATION_R2_BUDGET=1 bash "$S174_CHECKER" "$S174H_WORK/probe.md" 2>/dev/null)
+  s174j_span=$(printf '%s\n' "$s174j_err" | grep -cF 'span(s) over 1000 characters were not classified' || true)
+  s174j_count=$(printf '%s\n' "$s174j_err" | grep -cE 'span\(s\) beyond the first 2 were not classified' || true)
+  s174j_body=$(printf '%s\n' "$s174j_err" | grep -cF 'body line(s) over 20000 characters were not scanned' || true)
+  s174j_fence=$(printf '%s\n' "$s174j_err" | grep -cF 'is never closed' || true)
+  s174j_line=$(printf '%s\n' "$s174j_out" | grep -cF 'the normalising rung skipped 1 line(s) over 65536 characters' || true)
+  s174j_bud=$(printf '%s\n' "$s174j_budget" | grep -cF 'larger than this run' || true)
+  s174j_unpairq=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired ASCII double quote' || true)
+  s174j_unpairb=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired backtick' || true)
+  # Three declines this arm is named for but could not fail on: silencing any one of
+  # them left all eleven arms green. Two of the three are the ones the reader's own
+  # header calls out as having been silent before the channel existed, which makes an
+  # unfailable arm for them the worst of the set.
+  s174j_floor=$(printf '%s\n' "$s174j_err" | grep -cF 'under the four-word floor' || true)
+  s174j_typo=$(printf '%s\n' "$s174j_err" | grep -cF 'delimited by typographic quotes' || true)
+  s174j_fenced2=$(printf '%s\n' "$s174j_err" | grep -cF 'inside fenced blocks were not scanned' || true)
+  # The rung-2 note that fires when awk itself FAILS. It is the one decline measured to
+  # flip a class — a `normalized` non-defect becomes an `unresolved` defect — which is
+  # exactly what the statement exists to prevent, so it gets its own arm rather than
+  # riding on the others. The seam is a stub `awk` that fails ONLY the normalising
+  # program: it exits 3 when its program text mentions `ENVIRON["SPAN"]`, and execs the
+  # real awk otherwise, so `extract` still runs and rung 2 alone breaks. §174k's stub
+  # cannot reach this branch, because it kills the extractor before rung 2 is entered.
+  s174j_realawk=$(command -v awk 2>/dev/null)
+  mkdir -p "$S174H_DIR/awkstub"
+  {
+    printf '#!/bin/sh\n'
+    printf 'case "$*" in *ENVIRON*SPAN*) exit 3 ;; esac\n'
+    printf 'exec %s "$@"\n' "$s174j_realawk"
+  } > "$S174H_DIR/awkstub/awk"
+  chmod +x "$S174H_DIR/awkstub/awk"
+  (
+    cd "$S174H_WORK" || exit 1
+    printf 'a  double  spaced  phrase  that  only  normalises\n' > shortnorm.md
+    git add shortnorm.md >/dev/null 2>&1
+    git commit -q -m 'chore: shortnorm' >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  printf -- '- `shortnorm.md` states *"a double spaced phrase that only normalises"* — normalises only.\n' > "$S174H_WORK/probeA.md"
+  s174j_awkok=$(s174_count 'normalized' "$(bash "$S174_CHECKER" "$S174H_WORK/probeA.md" 2>/dev/null)")
+  s174j_awkfail=$( PATH="$S174H_DIR/awkstub:$PATH" bash "$S174_CHECKER" "$S174H_WORK/probeA.md" 2>/dev/null \
+    | grep -cF 'the normalising rung could not run — awk exited 3' || true )
+  if [ "$s174j_span" -ge 1 ] && [ "$s174j_count" -ge 1 ] && [ "$s174j_body" -ge 1 ] \
+     && [ "$s174j_fence" -ge 1 ] && [ "$s174j_line" -ge 1 ] && [ "$s174j_bud" -ge 1 ] \
+     && [ "$s174j_unpairq" -ge 1 ] && [ "$s174j_unpairb" -ge 1 ] \
+     && [ "$s174j_floor" -ge 1 ] && [ "$s174j_typo" -ge 1 ] && [ "$s174j_fenced2" -ge 1 ] \
+     && [ -n "$s174j_realawk" ] && [ "$s174j_awkok" -eq 1 ] && [ "$s174j_awkfail" -ge 1 ]; then
+    ok "174j: every decline states what it suppressed — an over-long span, spans past the count cap, an over-long body line, an unpaired quote, an unpaired backtick, an unclosed fence, and (on the report line each affected) a cited artifact's over-long line, a file over the rung-2 byte budget, and a normalising rung whose awk failed (PR #677)"
+  else
+    ng "174j: every decline must state its skip — got over-long-span=$s174j_span span-count=$s174j_count body-line=$s174j_body unpaired-quote=$s174j_unpairq unpaired-backtick=$s174j_unpairb four-word-floor=$s174j_floor typographic=$s174j_typo fenced-lines=$s174j_fenced2 unclosed-fence=$s174j_fence cited-line=$s174j_line byte-budget=$s174j_bud awk-normalizes=$s174j_awkok awk-failed-stated=$s174j_awkfail (PR #677)"
+  fi
+fi
+if [ -n "$S174H_DIR" ] && [ -d "$S174H_DIR" ]; then rm -rf "$S174H_DIR"; fi
+
+# §174i (THE BODY'S OWN PATH IS RESOLVED, SO THE SELF-EXCLUSION HOLDS, #677): rung 3
+# searches the whole repository minus the body itself, and a committed body is
+# TRACKED — so the moment that self-exclusion is wrong, §1.10's discriminator runs
+# backwards. Three ways it was wrong, all measured on this branch:
+#   - a body whose name starts with `-`: `dirname` / `basename` read it as an option,
+#     ROOT silently fell back to the cwd's repo and the exclusion vanished, so a
+#     wholly fabricated span matched the body that fabricated it and reported
+#     `site-mismatch` — the class that means "real wording, wrong place" pinned on a
+#     wording that exists nowhere but the claim.
+#   - a body reached through a symlinked path: the body's directory was resolved
+#     LOGICALLY while git's top level is physical, so it was not a prefix of ROOT and
+#     the exclusion vanished the same way. This needs no symlink of one's own on
+#     macOS, where `/var` is one.
+#   - a body OUTSIDE any repository: ROOT fell back to the cwd's repo but the
+#     exclusion was set to the body's bare BASENAME, so rung 3 excluded an unrelated
+#     tracked file that happened to share it — and a real `site-mismatch` was reported
+#     `unresolved`, under-reporting the defect the rule exists to catch. The fixture
+#     below is exactly that: the outside body is named `carrier.md`, the repo has its
+#     own tracked `carrier.md` carrying the span, and the attribution points elsewhere.
+S174I_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174i: scripts/lint_citations.sh absent — the body-path resolution is unmeasured (PR #677)"
+elif [ -z "$S174I_DIR" ] || [ ! -d "$S174I_DIR" ]; then
+  ng "174i: mktemp -d failed — the body-path resolution is unmeasured (PR #677)"
+else
+  S174I_WORK="$S174I_DIR/real"
+  mkdir -p "$S174I_WORK" "$S174I_DIR/away"
+  git init -q "$S174I_WORK" 2>/dev/null
+  (
+    cd "$S174I_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'an ordinary tracked artifact\n' > tracked.md
+    printf 'the phrase that only the carrier file holds\n' > carrier.md
+    printf -- '- `tracked.md` states *"a wholly fabricated span that exists nowhere at all"* — fabricated.\n' > body.md
+    # A DISTINCT fabrication: two bodies carrying the same span would make each the
+    # other's site-mismatch, and the arm would fail for its own fixture's reason
+    # rather than the property's.
+    printf -- '- `tracked.md` states *"another fabrication carried by no artifact whatsoever"* — fabricated.\n' > ./-dashbody.md
+    git add tracked.md carrier.md body.md ./-dashbody.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  ln -s "$S174I_WORK" "$S174I_DIR/link"
+  printf -- '- `tracked.md` states *"the phrase that only the carrier file holds"* — carried by carrier.md.\n' > "$S174I_DIR/away/carrier.md"
+  s174i_dash=$( cd "$S174I_WORK" && bash "$S174_CHECKER" "-dashbody.md" 2>/dev/null )
+  s174i_sym=$( bash "$S174_CHECKER" "$S174I_DIR/link/body.md" 2>/dev/null )
+  s174i_out=$( cd "$S174I_WORK" && bash "$S174_CHECKER" "$S174I_DIR/away/carrier.md" 2>/dev/null )
+  s174i_dash_un=$(s174_count 'unresolved' "$s174i_dash")
+  s174i_dash_mm=$(s174_count 'site-mismatch' "$s174i_dash")
+  s174i_sym_un=$(s174_count 'unresolved' "$s174i_sym")
+  s174i_sym_mm=$(s174_count 'site-mismatch' "$s174i_sym")
+  s174i_out_mm=$(s174_count 'site-mismatch' "$s174i_out")
+  s174i_out_site=$(printf '%s\n' "$s174i_out" | grep -E ':[0-9]+: site-mismatch — ' | grep -cF 'carrier.md:1' || true)
+  if [ "$s174i_dash_un" -eq 1 ] && [ "$s174i_dash_mm" -eq 0 ] \
+     && [ "$s174i_sym_un" -eq 1 ] && [ "$s174i_sym_mm" -eq 0 ] \
+     && [ "$s174i_out_mm" -eq 1 ] && [ "$s174i_out_site" -eq 1 ]; then
+    ok "174i: a fabricated span reports unresolved from a dash-named body and from a body reached through a symlink, and a body OUTSIDE the repository still reports its site-mismatch at carrier.md — the rung-3 self-exclusion is neither lost nor pointed at the wrong file (PR #677)"
+  else
+    ng "174i: a committed body's fabricated span must report unresolved (never site-mismatch) whether dash-named or symlink-reached, and an out-of-repo body must still report a real site-mismatch at its carrier — got dash: unresolved=$s174i_dash_un mismatch=$s174i_dash_mm; symlinked: unresolved=$s174i_sym_un mismatch=$s174i_sym_mm; outside: mismatch=$s174i_out_mm at-carrier=$s174i_out_site (PR #677)"
+  fi
+fi
+if [ -n "$S174I_DIR" ] && [ -d "$S174I_DIR" ]; then rm -rf "$S174I_DIR"; fi
+
+# §174k (THE PRODUCER SAYS WHEN IT DIED, AND CANNOT BE KILLED BY BODY TEXT, #677): the
+# extractor is an `awk` program reading author-supplied text, and it was piped in through
+# a process substitution, which discards its exit status. In a UTF-8 locale one invalid
+# byte is FATAL to a regex match, and the extractor applies a regex to every line — so a
+# single stray byte stopped extraction mid-body while stdout still carried the header and
+# a totals line reading zero. No sentinel, no note, exit 0: a body could be made
+# effectively unexaminable behind a report that looked clean. Reachable without contrivance
+# — this repository's work language may be Korean, and quoting a CP949/EUC-KR snippet
+# produces exactly that byte sequence.
+#
+# Two independent halves, because one platform's awk is not every platform's:
+#   (a) BEHAVIOUR — a body carrying invalid UTF-8 must still classify the spans after it.
+#       This is what `LC_ALL=C` on the extractor buys, and it is asserted as an outcome so
+#       it holds on any awk, whether or not that awk would have died.
+#   (b) SOURCE — the extractor is actually invoked under `LC_ALL=C`, pinned by a grep,
+#       because on an awk that tolerates the byte, (a) would pass with the locale fix
+#       reverted.
+#   (c) BACKSTOP — any other producer failure is STATED. Driven with a stub `awk` on PATH
+#       that exits nonzero, so the arm measures the status check rather than a locale.
+S174K_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174k: scripts/lint_citations.sh absent — the producer's failure posture is unmeasured (PR #677)"
+elif [ -z "$S174K_DIR" ] || [ ! -d "$S174K_DIR" ]; then
+  ng "174k: mktemp -d failed — the producer's failure posture is unmeasured (PR #677)"
+else
+  S174K_WORK="$S174K_DIR/work"
+  mkdir -p "$S174K_WORK" "$S174K_DIR/bin"
+  git init -q "$S174K_WORK" 2>/dev/null
+  (
+    cd "$S174K_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'an ordinary tracked artifact\n' > tracked.md
+    git add tracked.md >/dev/null 2>&1
+    git commit -q -m 'chore: seed' >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  # A raw invalid-UTF-8 byte pair on line 1, then a span that is a genuine defect.
+  printf 'Z: \200\377 an invalid byte pair right at the top\n' > "$S174K_WORK/probe.md"
+  printf -- '- `tracked.md` states "a phrase that is a genuine defect here" — must still be reported.\n' >> "$S174K_WORK/probe.md"
+  printf '#!/bin/sh\nexit 7\n' > "$S174K_DIR/bin/awk"
+  chmod +x "$S174K_DIR/bin/awk"
+  s174k_cls=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174K_WORK/probe.md" 2>/dev/null)")
+  s174k_rc=0
+  bash "$S174_CHECKER" "$S174K_WORK/probe.md" >/dev/null 2>&1 || s174k_rc=$?
+  s174k_locale=$(grep -cE '^[[:space:]]*LC_ALL=C awk ' "$S174_CHECKER" || true)
+  s174k_sentinel=$( PATH="$S174K_DIR/bin:$PATH" bash "$S174_CHECKER" "$S174K_WORK/probe.md" 2>&1 >/dev/null \
+    | grep -cF 'the extractor exited' || true )
+  s174k_src=0
+  PATH="$S174K_DIR/bin:$PATH" bash "$S174_CHECKER" "$S174K_WORK/probe.md" >/dev/null 2>&1 || s174k_src=$?
+  if [ "$s174k_cls" -eq 1 ] && [ "$s174k_rc" -eq 0 ] \
+     && [ "$s174k_locale" -ge 1 ] \
+     && [ "$s174k_sentinel" -ge 1 ] && [ "$s174k_src" -eq 0 ]; then
+    ok "174k: a body carrying invalid UTF-8 still reports the defect after it, the extractor is invoked under LC_ALL=C, and a producer that dies for any other reason states so on stderr — while the exit code stays 0 on both paths (PR #677)"
+  else
+    ng "174k: an invalid-UTF-8 body must still classify its later spans (LC_ALL=C on the extractor, pinned in source), a dead producer must state 'the extractor exited' on stderr, and both paths must still exit 0 — got unresolved=$s174k_cls rc=$s174k_rc lc-all-c-sites=$s174k_locale sentinel=$s174k_sentinel rc(stub)=$s174k_src (PR #677)"
+  fi
+fi
+if [ -n "$S174K_DIR" ] && [ -d "$S174K_DIR" ]; then rm -rf "$S174K_DIR"; fi
+
+# §174l (NEUTRALISED BYTES, PR #677): raw C0 control bytes in a body must never
+# reach the reader's stdout. CR and ESC are not whitespace, so without
+# neutralisation an attribution or span carrying a VT escape sequence reaches the
+# column-0 report line, where a terminal renders a redraw instead of the bytes —
+# a clean-looking line over a defect report. The extractor turns every C0 control
+# except tab into a space, one byte for one; the first probe below carries such
+# bytes outside any fence, and a genuine span on the same body must still resolve
+# so the arm cannot green on an empty report.
+S174L_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174l: scripts/lint_citations.sh absent — the control-byte posture is unmeasured (PR #677)"
+elif [ -z "$S174L_DIR" ] || [ ! -d "$S174L_DIR" ]; then
+  ng "174l: mktemp -d failed — the control-byte posture is unmeasured (PR #677)"
+else
+  S174L_WORK="$S174L_DIR/work"
+  git init -q "$S174L_WORK" 2>/dev/null
+  (
+    cd "$S174L_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'a plain control span for the control byte arm\n' > tracked.md
+    git add tracked.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  # Line 1: an ESC[2K/ESC[1G redraw inside the attribution token and a CR inside
+  # the span. Line 2: the ordinary control that must still resolve.
+  printf -- '- `tr\033[2K\033[1Gacked.md` states "a redraw carrying span for\r this control byte arm" here.\n' > "$S174L_WORK/probe.md"
+  printf -- '- `tracked.md` states "a plain control span for the control byte arm" too.\n' >> "$S174L_WORK/probe.md"
+  s174l_out="$(bash "$S174_CHECKER" "$S174L_WORK/probe.md" 2>/dev/null)"
+  s174l_ctl=$(printf '%s\n' "$s174l_out" | LC_ALL=C grep -c "$(printf '[\033\r]')" || true)
+  s174l_res=$(s174_count 'resolves' "$s174l_out")
+  s174l_in=$(LC_ALL=C grep -c "$(printf '[\033\r]')" "$S174L_WORK/probe.md" || true)
+  if [ "$s174l_in" -ge 1 ] && [ "$s174l_ctl" -eq 0 ] && [ "$s174l_res" -ge 1 ]; then
+    ok "174l: CR and ESC bytes in a body are neutralised before they can reach a report line — the reader's stdout carries no control byte while the body does, and the clean span on the same body still resolves (PR #677)"
+  else
+    ng "174l: a body carrying CR/ESC outside fences must yield a stdout with zero control bytes and the clean span must still resolve — got body-control-lines=$s174l_in stdout-control-lines=$s174l_ctl resolves=$s174l_res (PR #677)"
+  fi
+fi
+if [ -n "$S174L_DIR" ] && [ -d "$S174L_DIR" ]; then rm -rf "$S174L_DIR"; fi
+
+# §174m (THE NORMALISING RUNG IS BYTE-ORIENTED, PR #677): in a UTF-8 locale one
+# invalid byte in a CITED artifact is fatal to awk's regex machinery, and a rung
+# that dies there turns a span that normalises — a non-defect — into `unresolved`,
+# a defect. `norm_hit` therefore runs its awk under LC_ALL=C, like the extractor.
+# Asserted as an OUTCOME under a UTF-8 locale (the first one the system offers)
+# so the pin cannot go stale as a string while the behaviour regresses.
+S174M_DIR=$(mktemp -d 2>/dev/null)
+S174M_LOC=""
+# Captured once, and grep runs WITHOUT -q: under pipefail a -q early exit kills
+# `locale -a` with SIGPIPE and the pipeline reads as a miss.
+s174m_all=$(locale -a 2>/dev/null || true)
+for s174m_c in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
+  if printf '%s\n' "$s174m_all" | grep -ixF "$s174m_c" >/dev/null; then S174M_LOC="$s174m_c"; break; fi
+done
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174m: scripts/lint_citations.sh absent — the normalising rung's locale posture is unmeasured (PR #677)"
+elif [ -z "$S174M_DIR" ] || [ ! -d "$S174M_DIR" ]; then
+  ng "174m: mktemp -d failed — the normalising rung's locale posture is unmeasured (PR #677)"
+else
+  S174M_WORK="$S174M_DIR/work"
+  git init -q "$S174M_WORK" 2>/dev/null
+  (
+    cd "$S174M_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    # An invalid UTF-8 byte pair on line 1, then the span WRAPPED across two lines
+    # so rung 1 misses and only the normalising rung can find it.
+    printf 'Z \200\377 an invalid byte pair right at the top\n' > art.md
+    printf 'gamma delta epsilon\nzeta eta theta\n' >> art.md
+    git add art.md >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  printf -- '- `art.md` states "gamma delta epsilon zeta eta theta" across a wrap.\n' > "$S174M_WORK/probe.md"
+  s174m_out="$(LC_ALL="${S174M_LOC:-C}" LANG="${S174M_LOC:-C}" bash "$S174_CHECKER" "$S174M_WORK/probe.md" 2>/dev/null)"
+  s174m_norm=$(s174_count 'normalized' "$s174m_out")
+  s174m_bad=$(( $(s174_count 'unresolved' "$s174m_out") + $(s174_count 'site-mismatch' "$s174m_out") ))
+  if [ "$s174m_norm" -eq 1 ] && [ "$s174m_bad" -eq 0 ]; then
+    ok "174m: a wrapped span in a cited artifact that also carries an invalid UTF-8 byte still reports normalized under a UTF-8 locale (${S174M_LOC:-none offered; ran under C}) — the rung is byte-oriented, so an author-supplied byte cannot convert a non-defect into a defect (PR #677)"
+  else
+    ng "174m: the wrapped span must report normalized (not unresolved/site-mismatch) although its file carries an invalid UTF-8 byte, under locale ${S174M_LOC:-C} — got normalized=$s174m_norm defect-classes=$s174m_bad (PR #677)"
+  fi
+fi
+if [ -n "$S174M_DIR" ] && [ -d "$S174M_DIR" ]; then rm -rf "$S174M_DIR"; fi
+
+# §174n (OBJECT-STORE REFUSAL ON THE RESOLVED PATH IS CASE-FOLDED, PR #677): a
+# tracked symlink whose TARGET is a case-varied `.GIT` resolves — on a
+# case-insensitive filesystem — to the object store under a spelling a
+# case-sensitive pattern admits, because `pwd -P` appends the link target without
+# canonicalising case. The resolved-path refusal therefore case-folds, and the
+# alias must land on the SAME object-store sentence as a spelled `.git/`
+# attribution. On a case-sensitive filesystem the alias target does not exist, so
+# the honest refusal there is the absent-parent one — still `unresolvable-locally`;
+# the arm asserts the non-defect class on both, and sentence identity where the
+# filesystem makes the alias real.
+S174N_DIR=$(mktemp -d 2>/dev/null)
+if [ ! -f "$S174_CHECKER" ]; then
+  ng "174n: scripts/lint_citations.sh absent — the case-folded object-store refusal is unmeasured (PR #677)"
+elif [ -z "$S174N_DIR" ] || [ ! -d "$S174N_DIR" ]; then
+  ng "174n: mktemp -d failed — the case-folded object-store refusal is unmeasured (PR #677)"
+else
+  S174N_WORK="$S174N_DIR/work"
+  git init -q "$S174N_WORK" 2>/dev/null
+  (
+    cd "$S174N_WORK" || exit 1
+    git config user.email t@t; git config user.name t; git config commit.gpgsign false
+    printf 'a case fold probe span for this arm\n' > tracked.md
+    ln -s .GIT gitcased
+    git add tracked.md gitcased >/dev/null 2>&1
+    git commit -q -m seed >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  : > "$S174N_WORK/S174NCaseProbe"
+  s174n_ci=0
+  [ -e "$S174N_WORK/s174ncaseprobe" ] && s174n_ci=1
+  rm -f "$S174N_WORK/S174NCaseProbe"
+  {
+    printf -- '- `gitcased/config` states "a case fold probe span for this arm" via the alias.\n'
+    printf -- '- `.git/config` states "a case fold probe span for this arm" by spelling.\n'
+  } > "$S174N_WORK/probe.md"
+  s174n_out="$(bash "$S174_CHECKER" "$S174N_WORK/probe.md" 2>/dev/null)"
+  s174n_remote=$(s174_count 'unresolvable-locally' "$s174n_out")
+  s174n_leak=$(( $(s174_count 'resolves' "$s174n_out") + $(s174_count 'normalized' "$s174n_out") + $(s174_count 'site-mismatch' "$s174n_out") + $(s174_count 'unresolved' "$s174n_out") ))
+  s174n_sent=$(printf '%s\n' "$s174n_out" | grep -E '^[^[:space:]].*:[0-9]+: unresolvable-locally — ' \
+    | sed -E 's/^.*unresolvable-locally — attributed to [^,]*,//' | sort -u | wc -l | tr -d ' ')
+  if [ "$s174n_remote" -eq 2 ] && [ "$s174n_leak" -eq 0 ] \
+     && { [ "$s174n_ci" -eq 0 ] || [ "$s174n_sent" -eq 1 ]; }; then
+    if [ "$s174n_ci" -eq 1 ]; then
+      ok "174n: a tracked symlink alias to a case-varied .GIT lands on the SAME object-store sentence as a spelled .git/ attribution — the resolved-path refusal is case-folded, so the alias is not an oracle (PR #677)"
+    else
+      ok "174n: the case-varied .GIT alias stays unresolvable-locally on this case-sensitive filesystem (target absent), and no ladder class leaks — the case-fold path is exercised where the filesystem makes it real (PR #677)"
+    fi
+  else
+    ng "174n: both the .GIT-target alias and the spelled .git/ attribution must report unresolvable-locally with no ladder class leaking, sharing one sentence where the filesystem is case-insensitive — got unresolvable-locally=$s174n_remote leaked=$s174n_leak case-insensitive=$s174n_ci distinct-sentences=$s174n_sent (PR #677)"
+  fi
+fi
+if [ -n "$S174N_DIR" ] && [ -d "$S174N_DIR" ]; then rm -rf "$S174N_DIR"; fi
