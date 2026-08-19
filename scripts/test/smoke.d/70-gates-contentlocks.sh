@@ -4137,6 +4137,10 @@ else
   # Line 1: an ESC[2K/ESC[1G redraw inside the attribution token and a CR inside
   # the span. Line 2: the ordinary control that must still resolve.
   printf -- '- `tr\033[2K\033[1Gacked.md` states "a redraw carrying span for\r this control byte arm" here.\n' > "$S174L_WORK/probe.md"
+  # CR inside the ATTRIBUTION token: an attribution is echoed into the report
+  # sentence, so a CR surviving neutralisation reaches stdout there — the one
+  # channel the span-only probe above cannot exercise.
+  printf -- '- `ev\rildoc.md` states "a fake quote attributed here four words" x.\n' >> "$S174L_WORK/probe.md"
   printf -- '- `tracked.md` states "a plain control span for the control byte arm" too.\n' >> "$S174L_WORK/probe.md"
   s174l_out="$(bash "$S174_CHECKER" "$S174L_WORK/probe.md" 2>/dev/null)"
   s174l_ctl=$(printf '%s\n' "$s174l_out" | LC_ALL=C grep -c "$(printf '[\033\r]')" || true)

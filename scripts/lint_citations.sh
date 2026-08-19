@@ -429,7 +429,7 @@ extract() {
     {
       line = $0
       # Every C0 control except tab becomes a space — see NEUTRALISED BYTES above.
-      gsub(/[\001-\010\013\014\016-\037\177]/, " ", line)
+      gsub(/[\001-\010\013-\037\177]/, " ", line)
       # Only an ASCII double-quote pair is extracted. Typographic pairs are counted
       # and stated rather than declined in silence — or widened into: widening the
       # alphabet changes the span set for a case with no measured demand, while the
