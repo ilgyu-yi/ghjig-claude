@@ -4248,3 +4248,29 @@ else
   fi
 fi
 if [ -n "$S174N_DIR" ] && [ -d "$S174N_DIR" ]; then rm -rf "$S174N_DIR"; fi
+
+# ---------- §175: claim half-life discipline (#680) ----------
+# SPEC §1.10(c) plus its two agent bindings. Doc-lock shape (the §174a precedent):
+# the rule itself is reviewer judgment with no mechanical body-reader, so the
+# mechanical face is a content lock over the three contract carriers — SPEC states
+# part (c); code-reviewer's default remedy for a volatile claim is removal or
+# pinning; finding-judge's recurrence rule takes instance-correction off the table
+# for a claim-class finding whose axis key was confirmed in a resolved prior round.
+# The CLAUDE.md pointer (AC 5) is deliberately NOT locked here: AC 4's mandate is
+# AC 1-3, and §104b already guards that file's mechanical half (the byte budget).
+S175_SPEC="$SHELL_ROOT/SPEC.md"
+S175_CR="$SHELL_ROOT/.claude/agents/code-reviewer.md"
+S175_FJ="$SHELL_ROOT/.claude/agents/finding-judge.md"
+if [ ! -f "$S175_SPEC" ] || [ ! -f "$S175_CR" ] || [ ! -f "$S175_FJ" ]; then
+  ng "175: SPEC.md or an agent carrier absent — the §1.10(c) half-life discipline is unlocked (#680)"
+else
+  s175_spec=ok; s175_cr=ok; s175_fj=ok
+  grep -qF '**(c) A durable artifact carries no claim that expires before the artifact does' "$S175_SPEC" || s175_spec=MISSING
+  grep -qF 'Claim volatility (SPEC §1.10(c))' "$S175_CR" || s175_cr=MISSING
+  grep -qF 'Recurrence rule (SPEC §1.10(c))' "$S175_FJ" || s175_fj=MISSING
+  if [ "$s175_spec" = ok ] && [ "$s175_cr" = ok ] && [ "$s175_fj" = ok ]; then
+    ok "175: SPEC §1.10 carries part (c) and both agent carriers bind it — code-reviewer's removal-or-pin default remedy, finding-judge's recurrence rule (#680)"
+  else
+    ng "175: the §1.10(c) contract must live in all three carriers — SPEC part (c)=$s175_spec code-reviewer binding=$s175_cr finding-judge recurrence rule=$s175_fj (#680)"
+  fi
+fi

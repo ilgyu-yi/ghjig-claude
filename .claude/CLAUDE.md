@@ -37,6 +37,7 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 - The PR body is **editorial**, not append-only. Curate right after each commit.
 - Order: **commit → PR body update**. Fact first, then reflection.
 - Right before updating, refetch the remote body — if it changed (external edit), abort the auto-update.
+- Evidence discipline: a quotation resolves at the attributed file; a corpus claim carries pinned command+output; no claim that expires before the artifact — remove or pin, never refresh. Full contract: SPEC §1.10.
 
 ## Subagents
 | Situation | Agent |
@@ -56,7 +57,7 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 
 In `unattended` mode the five reviewers above (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human review at their checkpoints (SPEC §1.5); `finding-judge` and `plan-challenger` gate nothing.
 
-**Session-restart caveat** (SPEC §4.9.3): Claude Code enumerates `subagent_type` values from `.claude/agents/*.md` at session start. A reviewer added mid-session falls back to `general-purpose` routing until the next session restart — file presence is necessary but not sufficient. The fallback is functionally complete (the agent's prompt instructs `general-purpose` to behave as the new reviewer); restart canonical.
+**Session-restart caveat** (SPEC §4.9.3): a reviewer added mid-session routes via `general-purpose` (functionally complete) until the next session restart; restart canonical.
 
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
