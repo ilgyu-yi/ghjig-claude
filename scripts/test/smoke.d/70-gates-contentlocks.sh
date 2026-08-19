@@ -3659,7 +3659,11 @@ else
     mkdir -p sub
     printf '%s\n' "$S174F_SPAN" > sub/x.md
     ln -s ../outside.md link.md
-    git add tracked.md elsewhere.md sub/x.md link.md >/dev/null 2>&1
+    # A tracked symlink whose target is `.git`: a mode-120000 blob, so a CLONE
+    # materialises it. This was the one object-store gap that needed no worktree write,
+    # because the refusal was on the attribution string and not the resolved path.
+    ln -s .git gitalias
+    git add tracked.md elsewhere.md sub/x.md link.md gitalias >/dev/null 2>&1
     git commit -q -m seed >/dev/null 2>&1
     # The leaf stays tracked and is not itself a link; its PARENT is swapped.
     rm -rf sub && ln -s "$S174F_DIR/outdir" sub
@@ -3675,6 +3679,8 @@ else
     printf -- '- `.git/definitely-absent-xyz` states *"%s"* — an object-store path that does not.\n' "$S174F_SPAN"
     printf -- '- `.GIT/config` states *"%s"* — the same path, case-varied, which exists.\n' "$S174F_SPAN"
     printf -- '- `.GIT/definitely-absent-xyz` states *"%s"* — the same, case-varied, absent.\n' "$S174F_SPAN"
+    printf -- '- `gitalias/config` states *"%s"* — the object store through a tracked symlink.\n' "$S174F_SPAN"
+    printf -- '- `gitalias/definitely-absent-xyz` states *"%s"* — the same alias, absent.\n' "$S174F_SPAN"
     printf -- '- `tracked.md` states *"%s"* — the ordinary in-tree control.\n' "$S174F_SPAN"
   } > "$S174F_WORK/probe.md"
   s174f_out="$(bash "$S174_CHECKER" "$S174F_WORK/probe.md" 2>/dev/null)"
@@ -3684,9 +3690,12 @@ else
   s174f_ctl=$(printf '%s\n' "$s174f_out" | grep -E ':[0-9]+: resolves — ' | grep -cF 'tracked.md' || true)
   # The two `.git/` lines must be identical apart from the path they name: strip the
   # path and require one distinct sentence, so an existence difference cannot hide.
-  s174f_gitsent=$(printf '%s\n' "$s174f_out" | grep -iE ':[0-9]+: unresolvable-locally — attributed to \.git/' \
-    | sed -E 's/^.*:[0-9]+: /<body>: /; s/attributed to \.[gG][iI][tT]\/[^,]*,/attributed to <path>,/' | sort -u | wc -l | tr -d ' ')
-  s174f_gitn=$(printf '%s\n' "$s174f_out" | grep -ciE ':[0-9]+: unresolvable-locally — attributed to \.git/' || true)
+  # All object-store spellings — lowercase, case-varied, and through a tracked symlink
+  # alias — must give ONE sentence. An oracle is a difference, and the alias is the only
+  # one of these a plain clone reproduces.
+  s174f_gitsent=$(printf '%s\n' "$s174f_out" | grep -iE ':[0-9]+: unresolvable-locally — attributed to (\.git/|gitalias/)' \
+    | sed -E 's/^.*:[0-9]+: /<body>: /; s/attributed to (\.[gG][iI][tT]|gitalias)\/[^,]*,/attributed to <path>,/' | sort -u | wc -l | tr -d ' ')
+  s174f_gitn=$(printf '%s\n' "$s174f_out" | grep -ciE ':[0-9]+: unresolvable-locally — attributed to (\.git/|gitalias/)' || true)
   # THE MUTATION LOCK. Identity of two sentences is NOT enough on its own: a build in
   # which every refusal degrades to one generic sentence satisfies identity trivially,
   # and that is exactly the inert-reason regression a reviewer re-introduced while all
@@ -3696,15 +3705,21 @@ else
   s174f_distinct=$(printf '%s\n' "$s174f_out" | grep -E '^[^[:space:]].*:[0-9]+: unresolvable-locally — ' \
     | sed -E 's/^.*unresolvable-locally — attributed to [^,]*,//' | sort -u | wc -l | tr -d ' ')
   s174f_symword=$(printf '%s\n' "$s174f_out" | grep -cF 'the working-tree entry there is a symlink' || true)
+  # The textual refusal needs its own wording lock. Re-gating it behind `tracked = 1` —
+  # the literal bug this reader's comment calls a trap the next edit can re-enter — left
+  # ALL of §174 green, because the distinct-sentence count absorbed the collapse. The
+  # traversal and the pathspec-magic attributions are the two that must carry it.
+  s174f_textword=$(printf '%s\n' "$s174f_out" | grep -cF 'refused before any index or filesystem lookup ran' || true)
   s174f_escword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves physically to a path outside this repository' || true)
-  if [ "$s174f_remote" -eq 9 ] && [ "$s174f_leak" -eq 0 ] \
+  if [ "$s174f_remote" -eq 11 ] && [ "$s174f_leak" -eq 0 ] \
      && [ "$s174f_res" -eq 1 ] && [ "$s174f_ctl" -eq 1 ] \
-     && [ "$s174f_gitn" -eq 4 ] && [ "$s174f_gitsent" -eq 1 ] \
+     && [ "$s174f_gitn" -eq 6 ] && [ "$s174f_gitsent" -eq 1 ] \
      && [ "$s174f_distinct" -ge 3 ] \
-     && [ "$s174f_symword" -eq 1 ] && [ "$s174f_escword" -eq 1 ]; then
-    ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and four .git/ paths (two case-varied) all report unresolvable-locally — all four object-store spellings share one sentence so existence there is not an oracle, the refusals carry $s174f_distinct distinct sentences and the two physical ones name their own test — while the in-tree control still resolves (PR #677)"
+     && [ "$s174f_symword" -eq 1 ] && [ "$s174f_escword" -eq 1 ] \
+     && [ "$s174f_textword" -eq 2 ]; then
+    ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and six object-store paths (case-varied, and through a tracked symlink alias a clone reproduces) all report unresolvable-locally — all four object-store spellings share one sentence so existence there is not an oracle, the refusals carry $s174f_distinct distinct sentences and the two physical ones name their own test — while the in-tree control still resolves (PR #677)"
   else
-    ng "174f: the nine out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all four .git/ spellings (incl. case-varied) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword (PR #677)"
+    ng "174f: the eleven out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all six object-store spellings (case-varied and symlink-aliased) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword textual-worded=$s174f_textword (PR #677)"
   fi
 fi
 if [ -n "$S174F_DIR" ] && [ -d "$S174F_DIR" ]; then rm -rf "$S174F_DIR"; fi
@@ -3856,8 +3871,10 @@ else
   # only because a reviewer diffed against the previous round — a `normalized`
   # (explicitly a non-defect) became an `unresolved` (a defect) with nothing said,
   # and a nested fence voided the check for an arbitrary tail of the body.
-  # Nine declines, nine statements — six on stderr and three on the report line they
-  # affected, which is the rule §1.10 states and this arm measures:
+  # Every decline this arm can drive, and where each is stated — on the report line it
+  # affected where it changes what that line means, on stderr where it does not, which
+  # is the rule §1.10 states. No count of the two sides here: this section removed one
+  # such census for going stale and should not carry a replacement.
   #   - a span over the length cap
   #   - spans beyond the count cap
   #   - a body line over the line cap

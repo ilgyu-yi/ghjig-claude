@@ -310,6 +310,15 @@ phys_path() {
     "$ROOT_P"/*) ;;
     *) printf 'no:escapes\n'; return 0 ;;
   esac
+  # …and the object store is refused on the RESOLVED path, not just the spelling.
+  # `in_repo_path` folds case, but a tracked symlink whose target is `.git` is a
+  # mode-120000 blob, so a CLONE materialises it and `gitalias/config` walked around
+  # the textual refusal entirely — the one such gap that needed no worktree write.
+  # Checking `pd` closes the aliasing axis rather than one more spelling of it.
+  case "$pd/" in
+    "$ROOT_P"/.git/*) printf 'no:object-store\n'; return 0 ;;
+  esac
+  if [ "$pd" = "$ROOT_P/.git" ]; then printf 'no:object-store\n'; return 0; fi
   if [ -L "$pd/$b" ]; then printf 'no:symlink\n'; return 0; fi
   printf 'ok:%s\n' "$pd/$b"
 }
@@ -322,7 +331,12 @@ phys_path() {
 out_of_reach() {
   local ln="$1" ap="$2" tracked="$3" pp="$4" why="$5" msg
   c_remote=$((c_remote + 1))
-  if [ "$why" = "refused-textually" ]; then
+  if [ "$why" = "object-store" ]; then
+    # Above the tracked test on purpose: the measured alias (`gitalias/config`) is not
+    # itself tracked, so keying this on `tracked` would leave the two spellings with
+    # different sentences and the oracle open.
+    msg="attributed to $ap, which resolves into this repository's own \`.git\` directory — the object store is not part of the corpus this reader searches, so it is refused before any probe; not a defect"
+  elif [ "$why" = "refused-textually" ]; then
     # Reported FIRST, and keyed on `why` alone: this arm used to be unreachable,
     # because it was read only under `tracked = 1` while the textual refusal happens
     # BEFORE `tracked_path` is ever called. Control then fell to the final arm, which
@@ -339,6 +353,8 @@ out_of_reach() {
         msg="attributed to $ap, which git tracks, but its directory chain resolves physically to a path outside this repository — refused before any read, not a defect" ;;
       absent-parent)
         msg="attributed to $ap, which git tracks, but its parent directory is not present in the working tree, so there is nothing at that path to read — not a defect" ;;
+      object-store)
+        msg="attributed to $ap, which resolves into this repository's own \`.git\` directory — the object store is not part of the corpus this reader searches, so it is refused before any probe; not a defect" ;;
       *)
         msg="attributed to $ap, which git tracks, but the working tree does not carry it as a readable regular file — out of this reader's reach, not a defect" ;;
     esac
@@ -395,13 +411,13 @@ extract() {
       # Only an ASCII double-quote pair is extracted. Typographic pairs are counted
       # and stated rather than declined in silence — the skips that predated the drop()
       # channel were this and the four-word floor. Measured before choosing to state
-      # rather than widen: ZERO typographic quotes, all four codepoints, across the
-      # 12-body calibration corpus AND across SPEC.md, MISSION.md and CHANGELOG.md.
-      # The denominator is pinned to where it was counted — 251 ASCII double quotes in
-      # those 12 bodies at the round-4 snapshot — because a live count over this extent
-      # drifts on every commit (it contains SPEC.md and this PR own body, and moved by
-      # 7 inside one review round). So: latent in this repo rather than active, and the
-      # number that says so cannot go stale (PR #677).
+      # rather than widen: ZERO READER-REACHABLE typographic quotes, all four
+      # codepoints, across the 12-body calibration corpus and across SPEC.md,
+      # MISSION.md and CHANGELOG.md. The qualifier is load-bearing and was earned the
+      # hard way: this PR own body now carries all four codepoints, inside the fenced
+      # command that counts them, so an unqualified "zero" is false while the
+      # reachable zero holds — a fence excludes them before this scan. So: latent in
+      # this repo rather than active (PR #677).
       nq = gsub(/\342\200\234/, "&", line) + gsub(/\342\200\230/, "&", line)
       if (nq > 0)
         drop_n("quotation candidate(s) delimited by typographic quotes were not classified — only an ASCII double-quote pair is extracted", nq)
@@ -416,11 +432,11 @@ extract() {
         # An unpaired backtick ends the token scan for this line, so any path named
         # after it is never seen — a span on that line can come out attributed to an
         # earlier path or to none. Counted PREEMPTIVELY rather than on demonstrated
-        # demand: across the 12 calibration bodies 18 lines carry an odd number of
-        # backticks, but every one is inside a fenced block, which the rule above
-        # excludes first, so the reader-reachable count is ZERO. It is counted anyway
-        # because the point of one channel is that a decline cannot be silent — not
-        # that each one has been observed firing (PR #677).
+        # demand: every odd-backtick line measured in this corpus is excluded by the
+        # fence rule above before this scan reaches it — they are fence delimiters — so
+        # the reader-reachable count is ZERO. Counted anyway, because the point of one
+        # channel is that a decline cannot be silent, not that each one has been
+        # observed firing (PR #677).
         if (j == 0) {
           drop("line(s) ended with an unpaired backtick, so any path named after it on that line was not seen — an attribution may be missing or earlier than the author wrote")
           break
@@ -464,10 +480,15 @@ extract() {
         # is within ONE line. Both halves of a LINE-WRAPPED quotation land here too, so
         # counting this one break states the wrapped case without changing what is
         # extracted. Unlike the typographic case this one is ACTIVE rather than latent,
-        # which is why it is counted instead of declared a stated limitation: one line
-        # of the 12 calibration bodies reaches it, and SPEC.md carries four more lines
-        # of the same shape — an escaped quote in prose about escaping, and a `"tok:`
-        # inside inline code (PR #677).
+        # which is why it is counted instead of declared a stated limitation: lines of
+        # this shape occur in the prose of this very repository — an escaped quote inside
+        # a sentence about escaping, and an unpaired quote inside inline code.
+        #
+        # No count here on purpose. Three successive review rounds found a stale figure
+        # in a comment on this very decline, each time because the corpus that figure
+        # was drawn over contains the artifacts being edited. The count that cannot go
+        # stale is the one the reader prints at runtime; §174j pins that it prints
+        # (PR #677).
         if (j == 0) {
           drop("line(s) ended with an unpaired ASCII double quote, so the quotation it opens was not classified — pairing is within one line, which also declines a quotation wrapped across two")
           break
@@ -478,7 +499,10 @@ extract() {
         rest = substr(after, j + 1)
         t = span
         sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t)
-        if (t == "") continue
+        # No early return for an empty or whitespace-only quotation: `split` gives it 0
+        # words, so the four-word floor below counts it. It was the last decline that
+        # bypassed the channel, and a one-word span being counted while a zero-word one
+        # vanished is the inconsistency the channel exists to remove (PR #677).
         # Every decline goes through drop(), so a new one cannot be silent without
         # bypassing an obvious convention. The four-word floor and the quote alphabet
         # were the two that predated it and said nothing (PR #677).
@@ -525,7 +549,10 @@ run_ladder() {
   # line number (PR #677). PIPE is reset inside the capture so `git grep` still dies
   # at `head`'s closed pipe.
   searchcmd="git grep -F -h -n -e $qspan -- $qpath"
-  out=$( trap - PIPE; git -C "$ROOT" grep -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
+  # `LC_ALL=C` because the branch below parses git's own "Binary file …" notice, and a
+  # translated catalogue would put a sentence where a line number belongs. Measured
+  # untranslated on git 2.55, so this pins a latent axis rather than a live one.
+  out=$( trap - PIPE; LC_ALL=C git -C "$ROOT" grep -F -h -n -e "$span" -- ":(literal)$ap" 2>/dev/null | head -1 )
   if [ -n "$out" ]; then
     c_resolves=$((c_resolves + 1))
     case "$out" in
@@ -593,10 +620,10 @@ run_ladder() {
   # `site-mismatch`, so the class is the conservative one, not a false site.
   if [ -n "$RELBODY" ]; then
     searchcmd="git grep -I -F -n -e $qspan -- $(sq ":(exclude,top,literal)$RELBODY")"
-    out=$( trap - PIPE; git -C "$ROOT" grep -I -F -n -e "$span" -- ":(exclude,top,literal)$RELBODY" 2>/dev/null | head -n 51 )
+    out=$( trap - PIPE; LC_ALL=C git -C "$ROOT" grep -I -F -n -e "$span" -- ":(exclude,top,literal)$RELBODY" 2>/dev/null | head -n 51 )
   else
     searchcmd="git grep -I -F -n -e $qspan"
-    out=$( trap - PIPE; git -C "$ROOT" grep -I -F -n -e "$span" 2>/dev/null | head -n 51 )
+    out=$( trap - PIPE; LC_ALL=C git -C "$ROOT" grep -I -F -n -e "$span" 2>/dev/null | head -n 51 )
   fi
   if [ -n "$out" ]; then
     first=$(printf '%s\n' "$out" | head -1 | cut -d: -f1,2)
@@ -637,7 +664,13 @@ classify() {
         *) why=${ppr#no:} ;;
       esac
     else
-      why="refused-textually"
+      # Which refusal it was, because a `.git/` spelling and a symlink alias that
+      # resolves there must yield the SAME sentence: a difference between them is the
+      # oracle this refusal exists to close.
+      case "$(printf '%s' "$ap" | tr '[:upper:]' '[:lower:]')" in
+        ".git" | ".git/"* | *"/.git" | *"/.git/"*) why="object-store" ;;
+        *) why="refused-textually" ;;
+      esac
     fi
     if [ "$tracked" = "1" ] && [ -n "$pp" ] && [ -f "$pp" ] && [ -r "$pp" ]; then
       run_ladder "$ln" "$ap" "$al" "$span" "$pp"
