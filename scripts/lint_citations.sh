@@ -353,8 +353,6 @@ out_of_reach() {
         msg="attributed to $ap, which git tracks, but its directory chain resolves physically to a path outside this repository — refused before any read, not a defect" ;;
       absent-parent)
         msg="attributed to $ap, which git tracks, but its parent directory is not present in the working tree, so there is nothing at that path to read — not a defect" ;;
-      object-store)
-        msg="attributed to $ap, which resolves into this repository's own \`.git\` directory — the object store is not part of the corpus this reader searches, so it is refused before any probe; not a defect" ;;
       *)
         msg="attributed to $ap, which git tracks, but the working tree does not carry it as a readable regular file — out of this reader's reach, not a defect" ;;
     esac

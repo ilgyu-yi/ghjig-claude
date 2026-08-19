@@ -3656,14 +3656,22 @@ else
     printf '%s\n' "$S174F_SPAN" > elsewhere.md
     printf '%s\n' "$S174F_SPAN" > untracked.md
     : > ':(exclude,top)tracked.md'
-    mkdir -p sub
+    mkdir -p sub realdir
     printf '%s\n' "$S174F_SPAN" > sub/x.md
+    printf '%s\n' "$S174F_SPAN" > realdir/inside.md
     ln -s ../outside.md link.md
     # A tracked symlink whose target is `.git`: a mode-120000 blob, so a CLONE
     # materialises it. This was the one object-store gap that needed no worktree write,
     # because the refusal was on the attribution string and not the resolved path.
     ln -s .git gitalias
-    git add tracked.md elsewhere.md sub/x.md link.md gitalias >/dev/null 2>&1
+    # A glob-metacharacter filename beside the file it would glob onto. `:(literal)`
+    # disarms the pathspec; without it `a?c.md` matches `abc.md` and a real
+    # site-mismatch reports as a clean `resolves` — a FALSE clean, the direction §1.10
+    # exists to catch. Asserted separately below, because unlike the refusals it is a
+    # classification claim rather than an out-of-corpus one.
+    printf '%s\n' "$S174F_SPAN" > abc.md
+    printf 'a decoy that carries nothing of the sort\n' > 'a?c.md'
+    git add tracked.md elsewhere.md sub/x.md realdir/inside.md link.md gitalias abc.md 'a?c.md' >/dev/null 2>&1
     git commit -q -m seed >/dev/null 2>&1
     # The leaf stays tracked and is not itself a link; its PARENT is swapped.
     rm -rf sub && ln -s "$S174F_DIR/outdir" sub
@@ -3681,6 +3689,7 @@ else
     printf -- '- `.GIT/definitely-absent-xyz` states *"%s"* — the same, case-varied, absent.\n' "$S174F_SPAN"
     printf -- '- `gitalias/config` states *"%s"* — the object store through a tracked symlink.\n' "$S174F_SPAN"
     printf -- '- `gitalias/definitely-absent-xyz` states *"%s"* — the same alias, absent.\n' "$S174F_SPAN"
+    printf -- '- `realdir/` states *"%s"* — a directory, not a file.\n' "$S174F_SPAN"
     printf -- '- `tracked.md` states *"%s"* — the ordinary in-tree control.\n' "$S174F_SPAN"
   } > "$S174F_WORK/probe.md"
   s174f_out="$(bash "$S174_CHECKER" "$S174F_WORK/probe.md" 2>/dev/null)"
@@ -3710,8 +3719,23 @@ else
   # ALL of §174 green, because the distinct-sentence count absorbed the collapse. The
   # traversal and the pathspec-magic attributions are the two that must carry it.
   s174f_textword=$(printf '%s\n' "$s174f_out" | grep -cF 'refused before any index or filesystem lookup ran' || true)
+  # The regular-file gate. `git ls-files --error-unmatch` answers 0 for a DIRECTORY, so
+  # the index test alone calls it tracked; drop the `-f` test and a span living at
+  # `realdir/inside.md` but attributed to `realdir/` reports `resolves` — an
+  # existence-anywhere-under-a-directory answer, §1.10's discriminator backwards. No
+  # arm pinned it.
+  s174f_dirword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves to a directory, not a file' || true)
+  # And `:(literal)`: a separate body, because this one asserts a CLASSIFICATION rather
+  # than a refusal. Without the literal pathspec, rung 1 globs `a?c.md` onto `abc.md`
+  # and reports `resolves`; with it, rung 1 misses and rung 3 finds the wording at
+  # `abc.md`, which is the site-mismatch this checks for. The class IS the lock.
+  printf -- '- `a?c.md` states *"%s"* — a glob metacharacter beside the file it would match.\n' "$S174F_SPAN" > "$S174F_WORK/glob.md"
+  s174f_glob=$(printf '%s\n' "$(bash "$S174_CHECKER" "$S174F_WORK/glob.md" 2>/dev/null)" \
+    | grep -E '^[^[:space:]].*:[0-9]+: site-mismatch — ' | grep -cF 'abc.md' || true)
   s174f_escword=$(printf '%s\n' "$s174f_out" | grep -cF 'resolves physically to a path outside this repository' || true)
-  if [ "$s174f_remote" -eq 11 ] && [ "$s174f_leak" -eq 0 ] \
+  if [ "$s174f_remote" -eq 12 ] && [ "$s174f_leak" -eq 0 ] \
+     && [ "$s174f_dirword" -eq 1 ] \
+     && [ "$s174f_glob" -eq 1 ] \
      && [ "$s174f_res" -eq 1 ] && [ "$s174f_ctl" -eq 1 ] \
      && [ "$s174f_gitn" -eq 6 ] && [ "$s174f_gitsent" -eq 1 ] \
      && [ "$s174f_distinct" -ge 3 ] \
@@ -3719,7 +3743,7 @@ else
      && [ "$s174f_textword" -eq 2 ]; then
     ok "174f: a traversal, an untracked file, pathspec magic, a tracked symlink out of the tree, a tracked leaf under a swapped directory and six object-store paths (case-varied, and through a tracked symlink alias a clone reproduces) all report unresolvable-locally — all four object-store spellings share one sentence so existence there is not an oracle, the refusals carry $s174f_distinct distinct sentences and the two physical ones name their own test — while the in-tree control still resolves (PR #677)"
   else
-    ng "174f: the eleven out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all six object-store spellings (case-varied and symlink-aliased) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword textual-worded=$s174f_textword (PR #677)"
+    ng "174f: the twelve out-of-corpus attributions must all report unresolvable-locally with no normalized/site-mismatch/unresolved line; all six object-store spellings (case-varied and symlink-aliased) must yield ONE distinct sentence; the refusals must carry >=3 distinct sentences with the symlink and escapes cases naming their own test; and the in-tree control must still resolve — got unresolvable-locally=$s174f_remote leaked-classes=$s174f_leak resolves=$s174f_res control=$s174f_ctl git-lines=$s174f_gitn git-distinct-sentences=$s174f_gitsent distinct=$s174f_distinct symlink-worded=$s174f_symword escapes-worded=$s174f_escword textual-worded=$s174f_textword directory-worded=$s174f_dirword glob-site-mismatch=$s174f_glob (PR #677)"
   fi
 fi
 if [ -n "$S174F_DIR" ] && [ -d "$S174F_DIR" ]; then rm -rf "$S174F_DIR"; fi
@@ -3909,6 +3933,7 @@ else
     printf -- '- `big.md` states *"second absent phrase kept under the count cap"* — kept.\n'
     printf -- '- `big.md` states *"third absent phrase past the count cap"* — dropped.\n'
     awk 'BEGIN { s = ""; for (i = 0; i < 2000; i++) s = s "filler prose word " i " "; print "- an over-long BODY line: " s }'
+    printf -- '- `big.md` says "two words" and \342\200\234a typographic candidate here\342\200\235 too.\n'
     printf -- '- `big.md` says "a paired span of four words" and "an unpaired one\n'
     printf -- '- an unpaired `backtick ends the token scan before "a span of four words here"\n'
     printf '````text\n'
@@ -3926,6 +3951,13 @@ else
   s174j_bud=$(printf '%s\n' "$s174j_budget" | grep -cF 'larger than this run' || true)
   s174j_unpairq=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired ASCII double quote' || true)
   s174j_unpairb=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired backtick' || true)
+  # Three declines this arm is named for but could not fail on: silencing any one of
+  # them left all eleven arms green. Two of the three are the ones the reader's own
+  # header calls out as having been silent before the channel existed, which makes an
+  # unfailable arm for them the worst of the set.
+  s174j_floor=$(printf '%s\n' "$s174j_err" | grep -cF 'under the four-word floor' || true)
+  s174j_typo=$(printf '%s\n' "$s174j_err" | grep -cF 'delimited by typographic quotes' || true)
+  s174j_fenced2=$(printf '%s\n' "$s174j_err" | grep -cF 'inside fenced blocks were not scanned' || true)
   # The rung-2 note that fires when awk itself FAILS. It is the one decline measured to
   # flip a class — a `normalized` non-defect becomes an `unresolved` defect — which is
   # exactly what the statement exists to prevent, so it gets its own arm rather than
@@ -3954,10 +3986,11 @@ else
   if [ "$s174j_span" -ge 1 ] && [ "$s174j_count" -ge 1 ] && [ "$s174j_body" -ge 1 ] \
      && [ "$s174j_fence" -ge 1 ] && [ "$s174j_line" -ge 1 ] && [ "$s174j_bud" -ge 1 ] \
      && [ "$s174j_unpairq" -ge 1 ] && [ "$s174j_unpairb" -ge 1 ] \
+     && [ "$s174j_floor" -ge 1 ] && [ "$s174j_typo" -ge 1 ] && [ "$s174j_fenced2" -ge 1 ] \
      && [ -n "$s174j_realawk" ] && [ "$s174j_awkok" -eq 1 ] && [ "$s174j_awkfail" -ge 1 ]; then
     ok "174j: every decline states what it suppressed — an over-long span, spans past the count cap, an over-long body line, an unpaired quote, an unpaired backtick, an unclosed fence, and (on the report line each affected) a cited artifact's over-long line, a file over the rung-2 byte budget, and a normalising rung whose awk failed (PR #677)"
   else
-    ng "174j: every decline must state its skip — got over-long-span=$s174j_span span-count=$s174j_count body-line=$s174j_body unpaired-quote=$s174j_unpairq unpaired-backtick=$s174j_unpairb unclosed-fence=$s174j_fence cited-line=$s174j_line byte-budget=$s174j_bud awk-normalizes=$s174j_awkok awk-failed-stated=$s174j_awkfail (PR #677)"
+    ng "174j: every decline must state its skip — got over-long-span=$s174j_span span-count=$s174j_count body-line=$s174j_body unpaired-quote=$s174j_unpairq unpaired-backtick=$s174j_unpairb four-word-floor=$s174j_floor typographic=$s174j_typo fenced-lines=$s174j_fenced2 unclosed-fence=$s174j_fence cited-line=$s174j_line byte-budget=$s174j_bud awk-normalizes=$s174j_awkok awk-failed-stated=$s174j_awkfail (PR #677)"
   fi
 fi
 if [ -n "$S174H_DIR" ] && [ -d "$S174H_DIR" ]; then rm -rf "$S174H_DIR"; fi
