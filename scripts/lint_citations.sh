@@ -92,13 +92,14 @@
 #
 # STREAMS. stdout carries one report line plus one indented `search:` line, one such
 # PAIR per classified span — except `no-attribution`, whose spans are GROUPED into a
-# single pair. STDERR carries the per-class totals and the declines counted at
-# extraction time (span length, span count, body-line length, the four-word floor, the
-# quote alphabet, fenced lines, an unclosed fence, a dead extractor). The two caps that
-# are reached DURING classification — a cited artifact's over-long line, and the rung-2
-# byte budget — are stated on the STDOUT report line they affected, because that is the
-# line whose meaning they change. Four on stderr, two on the report line; the split is
-# the point, not an accident.
+# single pair. Where a decline is stated follows one RULE, and the rule is §1.10's: a
+# decline that changes what a report line means is stated ON that line, and every other
+# decline is stated on stderr beside the per-class totals.
+#
+# The rule is here instead of a tally on purpose. An earlier version of this paragraph
+# counted the two sides, and the count went stale twice in two rounds while the rule
+# did not move once — which is the same lesson the drop() channel above exists for,
+# applied to a comment about it.
 #
 # COUNTING CLASSES: anchor at COLUMN 0 — `^[^[:space:]].*:<line>: <class> — ` — or read
 # the stderr totals. Two things on stdout are author-supplied: the attributed path
@@ -213,6 +214,9 @@ report() {
 #
 # Continuation lines of a wrapped comment keep a `# ` prefix, so that prefix is
 # stripped before joining. Prints the 1-based line the match starts on.
+#
+# shellcheck disable=SC2016  # awk program text: `$0` and ENVIRON["SPAN"] are awk's,
+# and MUST NOT expand in the shell. The non-expanding channel is the whole design.
 NORM_PROG='
 BEGIN { s = ENVIRON["SPAN"]; gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); slen = length(s); if (slen == 0) exit; head = 1; tail = 0; abs = 0; buf = ""; found = 0; skipped = 0; LINE_MAX = 65536; }
 {
@@ -389,11 +393,15 @@ extract() {
       # computed from `line`.
       gsub(/\037/, " ", line)
       # Only an ASCII double-quote pair is extracted. Typographic pairs are counted
-      # and stated rather than declined in silence — the two skips that predated the
-      # drop() channel were this and the four-word floor. Measured before choosing to
-      # state rather than widen: zero typographic quotes across the 12-body
-      # calibration corpus and across SPEC.md, MISSION.md and CHANGELOG.md, i.e. 0 of
-      # 251 quotation marks, so the gap is latent in this repo, not active (PR #677).
+      # and stated rather than declined in silence — the skips that predated the drop()
+      # channel were this and the four-word floor. Measured before choosing to state
+      # rather than widen: ZERO typographic quotes, all four codepoints, across the
+      # 12-body calibration corpus AND across SPEC.md, MISSION.md and CHANGELOG.md.
+      # The denominator is pinned to where it was counted — 251 ASCII double quotes in
+      # those 12 bodies at the round-4 snapshot — because a live count over this extent
+      # drifts on every commit (it contains SPEC.md and this PR own body, and moved by
+      # 7 inside one review round). So: latent in this repo rather than active, and the
+      # number that says so cannot go stale (PR #677).
       nq = gsub(/\342\200\234/, "&", line) + gsub(/\342\200\230/, "&", line)
       if (nq > 0)
         drop_n("quotation candidate(s) delimited by typographic quotes were not classified — only an ASCII double-quote pair is extracted", nq)
@@ -405,7 +413,18 @@ extract() {
         if (i == 0) break
         after = substr(rest, i + 1)
         j = index(after, "`")
-        if (j == 0) break
+        # An unpaired backtick ends the token scan for this line, so any path named
+        # after it is never seen — a span on that line can come out attributed to an
+        # earlier path or to none. Counted PREEMPTIVELY rather than on demonstrated
+        # demand: across the 12 calibration bodies 18 lines carry an odd number of
+        # backticks, but every one is inside a fenced block, which the rule above
+        # excludes first, so the reader-reachable count is ZERO. It is counted anyway
+        # because the point of one channel is that a decline cannot be silent — not
+        # that each one has been observed firing (PR #677).
+        if (j == 0) {
+          drop("line(s) ended with an unpaired backtick, so any path named after it on that line was not seen — an attribution may be missing or earlier than the author wrote")
+          break
+        }
         tok = substr(after, 1, j - 1)
         start = base + i
         base = base + i + j
@@ -441,7 +460,18 @@ extract() {
         if (i == 0) break
         after = substr(rest, i + 1)
         j = index(after, "\"")
-        if (j == 0) break
+        # An unpaired quote opens a quotation this scan cannot close, because pairing
+        # is within ONE line. Both halves of a LINE-WRAPPED quotation land here too, so
+        # counting this one break states the wrapped case without changing what is
+        # extracted. Unlike the typographic case this one is ACTIVE rather than latent,
+        # which is why it is counted instead of declared a stated limitation: one line
+        # of the 12 calibration bodies reaches it, and SPEC.md carries four more lines
+        # of the same shape — an escaped quote in prose about escaping, and a `"tok:`
+        # inside inline code (PR #677).
+        if (j == 0) {
+          drop("line(s) ended with an unpaired ASCII double quote, so the quotation it opens was not classified — pairing is within one line, which also declines a quotation wrapped across two")
+          break
+        }
         span = substr(after, 1, j - 1)
         sstart = base + i
         base = base + i + j

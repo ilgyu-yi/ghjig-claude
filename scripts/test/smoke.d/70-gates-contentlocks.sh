@@ -3856,13 +3856,18 @@ else
   # only because a reviewer diffed against the previous round — a `normalized`
   # (explicitly a non-defect) became an `unresolved` (a defect) with nothing said,
   # and a nested fence voided the check for an arbitrary tail of the body.
-  # Six bounds, six statements:
+  # Nine declines, nine statements — six on stderr and three on the report line they
+  # affected, which is the rule §1.10 states and this arm measures:
   #   - a span over the length cap
   #   - spans beyond the count cap
   #   - a body line over the line cap
-  #   - a CITED artifact's line over the normalising rung's own cap
+  #   - a line ending on an unpaired ASCII double quote (which also covers a quotation
+  #     wrapped across two lines: both halves end unpaired)
+  #   - a line ending on an unpaired backtick
   #   - a fenced block that never closes
+  #   - a CITED artifact's line over the normalising rung's own cap
   #   - a rung-2 byte budget too small for the file
+  #   - a normalising rung whose awk exited nonzero
   # The fence case uses a FOUR-backtick block wrapping a literal three-backtick line —
   # the ordinary way to document fenced markdown, and a parity toggle counts it as
   # three hits and silently drops the rest of the body.
@@ -3887,6 +3892,8 @@ else
     printf -- '- `big.md` states *"second absent phrase kept under the count cap"* — kept.\n'
     printf -- '- `big.md` states *"third absent phrase past the count cap"* — dropped.\n'
     awk 'BEGIN { s = ""; for (i = 0; i < 2000; i++) s = s "filler prose word " i " "; print "- an over-long BODY line: " s }'
+    printf -- '- `big.md` says "a paired span of four words" and "an unpaired one\n'
+    printf -- '- an unpaired `backtick ends the token scan before "a span of four words here"\n'
     printf '````text\n'
     printf '```\n'
     printf -- '- `big.md` states *"a span the unclosed fence swallows entirely"* — swallowed.\n'
@@ -3900,11 +3907,40 @@ else
   s174j_fence=$(printf '%s\n' "$s174j_err" | grep -cF 'is never closed' || true)
   s174j_line=$(printf '%s\n' "$s174j_out" | grep -cF 'the normalising rung skipped 1 line(s) over 65536 characters' || true)
   s174j_bud=$(printf '%s\n' "$s174j_budget" | grep -cF 'larger than this run' || true)
+  s174j_unpairq=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired ASCII double quote' || true)
+  s174j_unpairb=$(printf '%s\n' "$s174j_err" | grep -cF 'unpaired backtick' || true)
+  # The rung-2 note that fires when awk itself FAILS. It is the one decline measured to
+  # flip a class — a `normalized` non-defect becomes an `unresolved` defect — which is
+  # exactly what the statement exists to prevent, so it gets its own arm rather than
+  # riding on the others. The seam is a stub `awk` that fails ONLY the normalising
+  # program: it exits 3 when its program text mentions `ENVIRON["SPAN"]`, and execs the
+  # real awk otherwise, so `extract` still runs and rung 2 alone breaks. §174k's stub
+  # cannot reach this branch, because it kills the extractor before rung 2 is entered.
+  s174j_realawk=$(command -v awk 2>/dev/null)
+  mkdir -p "$S174H_DIR/awkstub"
+  {
+    printf '#!/bin/sh\n'
+    printf 'case "$*" in *ENVIRON*SPAN*) exit 3 ;; esac\n'
+    printf 'exec %s "$@"\n' "$s174j_realawk"
+  } > "$S174H_DIR/awkstub/awk"
+  chmod +x "$S174H_DIR/awkstub/awk"
+  (
+    cd "$S174H_WORK" || exit 1
+    printf 'a  double  spaced  phrase  that  only  normalises\n' > shortnorm.md
+    git add shortnorm.md >/dev/null 2>&1
+    git commit -q -m 'chore: shortnorm' >/dev/null 2>&1
+  ) >/dev/null 2>&1
+  printf -- '- `shortnorm.md` states *"a double spaced phrase that only normalises"* — normalises only.\n' > "$S174H_WORK/probeA.md"
+  s174j_awkok=$(s174_count 'normalized' "$(bash "$S174_CHECKER" "$S174H_WORK/probeA.md" 2>/dev/null)")
+  s174j_awkfail=$( PATH="$S174H_DIR/awkstub:$PATH" bash "$S174_CHECKER" "$S174H_WORK/probeA.md" 2>/dev/null \
+    | grep -cF 'the normalising rung could not run — awk exited 3' || true )
   if [ "$s174j_span" -ge 1 ] && [ "$s174j_count" -ge 1 ] && [ "$s174j_body" -ge 1 ] \
-     && [ "$s174j_fence" -ge 1 ] && [ "$s174j_line" -ge 1 ] && [ "$s174j_bud" -ge 1 ]; then
-    ok "174j: all six bounds state what they suppressed — an over-long span, spans past the count cap, an over-long body line, a cited artifact's over-long line (on the report line it affected), an unclosed fence, and a file over the rung-2 byte budget (PR #677)"
+     && [ "$s174j_fence" -ge 1 ] && [ "$s174j_line" -ge 1 ] && [ "$s174j_bud" -ge 1 ] \
+     && [ "$s174j_unpairq" -ge 1 ] && [ "$s174j_unpairb" -ge 1 ] \
+     && [ -n "$s174j_realawk" ] && [ "$s174j_awkok" -eq 1 ] && [ "$s174j_awkfail" -ge 1 ]; then
+    ok "174j: every decline states what it suppressed — an over-long span, spans past the count cap, an over-long body line, an unpaired quote, an unpaired backtick, an unclosed fence, and (on the report line each affected) a cited artifact's over-long line, a file over the rung-2 byte budget, and a normalising rung whose awk failed (PR #677)"
   else
-    ng "174j: every bound must state its skip — got over-long-span=$s174j_span span-count=$s174j_count body-line=$s174j_body unclosed-fence=$s174j_fence cited-line=$s174j_line byte-budget=$s174j_bud (PR #677)"
+    ng "174j: every decline must state its skip — got over-long-span=$s174j_span span-count=$s174j_count body-line=$s174j_body unpaired-quote=$s174j_unpairq unpaired-backtick=$s174j_unpairb unclosed-fence=$s174j_fence cited-line=$s174j_line byte-budget=$s174j_bud awk-normalizes=$s174j_awkok awk-failed-stated=$s174j_awkfail (PR #677)"
   fi
 fi
 if [ -n "$S174H_DIR" ] && [ -d "$S174H_DIR" ]; then rm -rf "$S174H_DIR"; fi
