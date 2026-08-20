@@ -160,7 +160,7 @@ parse_gh_merge_argv() {
   local -a toks=()
   if command -v python3 >/dev/null 2>&1; then
     local _out
-    if _out=$(printf '%s' "$rest" | python3 -c '
+    if _out=$(printf '%s' "$rest" | python3 -I -c '
 import shlex, sys
 try:
     for t in shlex.split(sys.stdin.read()):

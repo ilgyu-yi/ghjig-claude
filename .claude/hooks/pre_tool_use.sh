@@ -110,7 +110,7 @@ sys.stdout.write(tag + "\n".join(toks) + tag)
       # SPEC §6.1.2, accepted rather than mitigated.
       case $cmd in
         *\'*|*\"*|*\\*)
-          cda_refusal="destructive command refused: the shell-aware tokenizer returned no usable token list and the command carries quoting the fallback cannot parse, so the paths it touches cannot be decided (SPEC §6.1.2). Recovery: make python3 runnable (python3 -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
+          cda_refusal="destructive command refused: the shell-aware tokenizer returned no usable token list and the command carries quoting the fallback cannot parse, so the paths it touches cannot be decided (SPEC §6.1.2). Recovery: make python3 runnable (python3 -I -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
           return 1 ;;
       esac
       local _opts=$-
@@ -125,7 +125,7 @@ sys.stdout.write(tag + "\n".join(toks) + tag)
   # also skips every later matcher. Refused here; the loop below additionally
   # uses the `${args[@]+…}` form so no later edit can reintroduce the crash.
   if [ "${#args[@]}" -eq 0 ]; then
-    cda_refusal="destructive command refused: the shell-aware tokenizer produced an EMPTY token list, which is a failed check, not a completed one (SPEC §6.1.2). Recovery: make python3 runnable (python3 -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
+    cda_refusal="destructive command refused: the shell-aware tokenizer produced an EMPTY token list, which is a failed check, not a completed one (SPEC §6.1.2). Recovery: make python3 runnable (python3 -I -c 'print(1)' must print 1 and nothing else), or for a sanctioned exception mint a one-shot token — scripts/ghjig_skip.sh out-of-scope '<cmd-fingerprint>' '<why>' (SPEC §7). Command: $cmd"
     return 1
   fi
 
@@ -1448,7 +1448,7 @@ case "$tool" in
     base=$(basename "$target")
     sens_resolved=""
     if [ -L "$target" ] && command -v python3 >/dev/null 2>&1; then
-      sens_rp=$(printf '%s' "$target" | python3 -c 'import os,sys; sys.stdout.write(os.path.realpath(sys.stdin.read()))' 2>/dev/null)
+      sens_rp=$(printf '%s' "$target" | python3 -I -c 'import os,sys; sys.stdout.write(os.path.realpath(sys.stdin.read()))' 2>/dev/null)
       [ -n "$sens_rp" ] && sens_resolved=$(basename "$sens_rp")
     fi
     # #501: match case-INSENSITIVELY (so `.ENV`/`X.PEM` don't slip past) and use
