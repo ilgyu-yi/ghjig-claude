@@ -2823,9 +2823,9 @@ fi
 if [ ! -f "$S156_SPEC" ]; then
   ng "156j: SPEC.md absent — cannot assert §1.8/§1.9 SSOT-change-sweep parity (#640)"
 else
-  s156_lever=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i' "$S156_SPEC" \
+  s156_lever=$(awk '/^### .*[Ii]n-session narrowing levers/{i=1;next} i&&/^## |^### /{exit} i' "$S156_SPEC" \
                | grep -cE '^\| \*\*SSOT change sweep\*\*')
-  s156_posture=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$S156_SPEC" \
+  s156_posture=$(awk '/^### .*Harness-overlap classification/{i=1;next} i&&/^## |^### /{exit} i' "$S156_SPEC" \
                  | grep -E '^\|.*SSOT change sweep' \
                  | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
   # §156j: both new rows exist AND match the exact shapes §116 counts — a lever row
