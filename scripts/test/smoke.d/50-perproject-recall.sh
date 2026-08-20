@@ -4449,12 +4449,30 @@ S664PLANT
     s662_hook_run "$S662_REG_ON" "$s664_fp" "$S662_HEAL" healthy; s664_broken=$?
     rm -f "$S662_TARGET/re.py"
     rm -rf "$S662_TARGET/__pycache__"
-    if [ "$s664_shadow" != "$S662_TARGET/re.py" ]; then
-      ng "160i: the cooperative ./re.py did NOT shadow the stdlib re (bare -c resolved to '$s664_shadow', want '$S662_TARGET/re.py') — the plant is not live, so the cooperative leg is UNMEASURED, not passing (the #662 dead-fixture trap) (#664)"
-    elif [ "$s664_ref" = 2 ] && [ "$s664_coop" = 2 ] && [ "$s664_ctl" = 2 ] && [ "$s664_broken" = 2 ]; then
-      ok "160i: a cooperative in-registry ./re.py cannot forge the force-push verdict under a healthy python3 — blocks with plant (rc=2), without it (rc=2), broken plant fails closed (rc=2), .env control alive (rc=2) (#664)"
+    # The shadow probe decides whether the cwd-plant STDLIB-shadow class applies on
+    # THIS interpreter, THREE-way:
+    #   plant path  → cwd is searched ahead of the stdlib for a bare -c (system
+    #                 python 3.9, the primary environment): the plant is live, run
+    #                 the full behavioral assertion.
+    #   other path  → `import re` resolved to the stdlib despite ./re.py in cwd, so
+    #                 cwd is NOT searched ahead of it (safe-path default on 3.11+ /
+    #                 PYTHONSAFEPATH, or an isolating Homebrew/CI build; observed on
+    #                 the CI macos python@3.14 runner). The class does not apply
+    #                 here, so the behavioral leg is out of scope — SKIP, not red
+    #                 (same posture as the no-python3 skip). NOT a coverage loss:
+    #                 §160j enforces -I at every site unconditionally, and the
+    #                 primary interpreter still runs the assertion.
+    #   empty       → the probe did not run / import re at all: a broken fixture.
+    if [ "$s664_shadow" = "$S662_TARGET/re.py" ]; then
+      if [ "$s664_ref" = 2 ] && [ "$s664_coop" = 2 ] && [ "$s664_ctl" = 2 ] && [ "$s664_broken" = 2 ]; then
+        ok "160i: a cooperative in-registry ./re.py cannot forge the force-push verdict under a healthy python3 — blocks with plant (rc=2), without it (rc=2), broken plant fails closed (rc=2), .env control alive (rc=2) (#664)"
+      else
+        ng "160i: a cooperative in-registry ./re.py ELIDED the command and FORGED a healthy interpreter's force-push verdict — plant rc=$s664_coop (want 2; pre-fix this is 0, the measured bypass), no-plant reference rc=$s664_ref (want 2), .env control rc=$s664_ctl (want 2, else the arm is unmeasured), broken-plant rc=$s664_broken (want 2, fail-closed and byte-identical to healthy — NOT a substitute for the cooperative leg) (strip_command_data at git_matcher.sh:118 needs python3 -I -c; SPEC §6.1.2) (#664)"
+      fi
+    elif [ -n "$s664_shadow" ]; then
+      ok "160i: SKIPPED — this python3 does not place cwd ahead of the stdlib for a bare -c (re resolved to '$s664_shadow'), so the cwd-plant stdlib-shadow class does not apply on this interpreter; §160j enforces -I regardless (#664)"
     else
-      ng "160i: a cooperative in-registry ./re.py ELIDED the command and FORGED a healthy interpreter's force-push verdict — plant rc=$s664_coop (want 2; pre-fix this is 0, the measured bypass), no-plant reference rc=$s664_ref (want 2), .env control rc=$s664_ctl (want 2, else the arm is unmeasured), broken-plant rc=$s664_broken (want 2, fail-closed and byte-identical to healthy — NOT a substitute for the cooperative leg) (strip_command_data at git_matcher.sh:118 needs python3 -I -c; SPEC §6.1.2) (#664)"
+      ng "160i: the shadow probe produced NO output — a bare python3 -c failed to run or import re at all, so the fixture is broken, not measured (#664)"
     fi
   fi
 fi
