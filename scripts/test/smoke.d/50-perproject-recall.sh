@@ -3945,6 +3945,10 @@ fi
 #   160g  the `./shlex.py` plant under a HEALTHY interpreter — BOTH -I sites  RED
 #   160h  the EMPTY-ARRAY crash: an empty token list must be REFUSED, not run
 #         into `for a in "${args[@]}"` under set -u (fatal on bash 3.2.57)   RED
+#   160i  the COOPERATIVE ./re.py plant (#664): a validly-FRAMED but ELIDED
+#         command forges the force-push verdict under a HEALTHY interpreter  RED
+#   160j  the form-independent STATIC lock (#664): every python3 -c/stdin
+#         invocation under .claude/hooks/ carries -I (10 unisolated pre-fix) RED
 #
 # Anti-vacuity (smoke.sh Theme E) — SHARPEST here of anywhere in the suite,
 # because on this guard the fail-closed answer IS "block": a BROKEN fixture
@@ -4075,7 +4079,7 @@ s662_hook_run() {
 }
 
 if ! command -v jq >/dev/null 2>&1; then
-  for s662_a in 160-fixture 160a 160b 160c 160d 160e 160f 160g 160h; do
+  for s662_a in 160-fixture 160a 160b 160c 160d 160e 160f 160g 160h 160i; do
     ng "$s662_a: jq missing — the whole §160 fixture is undrivable (#662)"
   done
 else
@@ -4381,5 +4385,109 @@ S662PLANT
       ng "160h: an empty token list crashed the hook instead of being refused — $s662_blocked/2 blocked, failed:$s662_bad (rc=1 is the bash 3.2.57 fatal 'args[@]: unbound variable' → a non-blocking allow that also skips every later matcher; rc=0 would be a completed check that checked nothing) (#662)"
     fi
   fi
+
+  # ---- 160i (RED, #664): the measured COOPERATIVE plant. #660's constant-tag
+  # frame rejects a *degraded* interpreter, but the plant controls the PAYLOAD,
+  # not the tag: a cooperative in-registry ./re.py runs strip_command_data to
+  # completion and emits a validly-FRAMED but ELIDED command, so the force-push
+  # AND protected-push arms (both `message` mode — pre_tool_use.sh:1166/:1245 via
+  # git_matcher.sh:118) grep only spaces and never fire. Measured end-to-end
+  # pre-fix: `git push --force origin main` is rc=0 WITH the plant, rc=2 without —
+  # a real allow through a LIVE hook, silent because block() is never reached and
+  # nothing is audited. `-I` at git_matcher.sh:118 (drops cwd from sys.path)
+  # closes it. This arm REDS pre-fix (the cooperative row measures rc=0).
+  #
+  # Five legs, each its own rc so a fixture miss cannot masquerade as the verdict:
+  #   ref     no plant, healthy interpreter — must already block (rc=2) or the
+  #           cooperative leg measures nothing
+  #   shadow  FIXTURE INTEGRITY: a bare `python3 -c` from the target cwd must
+  #           resolve `re` to the PLANTED ./re.py, not the stdlib — proves the
+  #           plant is live (the #662 five-agent trap: a plant that never loads
+  #           gives rc=2 and greens this block-expecting arm)
+  #   coop    the cooperative plant present — the measured bypass (rc=0 pre-fix)
+  #   ctl     same-PATH positive control WITH the plant: an Edit on .env has no
+  #           re-importing python3 leg, so its rc=2 says the middle cell is a REAL
+  #           allow, not a dead fixture
+  #   broken  the plant replaced with `raise ImportError`: `import re` fails,
+  #           python3 exits non-zero, stdout empty → unframed → fail-closed → rc=2,
+  #           BYTE-IDENTICAL to healthy for this input. Asserted as its OWN leg and
+  #           explicitly NOT a bypass witness — a broken plant is the exact shape
+  #           of the earlier negative that "looked conclusive and was not" (SPEC
+  #           §6.1.2); keeping it prevents a future fixture regression from the
+  #           cooperative plant to a broken one greening while measuring nothing.
+  if [ -z "$S662_REAL_PY" ]; then
+    ok "160i: SKIPPED — no python3 on this host, the cooperative ./re.py plant is not runnable (#664)"
+  else
+    s664_fp=$(s662_bash_json "git push --force origin main")
+    s662_hook_run "$S662_REG_ON" "$s664_fp" "$S662_HEAL" healthy; s664_ref=$?
+    # The cooperative plant, EXACTLY as issue #664 AC2 specifies: it runs the
+    # program to completion (finditer → [], so no heredoc walk) and, in `message`
+    # mode, returns a match for any flag pattern containing "message"/"--file" with
+    # EMPTY groups — which elides every command word, leaving a framed run of
+    # spaces the arms' entry greps miss.
+    cat > "$S662_TARGET/re.py" <<'S664PLANT'
+class _M:
+    def __init__(self, g1="", g2=" "): self._g = (None, g1, g2)
+    def group(self, i): return self._g[i]
+    def start(self): return 0
+class _P:
+    def __init__(self, pat): self.pat = pat
+    def match(self, s, pos=None):
+        # the heredoc-delimiter pattern must NOT match; the message-flag one must
+        if "message" in self.pat or "--file" in self.pat:
+            return _M("", " ")
+        return None
+    def finditer(self, s): return []
+def compile(pat, *a, **k): return _P(pat)
+def finditer(pat, s, *a, **k): return []
+def match(pat, s, *a, **k): return None
+S664PLANT
+    s664_shadow=$( cd "$S662_TARGET" && PATH="$S662_HEAL" python3 -c 'import re,sys; sys.stdout.write(re.__file__)' 2>/dev/null )
+    s662_hook_run "$S662_REG_ON" "$s664_fp" "$S662_HEAL" healthy; s664_coop=$?
+    s662_hook_run "$S662_REG_ON" "$s662_ctl_json" "$S662_HEAL" healthy; s664_ctl=$?
+    printf 'raise ImportError("planted")\n' > "$S662_TARGET/re.py"
+    s662_hook_run "$S662_REG_ON" "$s664_fp" "$S662_HEAL" healthy; s664_broken=$?
+    rm -f "$S662_TARGET/re.py"
+    rm -rf "$S662_TARGET/__pycache__"
+    if [ "$s664_shadow" != "$S662_TARGET/re.py" ]; then
+      ng "160i: the cooperative ./re.py did NOT shadow the stdlib re (bare -c resolved to '$s664_shadow', want '$S662_TARGET/re.py') — the plant is not live, so the cooperative leg is UNMEASURED, not passing (the #662 dead-fixture trap) (#664)"
+    elif [ "$s664_ref" = 2 ] && [ "$s664_coop" = 2 ] && [ "$s664_ctl" = 2 ] && [ "$s664_broken" = 2 ]; then
+      ok "160i: a cooperative in-registry ./re.py cannot forge the force-push verdict under a healthy python3 — blocks with plant (rc=2), without it (rc=2), broken plant fails closed (rc=2), .env control alive (rc=2) (#664)"
+    else
+      ng "160i: a cooperative in-registry ./re.py ELIDED the command and FORGED a healthy interpreter's force-push verdict — plant rc=$s664_coop (want 2; pre-fix this is 0, the measured bypass), no-plant reference rc=$s664_ref (want 2), .env control rc=$s664_ctl (want 2, else the arm is unmeasured), broken-plant rc=$s664_broken (want 2, fail-closed and byte-identical to healthy — NOT a substitute for the cooperative leg) (strip_command_data at git_matcher.sh:118 needs python3 -I -c; SPEC §6.1.2) (#664)"
+    fi
+  fi
+fi
+
+# ---- 160j (RED, #664): the form-independent STATIC lock. Every non-comment line
+# under .claude/hooks/ that invokes python3 in -c or stdin form must carry -I — a
+# new site, or a dropped flag, reds here without anyone re-running a plant (SPEC
+# §6.1.2). SEMANTICS CHOICE (one, implemented exactly): the matcher is
+# INVOCATION-SHAPED, anchored on a python3 that immediately follows a pipe / `$(` /
+# backtick / `exec ` / `;` — the positions a command actually runs from — NOT any
+# substring. That deliberately excludes the two PROSE recovery strings at
+# pre_tool_use.sh:113/:128 ("make python3 runnable (python3 -c 'print(1)' …)"),
+# which are message text, not invocations. Pre-fix census: 12 real invocation
+# sites, of which 2 already carry -I (#662 at pre_tool_use.sh:86 / escape.sh:215)
+# and 10 do NOT → RED. Phase C adds -I to the remaining 10 → 0 unisolated → green.
+# The positive counts are the anti-vacuity floor: a regex that matched nothing
+# would report 0 violations and green pre-fix, so the arm refuses to pass unless
+# it SEES the known sites (total >= 12) and its -I arm is alive (iso >= 2). This
+# arm needs no jq or python3, so it sits OUTSIDE the jq gate above.
+s664j_dir="$SHELL_ROOT/.claude/hooks"
+s664j_re='(\||\$\(|`|exec[[:space:]]+|;[[:space:]]*)[[:space:]]*python3([[:space:]]|$)'
+s664j_sites=$(grep -rnE "$s664j_re" "$s664j_dir" 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#')
+s664j_total=$(printf '%s\n' "$s664j_sites" | grep -cE 'python3')
+s664j_iso=$(printf '%s\n' "$s664j_sites" | grep -cE 'python3[[:space:]]+-I')
+s664j_bad=$(printf '%s\n' "$s664j_sites" | grep -vE 'python3[[:space:]]+-I' | grep -cE 'python3')
+s664j_badsites=$(printf '%s\n' "$s664j_sites" | grep -vE 'python3[[:space:]]+-I' | grep -E 'python3' | sed 's#.*/\.claude/hooks/##; s/:.*//' | sort | uniq -c | tr -s ' ' | tr '\n' ' ')
+if [ "$s664j_total" -lt 12 ]; then
+  ng "160j: the invocation-shaped python3 matcher lost sites — found only $s664j_total invocation site(s) under .claude/hooks/ (want >=12); the static lock is UNMEASURED, not passing (#664)"
+elif [ "$s664j_iso" -lt 2 ]; then
+  ng "160j: the -I detection arm matched nothing ($s664j_iso, want >=2 — the two #662 sites already carry -I); the matcher is broken, the arm is unmeasured (#664)"
+elif [ "$s664j_bad" -eq 0 ]; then
+  ok "160j: every python3 -c/stdin invocation under .claude/hooks/ carries -I ($s664j_total sites, $s664j_iso isolated, 0 unisolated) (#664)"
+else
+  ng "160j: $s664j_bad python3 -c/stdin invocation site(s) under .claude/hooks/ run WITHOUT -I (of $s664j_total total; by file: $s664j_badsites) — a cwd import can shadow a non-preloaded module and forge the decision (SPEC §6.1.2). Fix: python3 -I -c (#664)"
 fi
 
