@@ -115,7 +115,7 @@ GIT_PREFIX='\bgit(\s+(-c\s+\S+|-C\s+\S+|-p|--paginate|--no-pager|--git-dir=\S+|-
 # Pass the RAW (pre-normalization) command so heredoc newlines are intact.
 strip_command_data() {
   local cmd="$1" mode="${2:-full}" out tag='__ghjig_frame_660__'
-  out=$(printf '%s' "$cmd" | python3 -c '
+  out=$(printf '%s' "$cmd" | python3 -I -c '
 import sys, re
 mode = sys.argv[1] if len(sys.argv) > 1 else "full"
 tag = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -268,7 +268,7 @@ sys.exit(0)
 # downstream arm greps. Pass-through is the only safe failure.
 space_glued_separators() {
   local _sgs_cmd="$1" _sgs_outvar="$2" _sgs_out _sgs_tag='__ghjig_frame_660__'
-  _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -c '
+  _sgs_out=$(printf '%s' "$_sgs_cmd" | python3 -I -c '
 import sys
 tag = sys.argv[1] if len(sys.argv) > 1 else ""
 s = sys.stdin.read()
@@ -394,7 +394,7 @@ directive_close_violation() {
 # arm then has nothing to scan → fail-open).
 extract_gh_pr_body() {
   command -v python3 >/dev/null 2>&1 || { printf ''; return 0; }
-  printf '%s' "$1" | python3 -c '
+  printf '%s' "$1" | python3 -I -c '
 import sys, re
 cmd = sys.stdin.read()
 # --body / -b as a whole flag token (word-boundary), value introduced by = or
