@@ -4463,19 +4463,29 @@ fi
 # under .claude/hooks/ that invokes python3 in -c or stdin form must carry -I — a
 # new site, or a dropped flag, reds here without anyone re-running a plant (SPEC
 # §6.1.2). SEMANTICS CHOICE (one, implemented exactly): the matcher is
-# INVOCATION-SHAPED, anchored on a python3 that immediately follows a pipe / `$(` /
-# backtick / `exec ` / `;` — the positions a command actually runs from — NOT any
-# substring. That deliberately excludes the two PROSE recovery strings at
-# pre_tool_use.sh:113/:128 ("make python3 runnable (python3 -c 'print(1)' …)"),
-# which are message text, not invocations. Pre-fix census: 12 real invocation
-# sites, of which 2 already carry -I (#662 at pre_tool_use.sh:86 / escape.sh:215)
-# and 10 do NOT → RED. Phase C adds -I to the remaining 10 → 0 unisolated → green.
-# The positive counts are the anti-vacuity floor: a regex that matched nothing
-# would report 0 violations and green pre-fix, so the arm refuses to pass unless
-# it SEES the known sites (total >= 12) and its -I arm is alive (iso >= 2). This
-# arm needs no jq or python3, so it sits OUTSIDE the jq gate above.
+# INVOCATION-SHAPED, anchored on a python3 that runs from a command position — the
+# line start, or immediately after a pipe / `$(` / backtick / `exec ` / `;` / `&&`
+# — with an OPTIONAL `NAME=value …` environment-assignment prefix admitted between
+# the anchor and `python3`. NOT any substring. The env-prefix admission is the #684
+# round-1 fix: the shipped anchored form matched only plain-pipe invocations and
+# missed the env-prefix idiom (`$(CMD="$cmd" python3 -c …)`, live at
+# 60-escape-identity.sh:1528) — the exact escape B1 was carried forward to close,
+# so the matcher must SEE it (SPEC §1.10(c): a durable claim's coverage must not
+# exceed what it measures). This still deliberately excludes the two PROSE recovery
+# strings at pre_tool_use.sh:113/:128 (they follow a bare `(`, not `$(` or a
+# command anchor) and the `command -v python3` availability probes (a token-
+# boundary matcher would false-red those — measured, disqualified). It remains an
+# anchor ENUMERATION, not a universal: exotic launchers (`if python3`, `time
+# python3`) sit outside it — the SPEC sentence names the anchored shapes rather
+# than claiming literally "every" form. Pre-fix census: 12 real invocation sites, 2
+# already -I (#662 at pre_tool_use.sh:86 / escape.sh:215), 10 not → RED. Phase C
+# adds -I to the 10 → 0 unisolated → green. The positive counts are the anti-
+# vacuity floor: a regex that matched nothing would report 0 violations and green
+# pre-fix, so the arm refuses to pass unless it SEES the known sites (total >= 12)
+# and its -I arm is alive (iso >= 2). This arm needs no jq or python3, so it sits
+# OUTSIDE the jq gate above.
 s664j_dir="$SHELL_ROOT/.claude/hooks"
-s664j_re='(\||\$\(|`|exec[[:space:]]+|;[[:space:]]*)[[:space:]]*python3([[:space:]]|$)'
+s664j_re='(^|\||\$\(|`|exec[[:space:]]+|;[[:space:]]*|&&[[:space:]]*)[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*python3([[:space:]]|$)'
 s664j_sites=$(grep -rnE "$s664j_re" "$s664j_dir" 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#')
 s664j_total=$(printf '%s\n' "$s664j_sites" | grep -cE 'python3')
 s664j_iso=$(printf '%s\n' "$s664j_sites" | grep -cE 'python3[[:space:]]+-I')
