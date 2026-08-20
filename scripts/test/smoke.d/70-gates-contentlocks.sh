@@ -3001,6 +3001,10 @@ s156v_bit() {
 }
 
 # Fixtures. Two renumbers of the real SPEC, each into a number SPEC does not already use.
+# The targets (§1.42 / §1.43) are deliberately synthetic and MUST stay unused by SPEC — the
+# guard below fails loud if SPEC ever grows them. §1.10 was the original target and collided
+# once #676 added a real `### 1.10 ` heading (rebase staleness), which left every arm below
+# reading UNTESTED; hence numbers far outside the live range.
 s156v_base="$S156V_DIR/base.md"
 s156v_lv="$S156V_DIR/lever-renum.md"
 s156v_pt="$S156V_DIR/posture-renum.md"
@@ -3009,23 +3013,23 @@ s156v_lvok=0
 s156v_ptok=0
 if [ -f "$S156_SPEC" ] && mkdir -p "$S156V_DIR" 2>/dev/null \
    && cp "$S156_SPEC" "$s156v_base" 2>/dev/null && cmp -s "$S156_SPEC" "$s156v_base" \
-   && ! grep -q '^### 1\.10 ' "$s156v_base" && ! grep -q '^### 1\.11 ' "$s156v_base"; then
+   && ! grep -q '^### 1\.42 ' "$s156v_base" && ! grep -q '^### 1\.43 ' "$s156v_base"; then
   s156v_fx=ok
-  awk '{sub(/^### 1\.8 /, "### 1.10 "); print}' "$s156v_base" > "$s156v_lv" 2>/dev/null
-  awk '{sub(/^### 1\.9 /, "### 1.11 "); print}' "$s156v_base" > "$s156v_pt" 2>/dev/null
+  awk '{sub(/^### 1\.8 /, "### 1.42 "); print}' "$s156v_base" > "$s156v_lv" 2>/dev/null
+  awk '{sub(/^### 1\.9 /, "### 1.43 "); print}' "$s156v_base" > "$s156v_pt" 2>/dev/null
   s156v_bl=$(wc -l < "$s156v_base" | tr -d ' ')
   s156v_brow=$(grep -c 'SSOT change sweep' "$s156v_base")
   # MARKER-BASED, never count-based (see the header note). Four conditions per fixture:
   # the new number arrived, the old number is gone, nothing else moved (line count), and
   # the counted row survived the rewrite.
   if [ -s "$s156v_lv" ] \
-     && grep -q '^### 1\.10 ' "$s156v_lv" && ! grep -q '^### 1\.8 ' "$s156v_lv" \
+     && grep -q '^### 1\.42 ' "$s156v_lv" && ! grep -q '^### 1\.8 ' "$s156v_lv" \
      && [ "$(wc -l < "$s156v_lv" | tr -d ' ')" = "$s156v_bl" ] \
      && [ "$(grep -c 'SSOT change sweep' "$s156v_lv")" = "$s156v_brow" ]; then
     s156v_lvok=1
   fi
   if [ -s "$s156v_pt" ] \
-     && grep -q '^### 1\.11 ' "$s156v_pt" && ! grep -q '^### 1\.9 ' "$s156v_pt" \
+     && grep -q '^### 1\.43 ' "$s156v_pt" && ! grep -q '^### 1\.9 ' "$s156v_pt" \
      && [ "$(wc -l < "$s156v_pt" | tr -d ' ')" = "$s156v_bl" ] \
      && [ "$(grep -c 'SSOT change sweep' "$s156v_pt")" = "$s156v_brow" ]; then
     s156v_ptok=1
