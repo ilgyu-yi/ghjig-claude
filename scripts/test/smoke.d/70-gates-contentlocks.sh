@@ -4715,3 +4715,81 @@ if [ "$s176_fx_res_cnt" -eq 1 ] && [ "$s176_fx_res_unres" -eq 0 ] \
 else
   ng "176b: the resolvability check is not two-sided — resolving(tokens=$s176_fx_res_cnt unresolved=$s176_fx_res_unres, want 1/0) bare(tokens=$s176_fx_bare_cnt unresolved=$s176_fx_bare_unres, want 1/1) (#648)"
 fi
+
+# ---------- §177: the bounded execution scope is stated in BOTH reviewer contracts (#650) ----------
+# SPEC §4.5 (code-reviewer) + §4.13 (finding-judge) landed the Phase-A contract: a
+# reviewer that verifies by execution is WRITE-confined, not read-confined — the run
+# is scratch-confined (cwd + every write inside the agent's own scratch directory),
+# ambient-tree reads stay permitted, and execution against the ambient worktree (cwd
+# IS the tree, or writes LAND in it) is the forbidden departure. Phase C restates that
+# scope in each agent file. This arm is the content lock over that restatement.
+#
+# HONESTY (AC6 — TEXT PRESENCE, NOT RUNTIME CONFORMANCE). This arm verifies only that
+# each contract file CARRIES the scope statement. It does NOT — and cannot here —
+# verify that a RUNNING reviewer actually kept its cwd and writes inside scratch: that
+# would need a per-subagent execution-attribution observable (a PostToolUse-style trail
+# naming the executing subagent and its cwd/writes), which SPEC §4.5 records as ABSENT
+# today. So this is a "the files STATE the boundary" lock, worded as such in ok/ng — a
+# green here says the contract is written, not that the boundary was honoured at runtime.
+#
+# ANCHOR (what Phase C must write into BOTH .claude/agents/code-reviewer.md and
+# .claude/agents/finding-judge.md): a line-anchored heading `## Execution scope (#650)`
+# AND the literal phrase `write-confinement, not read-confinement`. The phrase is the
+# discriminator that separates this scope from the pre-existing git-only
+# `## Working-tree discipline (#285)` line both files already carry — a file that has
+# only the #285 discipline (read-only-git, no execution-scope statement) must NOT match.
+#
+# SYMMETRY (AC7): §177a checks BOTH files independently and NAMES the one lacking the
+# scope, so Phase C cannot satisfy it by editing only one file. TWO-SIDEDNESS (AC6) is
+# proven both in-tree (a file with the scope passes; a file without it reds) and, so it
+# is demonstrable independent of the live tree, over controlled $TMP fixtures in §177b.
+# ANTI-VACUITY: §177a asserts both target files exist and are non-empty (were read) —
+# an absent/empty file reds as UNTESTED (offender named), never passes by scanning zero.
+S177_CR="$SHELL_ROOT/.claude/agents/code-reviewer.md"
+S177_FJ="$SHELL_ROOT/.claude/agents/finding-judge.md"
+s177_has_scope() {  # $1=file → 0 iff it carries the bounded-execution-scope statement
+  grep -qE '^## Execution scope \(#650\)$' "$1" 2>/dev/null \
+    && grep -qF 'write-confinement, not read-confinement' "$1" 2>/dev/null
+}
+
+# §177a (LIVE SYMMETRY LOCK — LOAD-BEARING RED pre-fix): both reviewer contracts carry
+# the scope statement. Names which file lacks it; reds as UNTESTED on an absent/empty file.
+s177_miss=""
+s177_n=0
+for s177_f in "$S177_CR" "$S177_FJ"; do
+  s177_base=$(basename "$s177_f")
+  if [ ! -s "$s177_f" ]; then
+    s177_miss="$s177_miss ${s177_base}=ABSENT-OR-EMPTY"
+    continue
+  fi
+  s177_n=$(( s177_n + 1 ))
+  s177_has_scope "$s177_f" || s177_miss="$s177_miss ${s177_base}=NO-EXEC-SCOPE"
+done
+if [ "$s177_n" -eq 2 ] && [ -z "$s177_miss" ]; then
+  ok "177a: TEXT-PRESENCE lock (not runtime conformance) — both code-reviewer.md and finding-judge.md STATE the bounded execution scope (## Execution scope (#650) + 'write-confinement, not read-confinement'); this asserts the contracts CARRY the boundary, NOT that a running reviewer stayed scratch-confined (that needs the per-subagent execution-attribution observable SPEC §4.5 records as absent) (#650)"
+else
+  ng "177a: each execution-carrying reviewer contract must STATE the bounded execution scope (write-confinement: scratch-confined run+writes, ambient reads permitted) — NOT merely the git-only '## Working-tree discipline (#285)' line both already carry; checked $s177_n of 2, offenders:$s177_miss — TEXT-PRESENCE only, this arm does not verify runtime scratch-confinement (#650)"
+fi
+
+# §177b (TWO-SIDED FIXTURE PROOF — stays GREEN across the fix): the same detector run
+# over two controlled agent-file-shaped fixtures — one carrying the git discipline AND
+# the execution-scope statement (must PASS), one carrying ONLY the git-scoped
+# ## Working-tree discipline line (must FAIL). Makes the discrimination demonstrable
+# independent of the live tree's current all-missing one-sidedness.
+s177_fx="$TMP/s177_agents"; mkdir -p "$s177_fx"
+printf '%s\n' \
+  '## Working-tree discipline (#285)' \
+  'Use read-only git only; never a tree-mutating git command.' \
+  '' \
+  '## Execution scope (#650)' \
+  'The scope is write-confinement, not read-confinement: ambient-tree reads are permitted; the run is scratch-confined (cwd + every write inside your own scratch directory).' \
+  > "$s177_fx/with-scope.md"
+printf '%s\n' \
+  '## Working-tree discipline (#285)' \
+  'Use read-only git only; never a tree-mutating git command.' \
+  > "$s177_fx/git-only.md"
+if s177_has_scope "$s177_fx/with-scope.md" && ! s177_has_scope "$s177_fx/git-only.md"; then
+  ok "177b: two-sided — an agent fixture carrying the execution-scope statement passes the detector and one carrying ONLY the git-scoped ## Working-tree discipline (#285) fails it, under the same anchor (#650)"
+else
+  ng "177b: the execution-scope detector is not two-sided — the with-scope fixture must PASS and the git-only fixture must FAIL under the same anchor (with-scope=$(s177_has_scope "$s177_fx/with-scope.md" && echo pass || echo fail) git-only=$(s177_has_scope "$s177_fx/git-only.md" && echo pass || echo fail)) (#650)"
+fi
