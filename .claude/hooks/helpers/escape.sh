@@ -113,48 +113,9 @@ _escape_token_honored() {
   # because the two TTL sites in this repo fail open on COMPLEMENTARY shapes and
   # neither shape is inferable from the other's rationale.
   #
-  # MEASUREMENT MODE — both halves, because naming one is how this taxonomy was
-  # got wrong twice: script-file mode (`bash <hook>`) AND `set -uo pipefail`
-  # (`pre_tool_use.sh:2`; no `set +u` under `.claude/hooks/`). Under `bash -c`
-  # the arithmetic error reports the SAFE answer (#635 cleared this class twice
-  # that way); with nounset OFF, `abc` reports HONORED instead of blocking.
-  # Reproduce with a registry entry present — without one `pre_tool_use.sh:37`
-  # `in_scope || exit 0` returns 0 for every input, a green-looking no-measurement.
-  #
-  # Three signatures pre-guard, measured:
-  #   `0<epoch>` octal / `%s` — TRACELESS allow. The arithmetic error unwinds
-  #     every enclosing compound AND the function frame, resuming at the next
-  #     TOP-LEVEL statement; the shell does NOT die and the hook still exits 0.
-  #     Token LEFT at rest, ZERO audit records (§125-11b). Here that means the
-  #     honored/blocked decision is never reached AND no later arm in the same
-  #     matcher umbrella fires: control `branch/skip` + `commit-format/deny` = 2
-  #     records; this shape = 0. At the wrapper the same shape POSTS a stale body.
-  #   empty / `0x<hex>` BELOW `created` — HONORED and consumed with a routine
-  #     `escape/skip` record (§125-11): `[` errors, `$(( ))` SUCCEEDS with a
-  #     negative delta that reads as "not stale". Empty and `0xff` are byte-
-  #     identical here, so hex is NOT a third mechanism — it is the example that
-  #     refutes "just catch the arithmetic error", since `[` DOES error on hex
-  #     (rc=2) and the honor comes from the SECOND condition. Hex ABOVE `created`
-  #     BLOCKS (`0x1755000000` -> +98455311168). At the wrapper this row blocks,
-  #     but under the misleading `mtime-future` arm name.
-  #   `abc` — NOT a fall-open. A valid bash identifier, so under `set -u` the
-  #     expansion resolves it as unset and the shell exits 2, which is this
-  #     hook's own block signal (`block()`). Already blocking pre-guard, silently
-  #     and under no arm name; the guard below only makes it explicit.
-  #
-  # So "non-numeric" was never one class — it spans all three rows, which is why
-  # the guard rejects on SHAPE rather than on any one mechanism.
-  #
-  # Threat model: neither site is reachable without a broken or shimmed `date`.
-  # Defense in depth in the #635 sense — the guard is what makes that assumption
-  # non-load-bearing — not a live vulnerability. "Broken" covers ACCIDENTS, and
-  # the two accident paths differ BY SITE, so they are stated per site rather
-  # than merged: a `date` without `%s` support reaches the arms at BOTH. `date`
-  # ABSENT from PATH reaches them HERE (exit 127 -> empty -> the honored row),
-  # but NOT at the wrapper, whose `set -euo pipefail` kills at the assignment
-  # (rc=127) before `now-malformed` is evaluated. Leaving the accident paths
-  # implicit is how a later round reads this back as "it needed a deliberate
-  # shim, so the guard was optional".
+  # Fall-open taxonomy (measurement mode, per-signature outcomes, threat model):
+  # SPEC §7.1. Three pre-guard signatures, by shape only:
+  #   `0<epoch>` octal / `%s`; empty / `0x<hex>` below `created`; `abc`.
   case "$t_created" in ''|0*|*[!0-9]*) _escape_reject "$cat" "$tok" "created-malformed"; return 1 ;; esac
   [ "${#t_created}" -le 11 ] || { _escape_reject "$cat" "$tok" "created-over-length"; return 1; }
   # fingerprint not a substring → block

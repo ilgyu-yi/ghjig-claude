@@ -99,7 +99,7 @@ ghjig_state_dir() {
 # ghjig_state_dir (identical resolution). Otherwise derive CLAUDE_PROJECT_DIR from
 # the git top-level — mirroring ghjig_skip.sh — so a writer and a reader run from
 # the same repo agree on the path; last resort is the aligned shell-root fallback.
-# The review-post wrapper is now this resolver's ONLY /file-review-side caller:
+# The review-post wrapper is now this resolver's only script caller:
 # the deleted stage writer (#633) once shared it, and SPEC §5.7.1 records that
 # there is no separate writer script. Defined here exactly once, re-defined by
 # no endpoint.
