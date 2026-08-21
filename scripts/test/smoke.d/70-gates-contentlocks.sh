@@ -4624,3 +4624,94 @@ else
     ng "175: the §1.10(c) contract must live in all three carriers — SPEC part (c)=$s175_spec code-reviewer binding=$s175_cr finding-judge recurrence rule=$s175_fj (#680)"
   fi
 fi
+
+# ---------- §176: safe_source paths in commands resolve from the repo root (#648) ----------
+# safe_source (.claude/hooks/hookrt.sh ~L230) does `[ -f "$1" ]` against the
+# CALLER's cwd, so a documented bare-relative `safe_source helpers/X.sh` only
+# resolves when cwd happens to be .claude/hooks/; a command file executed from the
+# project root fails to source the helper AND emits a false `helper-missing` warn.
+# The repo-root-resolvable call-form threads the ghjig-root symlink:
+# `.claude/ghjig-root/.claude/hooks/helpers/X.sh` (the form `blast_radius.sh`
+# already uses at complete-directive.md:31 / ship.md:18). This arm asserts every
+# DOCUMENTED safe_source invocation in .claude/commands/*.md names a path that
+# resolves from the repo root.
+#
+# EXTRACTION CHOICE (#648): a "documented safe_source invocation" is anchored on
+# the INVOCATION SHAPE — the literal token `safe_source` followed by whitespace and
+# a PATH token drawn from the positive class [A-Za-z0-9._/-]. That positive class
+# stops at the closing backtick/quote/space, so the extracted first argument is the
+# bare path with surrounding backticks/quotes already excluded. Prose that merely
+# writes the word safe_source WITHOUT a following path token (e.g. "on a
+# `safe_source` miss, degrade…") yields no token and is correctly ignored — the
+# arm is measuring call-forms, not mentions.
+#
+# RESOLUTION: a token RESOLVES iff [ -f "$SHELL_ROOT/<token>" ]. $SHELL_ROOT is the
+# repo root, and .claude/ghjig-root is a symlink to it, so
+# `.claude/ghjig-root/.claude/hooks/helpers/X.sh` is a real file from the root while
+# a bare `helpers/X.sh` has no counterpart under the root and fails.
+#
+# WHY THE TWO-SIDED PROOF IS A SEPARATE $TMP FIXTURE (176b), not the live scan:
+# the live tree today carries ONLY failing safe_source sites (the 4 bare
+# reviewer_audit ones) and NO resolving `safe_source ` site — the blast_radius
+# call-forms use the bare word "source", not "safe_source", so they are not
+# safe_source invocations. Before the Phase-C fix the live scan is one-sided (all
+# offenders); after it, one-sided (all pass). So the demonstrable two-sidedness —
+# a resolving path passes, a bare-relative path fails under the SAME
+# extractor+resolver — is proven over controlled fixtures in 176b, which stays
+# green across the fix and fails loud if a future edit abbreviates the resolver.
+s176_extract() {  # $1=file → prints "line:token" for each safe_source invocation
+  awk 'BEGIN { re = "safe_source[ \t]+[A-Za-z0-9._/-]+" }
+    { s = $0
+      while (match(s, re)) {
+        tok = substr(s, RSTART, RLENGTH); sub(/^safe_source[ \t]+/, "", tok)
+        print NR ":" tok
+        s = substr(s, RSTART + RLENGTH) } }' "$1"
+}
+
+# §176a (LIVE SCAN, the RED arm): every safe_source path in every command file
+# resolves from the repo root. ANTI-VACUITY: a floor of 4 (the four Directive #356
+# reject-audit sites known at #648) — a broken extractor that matches zero tokens
+# trips the floor and reds as UNTESTED rather than passing vacuously. The floor is
+# a `>=`, not an exact count, so it survives future command edits that add sites.
+s176_cnt=0; s176_bad=""; s176_floor=4
+for s176_f in "$SHELL_ROOT"/.claude/commands/*.md; do
+  [ -f "$s176_f" ] || continue
+  s176_base=$(basename "$s176_f")
+  while IFS=: read -r s176_ln s176_tok; do
+    [ -z "$s176_tok" ] && continue
+    s176_cnt=$(( s176_cnt + 1 ))
+    [ -f "$SHELL_ROOT/$s176_tok" ] || s176_bad="$s176_bad ${s176_base}:${s176_ln}:${s176_tok}"
+  done < <(s176_extract "$s176_f")
+done
+if [ "$s176_cnt" -ge "$s176_floor" ] && [ -z "$s176_bad" ]; then
+  ok "176a: every safe_source invocation in .claude/commands/*.md names a repo-root-resolvable path — scanned $s176_cnt (floor $s176_floor) (#648)"
+else
+  ng "176a: a documented safe_source path does not resolve from the repo root (a bare-relative helpers/X.sh resolves only when cwd is .claude/hooks/) — scanned $s176_cnt (floor $s176_floor), offenders:$s176_bad (#648)"
+fi
+
+# §176b (TWO-SIDED FIXTURE PROOF): the same extractor+resolver, run over two
+# controlled .md fixtures — one line carrying a resolving safe_source path, one a
+# bare-relative path. Asserts the resolving side PASSES the [ -f ] and the bare
+# side FAILS it, each yielding exactly one token. This makes the resolvability
+# check demonstrably two-sided independent of the live tree's current one-sidedness.
+s176_fx="$TMP/s176_cmds"; mkdir -p "$s176_fx"
+printf '%s\n' 'Reject-audit: source `hookrt.sh` + `safe_source .claude/ghjig-root/.claude/hooks/helpers/reviewer_audit.sh reviewer-reject`, then …' > "$s176_fx/resolving.md"
+printf '%s\n' 'Reject-audit: source `hookrt.sh` + `safe_source helpers/reviewer_audit.sh reviewer-reject`, then …' > "$s176_fx/bare.md"
+s176_fx_res_cnt=0; s176_fx_res_unres=0
+while IFS=: read -r s176_ln s176_tok; do
+  [ -z "$s176_tok" ] && continue
+  s176_fx_res_cnt=$(( s176_fx_res_cnt + 1 ))
+  [ -f "$SHELL_ROOT/$s176_tok" ] || s176_fx_res_unres=$(( s176_fx_res_unres + 1 ))
+done < <(s176_extract "$s176_fx/resolving.md")
+s176_fx_bare_cnt=0; s176_fx_bare_unres=0
+while IFS=: read -r s176_ln s176_tok; do
+  [ -z "$s176_tok" ] && continue
+  s176_fx_bare_cnt=$(( s176_fx_bare_cnt + 1 ))
+  [ -f "$SHELL_ROOT/$s176_tok" ] || s176_fx_bare_unres=$(( s176_fx_bare_unres + 1 ))
+done < <(s176_extract "$s176_fx/bare.md")
+if [ "$s176_fx_res_cnt" -eq 1 ] && [ "$s176_fx_res_unres" -eq 0 ] \
+   && [ "$s176_fx_bare_cnt" -eq 1 ] && [ "$s176_fx_bare_unres" -eq 1 ]; then
+  ok "176b: two-sided — a resolving safe_source path passes and a bare-relative one fails under the same extractor+resolver (#648)"
+else
+  ng "176b: the resolvability check is not two-sided — resolving(tokens=$s176_fx_res_cnt unresolved=$s176_fx_res_unres, want 1/0) bare(tokens=$s176_fx_bare_cnt unresolved=$s176_fx_bare_unres, want 1/1) (#648)"
+fi
