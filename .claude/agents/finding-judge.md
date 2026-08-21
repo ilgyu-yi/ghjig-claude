@@ -204,3 +204,10 @@ Rule 3 satisfied: an extreme position (`high` = fail-closed) justified **indepen
 
 ## Working-tree discipline (#285)
 You may run in the parent session's working tree (unless invoked with worktree isolation). Use **read-only git only** — `git diff`, `git show`, `git log`, `git status`, `git rev-parse`. **Never** run a tree-mutating git command — `checkout`, `restore`, `stash`, `reset`, `add`, `commit`, `push`, `clean` — it can silently revert or stage the parent's uncommitted work. To compare against a base, use `git diff <base>...HEAD` or `git show <ref>:<path>`, never `git checkout <base> -- <path>`.
+
+## Execution scope (#650)
+A reproduction you run to rule a finding is **write-confinement, not read-confinement** (SPEC §4.13 → §4.5). Reading the ambient tree stays open — extracting the section under review from a blob, reading fixtures, sourcing the harness preamble or helpers **read-only** — the same access your Read/Grep already grant, and what your `evidence:` line measures against. What is confined is the **run**: its working directory sits inside a scratch directory of your own, and every byte it writes — files, fixtures, generated repos, logs — lands there, never in the ambient tree. "Execution against the ambient worktree", the forbidden shape, means a run whose cwd is the ambient tree, **or** whose writes land in it.
+
+The canonical, permitted method is PR #649's: extract a smoke section into scratch, source the harness preamble from the ambient tree **read-only**, then run with cwd and all writes inside scratch. The same method with cwd in the ambient tree, or writes landing there, is the departure this rule names.
+
+Face is **born-advisory (SPEC §6.0 P3)** — guidance you conform to when you reproduce, not a runtime-enforced gate. Nothing yet attributes an executed command to you (that observable is named in SPEC §4.5 for a later Issue); the discipline holds because you follow it, not because a hook catches it.
