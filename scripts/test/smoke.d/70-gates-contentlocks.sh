@@ -2775,14 +2775,41 @@ fi
 # re-derived here under an s156_ prefix rather than reading §116's s116_* variables,
 # because the smoke.sh header reserves cross-section symbols for smoke.d/_preamble.sh.
 #
-# THEY ARE NO LONGER §116'S VERBATIM, and nothing enforces that they ever were
-# (#670). An earlier revision of this comment claimed byte-identity; measured, the
-# claim is false in BOTH halves — the posture window diverged at #644/#667 (§116
-# moved to a shared terminator while this copy kept `/^## 2\. /`) and the lever
-# window at #668/#669 (§116 moved to a title anchor). Neither divergence reddened
-# anything, because no arm compares the two files: a claim of byte-identity that
-# nothing checks decays silently, which is why #670 is scoped to that claim's
-# ENFORCEABILITY and not only to the windows.
+# THE SHARED CONTRACT (#670). Byte-identity is the wrong thing to claim — it decayed
+# twice unnoticed, which is why #670 is scoped to ENFORCEABILITY. What these two
+# windows must agree ABOUT is stated once, here and at the §116 definitions, as two
+# rules:
+#
+#   START RULE    — a window opens on the SECTION'S TITLE, never on its number
+#                   (#668). A number is not a stable id: renumbering collapses the
+#                   window silently, and a collapsed window reports "row absent"
+#                   when the row is present.
+#   TERMINATOR    — a window closes on the SHARED terminator `^## |^### `, never on
+#                   a hand-picked next-heading literal (#644). `#### ` is NOT a
+#                   terminator (position 3 is `#`, not a space), so a genuine
+#                   sub-section stays in scope.
+#
+# Measured at this commit, BOTH halves of this copy violate the start rule and the
+# posture half also violates the terminator rule:
+#   lever   — opens `/^### 1\.8 /`, closes `/^### 1\.9 /`   (§116: title anchor +
+#             shared terminator, hardened at #668/#669)
+#   posture — opens `/^### 1\.9 /`, closes `/^## 2\. /`      (§116: SAME number-based
+#             start, shared terminator)
+#
+# So the posture halves do NOT diverge on the start anchor — §116's posture opens on
+# a number too, and measured, IT COLLAPSES ON A RENUMBER EXACTLY AS THIS COPY DOES
+# (66 -> 0). #670's own table reads as if only this copy were fragile there; it is
+# not. Hardening §116's posture is #670-out-of-scope, and the shared residual is
+# disclosed here rather than silently inherited.
+#
+# THE TWO HALVES ARE THEREFORE HELD DIFFERENTLY, and Phase A got this wrong by saying
+# this copy is held to agreement "rather than ahead of it" for both. It cannot be, for
+# the posture half: #670 also requires this copy's posture to survive a §1.9 renumber,
+# so once that holds this copy is AHEAD of §116's posture helper by exactly the residual
+# above, and a posture-vs-posture comparison would red on the two LEGITIMATELY differing.
+#   lever   — held to AGREEMENT with §116 (§156v), where both conform.
+#   posture — held as a renumber BOUND on this copy alone (§156x), not as agreement.
+# The arms below are what make any future divergence loud instead of silent.
 #
 # The live consequence here is bounded and one-sided: renumbering §1.8 collapses
 # this copy's lever window, so `s156_lever` reads 0 and the `ng` below reports the
@@ -2796,9 +2823,9 @@ fi
 if [ ! -f "$S156_SPEC" ]; then
   ng "156j: SPEC.md absent — cannot assert §1.8/§1.9 SSOT-change-sweep parity (#640)"
 else
-  s156_lever=$(awk '/^### 1\.8 /{i=1;next} /^### 1\.9 /{exit} i' "$S156_SPEC" \
+  s156_lever=$(awk '/^### .*[Ii]n-session narrowing levers/{i=1;next} i&&/^## |^### /{exit} i' "$S156_SPEC" \
                | grep -cE '^\| \*\*SSOT change sweep\*\*')
-  s156_posture=$(awk '/^### 1\.9 /{i=1;next} /^## 2\. /{exit} i' "$S156_SPEC" \
+  s156_posture=$(awk '/^### .*Harness-overlap classification/{i=1;next} i&&/^## |^### /{exit} i' "$S156_SPEC" \
                  | grep -E '^\|.*SSOT change sweep' \
                  | grep -cE '`(cede-to-harness|keep-as-policy|keep-as-safety-redundancy)`')
   # §156j: both new rows exist AND match the exact shapes §116 counts — a lever row
@@ -2810,6 +2837,282 @@ else
   else
     ng "156j: SSOT change sweep rows mis-shaped or absent — §1.8 lever rows=$s156_lever §1.9 posture rows=$s156_posture (expected 1 and 1) (#640)"
   fi
+fi
+
+# ---------- §156v-§156y: §156j's windows vs §116's — agreement + renumber bounds (#670) ----
+# WHAT THESE FOUR ARMS ARE FOR. §156j above re-derives §116's two SPEC windows under an
+# `s156_` prefix (it must — smoke.sh's header reserves cross-section symbols for
+# _preamble.sh). The two copies diverged twice, in PRs that had no reason to look at this
+# file, and NOTHING NOTICED. That silence is #670's subject; these arms are the mechanism
+# that ends it.
+#
+# THE CONTRACT UNDER TEST is the one stated at §156j above and at the §116 definitions in
+# 50-perproject-recall.sh — two rules, not a byte-identity claim:
+#   START RULE — a window opens on the SECTION'S TITLE, never on its number (#668).
+#   TERMINATOR — a window closes on the shared `^## |^### `, never on a hand-picked
+#                next-heading literal (#644).
+#
+# RED AT THIS COMMIT, deliberately (Doc -> Test -> Code). Measured here:
+#   156v  RED   — §156j's lever window collapses where §116's stays open
+#   156w  RED   — §156j's §1.8 lever window reads 0 on a §1.8 renumber (expected 1)
+#   156x  RED   — §156j's §1.9 posture window reads 0 on a §1.9 renumber (expected 1)
+#   156y  GREEN — the bound below; it is SUPPOSED to be green here (see §156y)
+#
+# NO LIVE SPEC MUTATION. Every fixture is a copy under the preamble's $TMP, removed by its
+# EXIT trap. $S156_SPEC is opened for reading and `cp` only, never written (#670 AC5).
+#
+# NO THIRD COPY OF THE RULE. Neither §116's regexes nor §156j's are re-spelled here: both
+# sides are LIFTED from their own source files and RUN over shared fixtures, so what is
+# compared is BEHAVIOUR, not text. A third hand-copy would be one more instance of exactly
+# the defect #670 exists to remove. Same technique, and for the same reason, as §156o/§156s
+# above — including its BOUNDED search: each lift is confined to the lines ahead of its
+# section's first assertion message, so no lift can ever pick up an anchor-shaped line
+# belonging to a DIFFERENT arm (§156o's measured lesson: unbounded, its condition lift
+# returned §156r's line and every verdict below it said nothing about the guard).
+#
+# WHY THE LIFTED §116 DEFINITIONS ARE UNSET BEFORE THEY ARE EVAL'd. 50-perproject-recall.sh
+# is sourced into THIS shell, so `s116_lever_rows` is already defined when we get here.
+# Calling it would (a) violate the header's cross-section reservation and (b) — much worse —
+# make a FAILED lift invisible, because the live definition would answer in its place and
+# the arm would go green having tested nothing. Each runner therefore unsets the three
+# symbols in its subshell first; a lift that returned nothing then yields an empty answer,
+# which every arm reads as UNTESTED.
+#
+# WHY EVERY ARM CARRIES A SAME-INPUT POSITIVE CONTROL. On 156v/156w/156x the fail-closed
+# answer (a collapsed window -> 0) is the FAILING one. So a fixture that silently did not
+# take reads as the healthy value and GREENS the very arm it was built to red — vacuity in
+# the direction that looks like success. Marker-based controls, never count-based: the count
+# is the thing under test, so validating the fixture by its count would be circular (§156o's
+# renamed-fixture note makes the same point).
+#
+# MEASURED COST (#670 AC3(ii)). These four arms add ~0.21s wall clock to the suite (three
+# runs: 0.23 / 0.21 / 0.21, against a ~160s whole-suite baseline): one `cp` of SPEC.md plus
+# two awk rewrites of the resulting ~2.9k-line file, and 12 lifted-derivation runs over the
+# three copies. No network, no git, no hook fires, and zero false reds over the suite's
+# existing fixtures (measured: the whole-suite assertion set is byte-identical outside these
+# four lines). Recorded here rather than in a PR comment because this is where the next
+# editor of these two windows will be.
+#
+# UNCOVERED BY CONSTRUCTION, disclosed rather than mitigated:
+#   (a) The TERMINATOR half is not separately witnessed. Measured on a fixture with §2's
+#       heading renumbered (`## 2. ` -> `## 20. `), §156j's posture window over-runs its
+#       hand-picked `/^## 2\. /` terminator to EOF and the count does NOT move (1 -> 1):
+#       the predicate matches one row and there is no second candidate downstream. The
+#       divergence is real and unobservable through this predicate, and widening the
+#       predicate is #670-out-of-scope. §156v covers the terminator only insofar as a
+#       terminator change alters window OPENNESS.
+#   (b) §156v compares the two sides on the base and §1.8-renumber fixtures ONLY. The
+#       §1.9-renumber fixture is deliberately EXCLUDED: `s116_posture_rows` still opens on
+#       the literal `### 1.9 ` and collapses there itself (measured 66 -> 0), a KNOWN
+#       residual that 50-perproject-recall.sh records and that #670 puts out of scope. Once
+#       §156x is satisfied, §156j's posture is AHEAD of §116's on that fixture, and folding
+#       it into the agreement signature would red on the two sides legitimately differing.
+#       §156x, not §156v, is what holds the posture start-anchor.
+S156V_JSRC="$SHELL_ROOT/scripts/test/smoke.d/70-gates-contentlocks.sh"
+S156V_HSRC="$SHELL_ROOT/scripts/test/smoke.d/50-perproject-recall.sh"
+S156V_DIR="$TMP/s156v"
+# The two §156j variable names, named ONCE: each anchor below is built from the name, so
+# the anchor and the name it looks for cannot drift apart.
+S156V_LNAME="s156_lever"
+S156V_PNAME="s156_posture"
+
+# s156v_stmt <src> <bound> <anchor-re> -> the ONE logical statement that starts at the first
+# line matching <anchor-re> within the first <bound> lines, backslash continuations joined.
+# Statement-shaped rather than regex-shaped on purpose: it survives §156j being rewritten to
+# `awk -v endre=...`, which a lift of the awk PROGRAM alone would not. Empty on a miss.
+s156v_stmt() {
+  head -n "$2" "$1" 2>/dev/null | awk -v re="$3" '
+    !c && $0 ~ re { c = 1 }
+    c { print; if ($0 !~ /\\$/) exit }'
+}
+
+# s156v_block <src> <bound> <open-re> -> the function definition opening at the first line
+# matching <open-re> within the first <bound> lines, through its closing column-0 `}`.
+s156v_block() {
+  head -n "$2" "$1" 2>/dev/null | awk -v re="$3" '
+    !c && $0 ~ re { c = 1 }
+    c { print; if ($0 == "}") exit }'
+}
+
+# The bounds, and they are not the same shape on the two sides — each is the FIRST
+# assertion message that sits BELOW everything its lift needs, which is what makes the
+# search unable to reach any other arm.
+#
+#   §156j side — bounded by §156v's OWN first message, i.e. the top of this block. §156j's
+#     first message is NOT usable: it is the `ng` in the `[ ! -f "$S156_SPEC" ]` arm, which
+#     sits ABOVE the two assignments, so bounding there cuts the lift off entirely
+#     (measured: both lifts returned empty and all four arms below reported UNTESTED).
+#     Recorded because the failure was silent in the only way that matters here — it did
+#     not crash, it fell straight into the fail-closed branch and looked like a verdict.
+#   §116 side — bounded by §116's first message, which sits below all three definitions.
+s156v_jb=$(grep -n -m1 -E '^[[:space:]]*(ok|ng) "156v:' "$S156V_JSRC" 2>/dev/null | cut -d: -f1)
+s156v_hb=$(grep -n -m1 -E '^[[:space:]]*(ok|ng) "116:' "$S156V_HSRC" 2>/dev/null | cut -d: -f1)
+s156v_jlever=""
+s156v_jpost=""
+s156v_hend=""
+s156v_hlev=""
+s156v_hpos=""
+if [ -f "$S156V_JSRC" ] && [ -n "${s156v_jb:-}" ]; then
+  s156v_jlever=$(s156v_stmt "$S156V_JSRC" "$s156v_jb" "^[[:space:]]*$S156V_LNAME=")
+  s156v_jpost=$(s156v_stmt "$S156V_JSRC" "$s156v_jb" "^[[:space:]]*$S156V_PNAME=")
+fi
+if [ -f "$S156V_HSRC" ] && [ -n "${s156v_hb:-}" ]; then
+  # DOUBLE-ESCAPED, and that is not a typo: `awk -v` performs escape processing and strips
+  # one backslash level, so `\\(` here is the `\(` the ERE engine must see. The greps
+  # around it are single-escaped because grep does no such processing. The asymmetry is
+  # load-bearing; single-escaping these would make `()` an empty group and the anchor would
+  # silently match nothing.
+  s156v_hend=$(s156v_stmt "$S156V_HSRC" "$s156v_hb" '^S116_END_RE=')
+  s156v_hlev=$(s156v_block "$S156V_HSRC" "$s156v_hb" '^s116_lever_rows\\(\\) \\{$')
+  s156v_hpos=$(s156v_block "$S156V_HSRC" "$s156v_hb" '^s116_posture_rows\\(\\) \\{$')
+fi
+s156v_hdefs=""
+if [ -n "$s156v_hend" ] && [ -n "$s156v_hlev" ] && [ -n "$s156v_hpos" ]; then
+  s156v_hdefs="$s156v_hend
+$s156v_hlev
+$s156v_hpos"
+fi
+
+# s156v_jrun <fixture> <lifted-stmt> <varname> -> what §156j's OWN statement produces
+# against that fixture; empty if it could not be run. The variable is unset inside the
+# subshell first, so an empty lift cannot fall through to the live §156j value.
+s156v_jrun() {
+  local __v="$3"
+  ( unset "$__v"; S156_SPEC="$1"; eval "$2"; printf '%s\n' "${!__v-}" ) 2>/dev/null
+}
+
+# s156v_hrun <fixture> <fn-name> -> what §116's OWN definition produces against that
+# fixture; empty if it could not be run. See the unset rationale in the header comment.
+s156v_hrun() {
+  ( unset -f s116_lever_rows s116_posture_rows
+    unset S116_END_RE
+    eval "$s156v_hdefs"
+    "$2" "$1" ) 2>/dev/null
+}
+
+# s156v_bit <count> -> `1` open, `0` collapsed, `x` NOT MEASURED. The third value keeps a
+# lift or fixture failure from reading as a collapsed window, or as agreement.
+s156v_bit() {
+  case "$1" in
+    ''|*[!0-9]*) printf 'x' ;;
+    0)           printf '0' ;;
+    *)           printf '1' ;;
+  esac
+}
+
+# Fixtures. Two renumbers of the real SPEC, each into a number SPEC does not already use.
+# The targets (§1.42 / §1.43) are deliberately synthetic and MUST stay unused by SPEC — the
+# guard below fails loud if SPEC ever grows them. §1.10 was the original target and collided
+# once #676 added a real `### 1.10 ` heading (rebase staleness), which left every arm below
+# reading UNTESTED; hence numbers far outside the live range.
+s156v_base="$S156V_DIR/base.md"
+s156v_lv="$S156V_DIR/lever-renum.md"
+s156v_pt="$S156V_DIR/posture-renum.md"
+s156v_fx=""
+s156v_lvok=0
+s156v_ptok=0
+if [ -f "$S156_SPEC" ] && mkdir -p "$S156V_DIR" 2>/dev/null \
+   && cp "$S156_SPEC" "$s156v_base" 2>/dev/null && cmp -s "$S156_SPEC" "$s156v_base" \
+   && ! grep -q '^### 1\.42 ' "$s156v_base" && ! grep -q '^### 1\.43 ' "$s156v_base"; then
+  s156v_fx=ok
+  awk '{sub(/^### 1\.8 /, "### 1.42 "); print}' "$s156v_base" > "$s156v_lv" 2>/dev/null
+  awk '{sub(/^### 1\.9 /, "### 1.43 "); print}' "$s156v_base" > "$s156v_pt" 2>/dev/null
+  s156v_bl=$(wc -l < "$s156v_base" | tr -d ' ')
+  s156v_brow=$(grep -c 'SSOT change sweep' "$s156v_base")
+  # MARKER-BASED, never count-based (see the header note). Four conditions per fixture:
+  # the new number arrived, the old number is gone, nothing else moved (line count), and
+  # the counted row survived the rewrite.
+  if [ -s "$s156v_lv" ] \
+     && grep -q '^### 1\.42 ' "$s156v_lv" && ! grep -q '^### 1\.8 ' "$s156v_lv" \
+     && [ "$(wc -l < "$s156v_lv" | tr -d ' ')" = "$s156v_bl" ] \
+     && [ "$(grep -c 'SSOT change sweep' "$s156v_lv")" = "$s156v_brow" ]; then
+    s156v_lvok=1
+  fi
+  if [ -s "$s156v_pt" ] \
+     && grep -q '^### 1\.43 ' "$s156v_pt" && ! grep -q '^### 1\.9 ' "$s156v_pt" \
+     && [ "$(wc -l < "$s156v_pt" | tr -d ' ')" = "$s156v_bl" ] \
+     && [ "$(grep -c 'SSOT change sweep' "$s156v_pt")" = "$s156v_brow" ]; then
+    s156v_ptok=1
+  fi
+fi
+
+# Openness signatures over the SHARED fixture set {base, §1.8-renumber}, one pair of bits
+# per fixture: §156j's lever/posture on the left, §116's on the right.
+s156v_sig=""
+s156v_ref=""
+if [ "$s156v_fx" = ok ] && [ "$s156v_lvok" = 1 ] \
+   && [ -n "$s156v_jlever" ] && [ -n "$s156v_jpost" ] && [ -n "$s156v_hdefs" ]; then
+  for s156v_f in "$s156v_base" "$s156v_lv"; do
+    s156v_sig="$s156v_sig$(s156v_bit "$(s156v_jrun "$s156v_f" "$s156v_jlever" "$S156V_LNAME")")"
+    s156v_sig="$s156v_sig$(s156v_bit "$(s156v_jrun "$s156v_f" "$s156v_jpost" "$S156V_PNAME")") "
+    s156v_ref="$s156v_ref$(s156v_bit "$(s156v_hrun "$s156v_f" s116_lever_rows)")"
+    s156v_ref="$s156v_ref$(s156v_bit "$(s156v_hrun "$s156v_f" s116_posture_rows)") "
+  done
+fi
+
+# §156v — THE AGREEMENT ARM (#670 AC3). This is the arm the Issue exists for: it reds when
+# §156j's windows and §116's stop agreeing, without either side's rule being restated here.
+if [ -z "$s156v_jlever" ] || [ -z "$s156v_jpost" ]; then
+  ng "156v: §156j's own window statements could not be lifted from this file — agreement with §116 is UNTESTED, not satisfied (#670)"
+elif [ -z "$s156v_hdefs" ]; then
+  ng "156v: §116's window definitions could not be lifted from 50-perproject-recall.sh — agreement is UNTESTED, not satisfied (#670)"
+elif [ "$s156v_fx" != ok ] || [ "$s156v_lvok" != 1 ]; then
+  ng "156v: the shared §1.8-renumber fixture did not take — a fixture that never moved would green this arm, so it reds as UNTESTED (#670)"
+elif [ -z "$s156v_ref" ] || [ "${s156v_ref#*[0x]}" != "$s156v_ref" ]; then
+  ng "156v: §116's reference windows did not stay open over the shared fixtures (§116=${s156v_ref:-<none>}) — there is nothing to compare against, UNTESTED (#670)"
+elif [ "$s156v_sig" = "$s156v_ref" ]; then
+  ok "156v: §156j's windows open where §116's open over the shared fixtures (§156j='$s156v_sig' §116='$s156v_ref' over base,§1.8-renumber) (#670)"
+else
+  ng "156v: §156j's windows have STOPPED AGREEING with §116's (§156j='$s156v_sig' §116='$s156v_ref', lever/posture bits over base,§1.8-renumber; a 0 is a collapsed window) — §156j will blame the row for a window failure (#670)"
+fi
+
+# §156w — §156j's §1.8 lever window survives a §1.8 renumber (#670 AC1). The control is the
+# SAME lifted statement on the unmodified copy: if it cannot read 1 there, this arm's
+# verdict on the renumbered copy says nothing.
+s156v_wb=$(s156v_jrun "$s156v_base" "$s156v_jlever" "$S156V_LNAME")
+s156v_wl=$(s156v_jrun "$s156v_lv" "$s156v_jlever" "$S156V_LNAME")
+if [ -z "$s156v_jlever" ] || [ "$s156v_fx" != ok ]; then
+  ng "156w: §156j's §1.8 lever statement could not be lifted, or the SPEC copy was not made — the renumber bound is UNTESTED, not satisfied (#670)"
+elif [ "$s156v_lvok" != 1 ]; then
+  ng "156w: the §1.8-renumber fixture did not take — an unrenumbered copy still reads 1 and would GREEN this arm, so it reds as UNTESTED (#670)"
+elif [ "$s156v_wb" != 1 ]; then
+  ng "156w: §156j's lever window reads '${s156v_wb:-<none>}' on an UNMODIFIED SPEC copy (expected 1) — the control fails, so the renumber verdict says nothing (#670)"
+elif [ "$s156v_wl" = 1 ]; then
+  ok "156w: §156j's §1.8 lever window survives a §1.8 renumber (rows=$s156v_wl on the renumbered copy, $s156v_wb unmodified) — it opens on the section TITLE, not its number (#668, #670)"
+else
+  ng "156w: §156j's §1.8 lever window COLLAPSES on a §1.8 renumber (rows='${s156v_wl:-<none>}', expected 1; unmodified=$s156v_wb) — §156j then reports the SSOT-change-sweep row 'mis-shaped or absent' while it is present and correctly shaped (#668, #670)"
+fi
+
+# §156x — §156j's §1.9 posture window survives a §1.9 renumber (#670 AC1/AC6). Same shape
+# and same control as §156w. This is the half that diverged FIRST (#644) and is equally
+# unenforced; see note (b) in the header for why §156v cannot carry it.
+s156v_xb=$(s156v_jrun "$s156v_base" "$s156v_jpost" "$S156V_PNAME")
+s156v_xp=$(s156v_jrun "$s156v_pt" "$s156v_jpost" "$S156V_PNAME")
+if [ -z "$s156v_jpost" ] || [ "$s156v_fx" != ok ]; then
+  ng "156x: §156j's §1.9 posture statement could not be lifted, or the SPEC copy was not made — the renumber bound is UNTESTED, not satisfied (#670)"
+elif [ "$s156v_ptok" != 1 ]; then
+  ng "156x: the §1.9-renumber fixture did not take — an unrenumbered copy still reads 1 and would GREEN this arm, so it reds as UNTESTED (#670)"
+elif [ "$s156v_xb" != 1 ]; then
+  ng "156x: §156j's posture window reads '${s156v_xb:-<none>}' on an UNMODIFIED SPEC copy (expected 1) — the control fails, so the renumber verdict says nothing (#670)"
+elif [ "$s156v_xp" = 1 ]; then
+  ok "156x: §156j's §1.9 posture window survives a §1.9 renumber (rows=$s156v_xp on the renumbered copy, $s156v_xb unmodified) — it opens on the section TITLE, not its number (#644, #668, #670)"
+else
+  ng "156x: §156j's §1.9 posture window COLLAPSES on a §1.9 renumber (rows='${s156v_xp:-<none>}', expected 1; unmodified=$s156v_xb) — §156j then reports the SSOT-change-sweep row 'mis-shaped or absent' while it is present and correctly shaped (#644, #670)"
+fi
+
+# §156y — A BOUND, NOT A WITNESS (#670 AC4), and labelled as such because the distinction is
+# the whole reason it exists. This arm PASSES at the Test commit; it witnesses no defect and
+# discharges no repair. It pins the direction that must NOT change while §156w/§156x are
+# repaired: on an UNMODIFIED SPEC, §156j's two windows still read exactly 1 and 1. A window
+# widened until it opens on anything would satisfy §156v/§156w/§156x and break this.
+if [ -z "$s156v_jlever" ] || [ -z "$s156v_jpost" ]; then
+  ng "156y: §156j's window statements could not be lifted — the unmodified-SPEC bound is UNTESTED, not satisfied (#670)"
+elif [ "$s156v_fx" != ok ]; then
+  ng "156y: no byte-identical SPEC copy was made under \$TMP — the unmodified-SPEC bound is UNTESTED, not satisfied (#670)"
+elif [ "$s156v_wb" = 1 ] && [ "$s156v_xb" = 1 ]; then
+  ok "156y: on an unmodified SPEC copy §156j still reads lever=$s156v_wb posture=$s156v_xb — BOUND, not witness: green here by design (#670)"
+else
+  ng "156y: on an unmodified SPEC copy §156j reads lever='${s156v_wb:-<none>}' posture='${s156v_xb:-<none>}' (expected 1 and 1) — the window repair changed the answer it was not allowed to change (#670)"
 fi
 
 # ---------- §157: finding-judge contract + routing (SPEC §4.13, #645) ----------
