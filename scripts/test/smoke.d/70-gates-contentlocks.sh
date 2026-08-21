@@ -783,22 +783,143 @@ else
   ng "148h-fc: every fail-closed guard must precede the reviews POST and the SPEC §5.29 arm inventory must be complete (guards=$s148h_fc_n after-post=$s148h_fc_after post=$s148h_post_ln missing:$s148h_fc_miss) (#647)"
 fi
 
-# §148h-p4 (LOAD-BEARING RED until Code, #647): every reject arm reachable by a plausible HONEST
-# MISTAKE names its own recovery, in the shape the `stale` arm already uses — an em dash followed
-# by an imperative (SPEC §6.0 P4, arm-scoped). `stale` is included as the template anchor, so the
-# shape this lock demands cannot drift away from the one instance of it that exists.
-# The two symlink arms are EXEMPT by contract, not by oversight: a symlinked staging leaf is
-# hostile input, there is no honest recovery to name, and drafting one would only coach the
-# attempt (SPEC §5.29).
-s148h_p4_miss=""
-for s148h_arm in staging-irregular staging-unreadable staging-empty now-malformed stale; do
-  grep -nE "deny $s148h_arm " "$S148_WRAP_FILE" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | grep -q '—' \
-    || s148h_p4_miss="$s148h_p4_miss $s148h_arm"
-done
-if [ -z "$s148h_p4_miss" ]; then
-  ok "148h-p4: every honest-mistake reject arm carries its own recovery clause; the symlink arms stay terse as hostile input (#647)"
+# §148h-p4 (LOAD-BEARING RED until Code, #655): every reject arm reachable by a plausible HONEST
+# MISTAKE carries its own recovery clause on EVERY one of its call sites, in the shape the `stale`
+# arm already uses (SPEC §6.0 P4, arm-scoped; §5.29 the authoritative arm set).
+#
+# What the predicate actually tests — AC4 option (a), corrected: it tests EM-DASH PRESENCE on the
+# deny site, NOT that the clause is a well-formed instruction and NOT that it is a genuine recovery. The
+# predicate cannot discriminate a recovery from a bare explanation: `deny mtime-changed` carries an
+# em dash followed by an EXPLANATION ("the freshness check would not cover the posted bytes"), not
+# a recovery, and this predicate would count it as satisfied. It does not claim to tell the two
+# apart — em-dash presence is the machine-checkable floor, the recovery WORDING is a human-review
+# obligation. The paired §148h-p4-cmt arm pins THIS comment against the predicate: the comment must
+# name em-dash presence and must not re-introduce the false clause-shape claim the old comment
+# carried, so the comment and the code cannot silently re-drift apart.
+#
+# The honest-mistake SET IS DERIVED, not hardcoded: it is parsed out of the §5.29 enumeration
+# sentence (lead-in `The honest-mistake arms, each carrying a recovery clause:`, cut at the first
+# em dash, backticked tokens only — the §148h-doc idiom). The twin-exempt set is parsed the same
+# way from the `over-length twin sites of` sentence. A twin-exempt arm needs the clause on ≥1 site
+# (its length-bound twin may stay bare); every other honest-mistake arm needs it on ALL sites.
+# Iteration is PER CALL SITE (every non-comment `deny <arm>` line), not once per arm name, so a
+# clause-bearing first site cannot mask a bare second one (limb 1).
+#
+# Anti-vacuity floor (B1, plan-reviewer must-graft): the derived set must be NON-EMPTY and must
+# contain the sentinels `stale` AND `now-malformed`, else the check fails closed with the distinct
+# token <honest-mistake-enumeration-degenerate>. This defends against a reworded / de-backticked
+# §5.29 body that empties the derived set → zero iterations → vacuous green. The sentinel is a
+# FLOOR, not the inventory, so AC2's add-a-name mutation still grows the set and still bites.
+#
+# The predicate takes a (spec-source, wrapper-target) pair, so the same code runs over the live
+# wrapper (the real lock) and over the §148h-p4-{ac3b,ac6,vac} fixtures below.
+S148_P4_SELF="${BASH_SOURCE[0]}"
+S148_P4_FIX="$SHELL_ROOT/scripts/test/fixtures/file-review-post"
+
+s148h_p4_derive_hm() {  # $1=spec-source; prints space-joined honest-mistake arm names, or nothing
+  _p4src="$1"
+  _p4ln=$(grep -nF 'The honest-mistake arms, each carrying a recovery clause:' "$_p4src" 2>/dev/null | head -1 | cut -d: -f1)
+  [ -n "$_p4ln" ] || return 0
+  sed -n "${_p4ln}p" "$_p4src" \
+    | sed 's/.*The honest-mistake arms, each carrying a recovery clause://' \
+    | sed 's/—.*//' \
+    | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | tr '\n' ' '
+}
+s148h_p4_derive_twin() {  # $1=spec-source; prints space-joined twin-exempt arm names, or nothing
+  _p4src="$1"
+  _p4ln=$(grep -nF 'over-length twin sites of' "$_p4src" 2>/dev/null | head -1 | cut -d: -f1)
+  [ -n "$_p4ln" ] || return 0
+  sed -n "${_p4ln}p" "$_p4src" \
+    | sed 's/.*over-length twin sites of//' \
+    | sed 's/ stay bare.*//' \
+    | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | tr '\n' ' '
+}
+s148h_p4_sitecheck() {  # $1=wrapper-target $2=hm-set $3=twin-set; prints arms bare on a required site
+  _p4tgt="$1"; _p4hm="$2"; _p4tw="$3"; _p4miss=""
+  for _p4arm in $_p4hm; do
+    _p4sites=$(grep -nE "deny $_p4arm " "$_p4tgt" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#')
+    [ -n "$_p4sites" ] || continue
+    _p4total=$(printf '%s\n' "$_p4sites" | grep -c .)
+    _p4clause=$(printf '%s\n' "$_p4sites" | grep -c '—')
+    _p4twin=0
+    for _p4t in $_p4tw; do [ "$_p4t" = "$_p4arm" ] && _p4twin=1; done
+    if [ "$_p4twin" = 1 ]; then
+      [ "$_p4clause" -ge 1 ] || _p4miss="$_p4miss $_p4arm"
+    else
+      [ "$_p4clause" -eq "$_p4total" ] || _p4miss="$_p4miss $_p4arm"
+    fi
+  done
+  printf '%s' "$_p4miss"
+}
+s148h_p4_check() {  # $1=spec-source $2=wrapper-target; prints FLOOR:<tok> | MISS:<arms> | OK
+  _p4hm=$(s148h_p4_derive_hm "$1"); _p4tw=$(s148h_p4_derive_twin "$1")
+  _p4stale=0; _p4now=0
+  for _p4a in $_p4hm; do
+    [ "$_p4a" = stale ] && _p4stale=1
+    [ "$_p4a" = now-malformed ] && _p4now=1
+  done
+  if [ -z "$_p4hm" ] || [ "$_p4stale" = 0 ] || [ "$_p4now" = 0 ]; then
+    printf 'FLOOR:<honest-mistake-enumeration-degenerate>'; return
+  fi
+  _p4m=$(s148h_p4_sitecheck "$2" "$_p4hm" "$_p4tw")
+  if [ -n "$_p4m" ]; then printf 'MISS:%s' "$_p4m"; else printf 'OK'; fi
+}
+
+# §148h-p4: the live lock — derive from the real SPEC, check every site of the real wrapper.
+s148h_p4_live=$(s148h_p4_check "$SHELL_ROOT/SPEC.md" "$S148_WRAP_FILE")
+if [ "$s148h_p4_live" = OK ]; then
+  ok "148h-p4: every honest-mistake reject arm carries its recovery clause on all required sites (derived set sound); symlink arms stay terse as hostile input (#655)"
 else
-  ng "148h-p4: honest-mistake arms must name their recovery in the shape 'stale' uses (bare:$s148h_p4_miss) (#647)"
+  ng "148h-p4: each honest-mistake arm must carry the em-dash recovery clause on every required site, in the shape 'stale' uses ($s148h_p4_live) (#655)"
+fi
+
+# §148h-p4-vac (B1 anti-vacuity floor): derive from the de-backticked fixture (anchor present, set
+# empty) — the floor must red with its distinct token, never fall through to a vacuous green.
+s148h_p4_vac=$(s148h_p4_check "$S148_P4_FIX/vacuity-debackticked.md" "$S148_WRAP_FILE")
+if [ "$s148h_p4_vac" = 'FLOOR:<honest-mistake-enumeration-degenerate>' ]; then
+  ok "148h-p4-vac: an emptied §5.29 enumeration (anchor present, no backticked names) trips the anti-vacuity floor, not a silent green (#655)"
+else
+  ng "148h-p4-vac: a de-backticked enumeration must trip the floor token, got '$s148h_p4_vac' (#655)"
+fi
+
+# §148h-p4-ac3b (per-site liveness, RED side): a non-exempt arm with one clause site + one bare
+# site must red — proving the per-site check bites off the live wrapper too.
+s148h_p4_ac3b=$(s148h_p4_check "$SHELL_ROOT/SPEC.md" "$S148_P4_FIX/ac3b-partial-clause.sh")
+if [ "$s148h_p4_ac3b" = 'MISS: mtime-unresolvable' ]; then
+  ok "148h-p4-ac3b: a non-exempt honest-mistake arm with a bare second site reds the per-site predicate (#655)"
+else
+  ng "148h-p4-ac3b: a clause-bearing first site must not mask a bare second site, expected MISS: mtime-unresolvable, got '$s148h_p4_ac3b' (#655)"
+fi
+
+# §148h-p4-ac6 (symlink-exclusion, GREEN side): bare symlink arms and nothing else — must stay
+# green through the predicate, since symlink arms are outside the derived honest-mistake set.
+s148h_p4_ac6=$(s148h_p4_check "$SHELL_ROOT/SPEC.md" "$S148_P4_FIX/ac6-symlink-bare.sh")
+if [ "$s148h_p4_ac6" = OK ]; then
+  ok "148h-p4-ac6: bare symlink arms are not swept into the recovery obligation — predicate stays green (#655)"
+else
+  ng "148h-p4-ac6: symlink arms must be excluded from the honest-mistake set, got '$s148h_p4_ac6' (#655)"
+fi
+
+# §148h-p4-cmt (AC4 comment-vs-predicate self-pin): the §148h-p4 case comment must state what the
+# predicate tests — em-dash presence — and must NOT claim the clause is an imperative (the false
+# claim the old comment carried), so comment and code cannot re-drift apart.
+s148h_p4_cmt=$(awk '/^# §148h-p4 \(LOAD-BEARING/{f=1} f&&/^#/{print} f&&!/^#/{exit}' "$S148_P4_SELF")
+s148h_p4_cmt_ok=1
+printf '%s' "$s148h_p4_cmt" | grep -qiE 'em[ -]dash' || s148h_p4_cmt_ok=0
+printf '%s' "$s148h_p4_cmt" | grep -qi 'imperative' && s148h_p4_cmt_ok=0
+if [ "$s148h_p4_cmt_ok" = 1 ]; then
+  ok "148h-p4-cmt: the §148h-p4 comment names em-dash presence as the tested property and drops the false 'imperative' claim (#655)"
+else
+  ng "148h-p4-cmt: the §148h-p4 comment must say 'em dash' and must not claim 'imperative' (#655)"
+fi
+
+# §148h-p4-p4lock (AC5, §148h-ttl2 shape): SPEC §6.0 P4 carries the classification sentence's two
+# byte strings — the gate-level rule and its arm-level reading. Pins §6.0 P4, not #659's surface.
+if grep -qF 'never ship a bare gate' "$SHELL_ROOT/SPEC.md" 2>/dev/null \
+   && grep -qF 'never leave an honest-mistake arm bare' "$SHELL_ROOT/SPEC.md" 2>/dev/null; then
+  ok "148h-p4-p4lock: SPEC §6.0 P4 states 'never ship a bare gate' and its arm-level reading 'never leave an honest-mistake arm bare' (#655)"
+else
+  ng "148h-p4-p4lock: SPEC §6.0 P4 must carry both 'never ship a bare gate' and 'never leave an honest-mistake arm bare' (#655)"
 fi
 
 # §148h-doc (Doc-phase-confirming — GREEN since the Doc commit): SPEC §5.29 states the wrapper's

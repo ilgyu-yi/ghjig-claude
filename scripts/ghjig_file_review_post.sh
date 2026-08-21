@@ -151,7 +151,7 @@ sf="$frdir/staging"
 # (SPEC §6.0 P4, arm-scoped). The two symlink arms above stay deliberately terse:
 # a symlinked staging leaf is hostile input, and drafting a recovery for it would
 # only coach the attempt.
-[ -e "$sf" ] || deny staging-absent "no staged review body at $sf (nothing was written there)"
+[ -e "$sf" ] || deny staging-absent "no staged review body at $sf (nothing was written there) — re-run so the body lands at the read path and re-invoke"
 [ -f "$sf" ] || deny staging-irregular "staged review body is not a regular file ($sf) — re-stage the body as a plain file and re-invoke"
 [ -r "$sf" ] || deny staging-unreadable "staged review body is unreadable ($sf) — restore read permission on the staging file and re-invoke"
 [ -s "$sf" ] || deny staging-empty "empty staged review body ($sf) — re-write the staging file with the review body and re-invoke"
@@ -161,9 +161,9 @@ sf="$frdir/staging"
 # equal: without the second read the freshness check would attest to a file a
 # concurrent rewrite could have replaced between the check and the read — i.e. to
 # bytes other than the ones posted.
-mt1=$(fr_mtime "$sf") || deny mtime-unresolvable "could not read the staging file mtime on this platform ($sf)"
+mt1=$(fr_mtime "$sf") || deny mtime-unresolvable "could not read the staging file mtime on this platform ($sf) — install a stat exposing -c or -f and re-invoke"
 staged=$(cat "$sf")
-mt2=$(fr_mtime "$sf") || deny mtime-unresolvable "could not re-read the staging file mtime on this platform ($sf)"
+mt2=$(fr_mtime "$sf") || deny mtime-unresolvable "could not re-read the staging file mtime on this platform ($sf) — install a stat exposing -c or -f and re-invoke"
 [ "$mt1" = "$mt2" ] \
   || deny mtime-changed "staging file mtime changed during the read ($mt1 != $mt2) — the freshness check would not cover the posted bytes"
 
@@ -201,7 +201,7 @@ now=$(date +%s)
 # over-length `now` used to report — fail-closed, but under a misleading name.
 case "$now" in ''|0*|*[!0-9]*) deny now-malformed "implausible clock reading ($now) — restore a plain-epoch 'date +%s' on PATH, re-stage the body, and re-invoke" ;; esac
 [ "${#now}" -le 11 ] || deny now-malformed "implausible clock reading ($now)"
-[ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now)"
+[ "$mt1" -le "$now" ] || deny mtime-future "future-dated staging file (mtime $mt1 > now $now) — sync the system clock, re-stage the body, and re-invoke"
 [ "$(( now - mt1 ))" -le 60 ] || deny stale "stale staged review body (mtime older than the 60s TTL) — re-write the staging file and re-invoke this wrapper within 60s"
 
 # Marker accept set (SPEC §5.29): count canonical markers with the BYTE-IDENTICAL
