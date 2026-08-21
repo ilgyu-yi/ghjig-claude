@@ -923,7 +923,7 @@ fi
 # DEFINED EXACTLY ONCE in the tree (anchored def-form grep, so the file-review.md prose mention
 # does not count), that one definition lives in hookrt.sh, and the wrapper — now its ONLY
 # caller, the writer having been deleted — calls it without re-defining it.
-s148i_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts" 2>/dev/null | sort -u)
+s148i_defs=$(ghjig_grep_claude_defs '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts")
 s148i_defcount=$(printf '%s\n' "$s148i_defs" | grep -c . )
 s148i_in_hookrt=0
 printf '%s\n' "$s148i_defs" | grep -q 'hookrt\.sh$' && s148i_in_hookrt=1
@@ -953,7 +953,7 @@ S148I_DECOY_F="$S148I_DECOY_WT/.claude/hooks/hookrt.sh"
 mkdir -p "$S148I_DECOY_WT/.claude/hooks"
 printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_DECOY_F" 2>/dev/null
 s148i_decoy_made=0; [ -f "$S148I_DECOY_F" ] && s148i_decoy_made=1
-s148i_decoy_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts" 2>/dev/null | sort -u)
+s148i_decoy_defs=$(ghjig_grep_claude_defs '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts")
 s148i_decoy_count=$(printf '%s\n' "$s148i_decoy_defs" | grep -c . )
 s148i_decoy_realfound=0
 printf '%s\n' "$s148i_decoy_defs" | grep 'hookrt\.sh$' | grep -qv '/worktrees/' && s148i_decoy_realfound=1
@@ -977,7 +977,7 @@ printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_NEG_DIR/.claude/hooks/hoo
 printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_NEG_DIR/scripts/helpers/rogue.sh"
 s148i_neg_made=0
 [ -f "$S148I_NEG_DIR/.claude/hooks/hookrt.sh" ] && [ -f "$S148I_NEG_DIR/scripts/helpers/rogue.sh" ] && s148i_neg_made=1
-s148i_neg_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$S148I_NEG_DIR/.claude" "$S148I_NEG_DIR/scripts" 2>/dev/null | sort -u)
+s148i_neg_defs=$(ghjig_grep_claude_defs '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$S148I_NEG_DIR/.claude" "$S148I_NEG_DIR/scripts")
 s148i_neg_count=$(printf '%s\n' "$s148i_neg_defs" | grep -c . )
 if [ "$s148i_neg_made" = 1 ] && [ "$s148i_neg_count" = 2 ]; then
   ok "148i-neg: a genuine second ghjig_state_dir_cli() def OUTSIDE worktrees still counts>1 — the exclusion never blinds the original single-def check (count=$s148i_neg_count) (#642)"
