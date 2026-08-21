@@ -72,3 +72,22 @@ trap 'rm -rf "$TMP" "$SMOKE_STATE"' EXIT
 HOOK="$SHELL_ROOT/.claude/hooks/pre_tool_use.sh"
 POST_HOOK="$SHELL_ROOT/.claude/hooks/post_tool_use.sh"
 ESC_HOOK="$SHELL_ROOT/.claude/hooks/pre_tool_use.sh"
+
+# ghjig_grep_claude_defs <regex> <path…> — SINGLE SHARED POINT (#642) for a
+# whole-.claude def-form scan that must EXCLUDE .claude/worktrees/. A worktree-
+# isolated subagent (SPEC §1.5/§4.5) makes a full repo COPY under
+# .claude/worktrees/agent-*/, so a naive `grep -r` over $SHELL_ROOT/.claude
+# double-counts every def while such a subagent is live. Emits the sorted-
+# unique list of matching file paths with any path under a .claude/worktrees/
+# component dropped, and nothing else pruned (the §148i-neg smoke arm proves
+# the exclusion never blinds legitimate source elsewhere).
+#
+# Portability: `grep --exclude-dir=worktrees` is NOT reliable across the two CI
+# greps — BSD grep on macos-latest vs GNU grep on ubuntu-latest differ in
+# support/semantics — so we post-filter the recursive match through a portable
+# `grep -v '/\.claude/worktrees/'`, which both CIs honour identically and which
+# targets ONLY the worktrees path component.
+ghjig_grep_claude_defs() {
+  local regex="$1"; shift
+  grep -rlE "$regex" "$@" 2>/dev/null | grep -v '/\.claude/worktrees/' | sort -u
+}
