@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154,SC2034  # wrapper-fragment fixture: $sf/$frdir/mt1/mt2 are assigned by the real ghjig_file_review_post.sh this mimics; §148h-p4 greps this file as TEXT and never executes it.
 # AC3b fixture (#655) — RED side of the per-site honest-mistake predicate.
 #
 # A NON-EXEMPT honest-mistake arm (`mtime-unresolvable`) with TWO deny sites:
