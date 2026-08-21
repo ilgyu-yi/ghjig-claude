@@ -938,6 +938,53 @@ else
   ng "148i-cli: ghjig_state_dir_cli must be a single hookrt.sh definition the wrapper calls, never re-defines (count=$s148i_defcount hookrt=$s148i_in_hookrt redef=$s148i_wrap_redef calls=$s148i_wrap_calls) (#602, #633)"
 fi
 
+# §148i-decoy (LOAD-BEARING RED until Code, #642): §148i-cli's tree-wide def-form scan greps the
+# WHOLE $SHELL_ROOT/.claude tree, which includes .claude/worktrees/agent-*/ — full repo COPIES a
+# worktree-isolated subagent makes (SPEC §1.5, §4.5). A copy of hookrt.sh there carries a genuine
+# `ghjig_state_dir_cli()` def-form line, so while any such subagent is live the naive `grep -r`
+# double-counts and §148i-cli reds — count=2 though the source tree is fine. This arm plants
+# exactly that decoy at the real worktrees path, re-runs §148i-cli's OWN detection expression
+# verbatim, and asserts it STILL counts exactly 1: the worktree copy must be EXCLUDED. Pre-fix
+# (no exclusion) it counts 2 and reds; Phase C's shared worktrees-exclusion greens it. Anti-
+# vacuity: the decoy must actually exist (made=1) and a real non-worktree hookrt.sh def must still
+# be found (realfound=1), so a broken fixture reds as untested rather than passing on count=1.
+S148I_DECOY_WT="$SHELL_ROOT/.claude/worktrees/agent-decoy"
+S148I_DECOY_F="$S148I_DECOY_WT/.claude/hooks/hookrt.sh"
+mkdir -p "$S148I_DECOY_WT/.claude/hooks"
+printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_DECOY_F" 2>/dev/null
+s148i_decoy_made=0; [ -f "$S148I_DECOY_F" ] && s148i_decoy_made=1
+s148i_decoy_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$SHELL_ROOT/.claude" "$SHELL_ROOT/scripts" 2>/dev/null | sort -u)
+s148i_decoy_count=$(printf '%s\n' "$s148i_decoy_defs" | grep -c . )
+s148i_decoy_realfound=0
+printf '%s\n' "$s148i_decoy_defs" | grep 'hookrt\.sh$' | grep -qv '/worktrees/' && s148i_decoy_realfound=1
+rm -rf "$S148I_DECOY_WT"
+if [ "$s148i_decoy_made" = 1 ] && [ "$s148i_decoy_realfound" = 1 ] && [ "$s148i_decoy_count" = 1 ]; then
+  ok "148i-decoy: §148i-cli's def-form scan excludes .claude/worktrees/agent-*/ copies — a live worktree-isolated subagent can no longer false-red the single-def lock (count=$s148i_decoy_count) (#642)"
+else
+  ng "148i-decoy: §148i-cli's def-form scan must exclude .claude/worktrees/ — a worktree copy of hookrt.sh double-counts ghjig_state_dir_cli (made=$s148i_decoy_made realfound=$s148i_decoy_realfound count=$s148i_decoy_count want 1) (#642)"
+fi
+
+# §148i-neg (paired negative — must stay GREEN both before and after the fix, #642): the
+# worktrees-exclusion must not BLIND the original single-def check. A genuine SECOND
+# ghjig_state_dir_cli() definition placed OUTSIDE .claude/worktrees/ must still push the count
+# past 1. Constructed over a controlled $TMP fixture (never the live tree): two def-form files at
+# ordinary, non-worktree paths. §148i-cli's OWN detection expression, run over the fixture, must
+# count BOTH (==2). Anti-vacuity: both fixture files must exist and the count is pinned to exactly
+# 2 — a fix that over-broadly prunes real source (or a grep that breaks) drops below 2 and reds.
+S148I_NEG_DIR="$TMP/s148i-neg"
+mkdir -p "$S148I_NEG_DIR/.claude/hooks" "$S148I_NEG_DIR/scripts/helpers"
+printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_NEG_DIR/.claude/hooks/hookrt.sh"
+printf '%s\n' 'ghjig_state_dir_cli() { :; }' > "$S148I_NEG_DIR/scripts/helpers/rogue.sh"
+s148i_neg_made=0
+[ -f "$S148I_NEG_DIR/.claude/hooks/hookrt.sh" ] && [ -f "$S148I_NEG_DIR/scripts/helpers/rogue.sh" ] && s148i_neg_made=1
+s148i_neg_defs=$(grep -rlE '^[[:space:]]*ghjig_state_dir_cli[[:space:]]*\(\)' "$S148I_NEG_DIR/.claude" "$S148I_NEG_DIR/scripts" 2>/dev/null | sort -u)
+s148i_neg_count=$(printf '%s\n' "$s148i_neg_defs" | grep -c . )
+if [ "$s148i_neg_made" = 1 ] && [ "$s148i_neg_count" = 2 ]; then
+  ok "148i-neg: a genuine second ghjig_state_dir_cli() def OUTSIDE worktrees still counts>1 — the exclusion never blinds the original single-def check (count=$s148i_neg_count) (#642)"
+else
+  ng "148i-neg: two real def-forms outside .claude/worktrees/ must both be counted (made=$s148i_neg_made count=$s148i_neg_count want 2) (#642)"
+fi
+
 # §148i-clibranch (LOAD-BEARING RED — writer/reader path agreement is CHECKABLE): the agent
 # writes the project-dir-relative literal `.claude/ghjig-state/file-review/staging` while the
 # wrapper resolves its own path via ghjig_state_dir_cli. `hookrt.sh:95-97` records that a
