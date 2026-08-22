@@ -1006,8 +1006,8 @@ fi
 #       and this comment restates none of it — a gloss of the reach set or its cause here would
 #       be a second copy to hand-sync against the very sentence this arm exists to hold still
 #       (SPEC §9 reference-don't-restate). Names WHICH literals are pinned, never why they hold.
-#     INFO-4 (cause / measurement mode) — `script-file mode` AND `set -uo pipefail`: the meta-claim
-#       #635 got wrong twice; locked alongside LOW-1 by plan-reviewer mandate.
+#     INFO-4 (measurement mode) — `script-file mode` AND `set -uo pipefail`: likewise the two
+#       literals SPEC §7.1's Measurement-mode paragraph is pinned on; §7.1 owns that claim too.
 s148h_ttl3_hdr='### 7.1 TTL operand validation: the fall-open taxonomy'
 s148h_ttl3_n=$(grep -cF "$s148h_ttl3_hdr" "$SHELL_ROOT/SPEC.md" 2>/dev/null)
 s148h_ttl3_miss=""
