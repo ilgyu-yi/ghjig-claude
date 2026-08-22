@@ -99,10 +99,12 @@ ghjig_state_dir() {
 # ghjig_state_dir (identical resolution). Otherwise derive CLAUDE_PROJECT_DIR from
 # the git top-level — mirroring ghjig_skip.sh — so a writer and a reader run from
 # the same repo agree on the path; last resort is the aligned shell-root fallback.
-# The review-post wrapper is now this resolver's ONLY /file-review-side caller:
-# the deleted stage writer (#633) once shared it, and SPEC §5.7.1 records that
-# there is no separate writer script. Defined here exactly once, re-defined by
-# no endpoint.
+# The review-post wrapper is this resolver's only script caller on the RUNTIME
+# path; the smoke arm §148i-clibranch is the one other script caller, and it is
+# a test caller pinning this function's live branch, not a runtime consumer. The
+# deleted stage writer (#633) once shared this resolver, and SPEC §5.7.1 records
+# that there is no separate writer script. Defined here exactly once, re-defined
+# by no endpoint.
 ghjig_state_dir_cli() {
   if [ -n "${GHJIG_STATE_DIR_OVERRIDE:-}" ] || [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     ghjig_state_dir; return 0

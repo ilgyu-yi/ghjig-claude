@@ -988,6 +988,51 @@ else
   ng "148h-ttl2: SPEC §7 must state that the TTL validates both operands and that either out of range blocks + consumes (#647)"
 fi
 
+# §148h-ttl3 (Doc-phase-confirming — GREEN since the Doc commit, #656 AC3): the TTL fall-open
+# taxonomy relocated out of escape.sh's inline rationale now lives under SPEC's new sub-section
+# `### 7.1 TTL operand validation: the fall-open taxonomy`. This limb pins the two load-bearing
+# sentences that #635 got wrong so a reword REDs — built in the §148h-doc anti-vacuity idiom, NOT
+# a bare whole-file grep -qF.
+#   ANCHOR, fail-closed. The `### 7.1 …` heading is the anchor, occurrence count == 1. Absent =>
+#     RED <ttl3-anchor-absent>; duplicated => RED <ttl3-anchor-not-unique>. Never a silent
+#     whole-file fallback: without a unique anchor the four substrings below could be satisfied by
+#     narration anywhere in SPEC, so the anchor failing closed is the whole point.
+#   SCOPE. The check runs over the §7.1 region only — from the heading to the next `### `/`## `
+#     heading (awk-cut) — so a matching phrase elsewhere in SPEC cannot green this limb.
+#   FOUR SUBSTRINGS, name-which-reddens. Two sentences, two literals each; the message names the
+#     specific missing substring, never just "red":
+#     LOW-1 (symptom) — `splits the two comparisons into two` AND `leading-zero epochs containing
+#       an 8 or 9`: the two literals SPEC §7.1's LOW-1 bullet is pinned on. §7.1 OWNS that claim
+#       and this comment restates none of it — a gloss of the reach set or its cause here would
+#       be a second copy to hand-sync against the very sentence this arm exists to hold still
+#       (SPEC §9 reference-don't-restate). Names WHICH literals are pinned, never why they hold.
+#     INFO-4 (measurement mode) — `script-file mode` AND `set -uo pipefail`: likewise the two
+#       literals SPEC §7.1's Measurement-mode paragraph is pinned on; §7.1 owns that claim too.
+s148h_ttl3_hdr='### 7.1 TTL operand validation: the fall-open taxonomy'
+s148h_ttl3_n=$(grep -cF "$s148h_ttl3_hdr" "$SHELL_ROOT/SPEC.md" 2>/dev/null)
+s148h_ttl3_miss=""
+if [ "${s148h_ttl3_n:-0}" = 0 ]; then
+  s148h_ttl3_miss=" <ttl3-anchor-absent>"
+elif [ "$s148h_ttl3_n" != 1 ]; then
+  s148h_ttl3_miss=" <ttl3-anchor-not-unique>"
+else
+  s148h_ttl3_region=$(awk -v h="$s148h_ttl3_hdr" \
+    '$0==h{f=1;next} f&&/^(### |## )/{exit} f{print}' "$SHELL_ROOT/SPEC.md" 2>/dev/null)
+  printf '%s' "$s148h_ttl3_region" | grep -qF 'splits the two comparisons into two' \
+    || s148h_ttl3_miss="$s148h_ttl3_miss <LOW-1:splits-the-two-comparisons-into-two>"
+  printf '%s' "$s148h_ttl3_region" | grep -qF 'leading-zero epochs containing an 8 or 9' \
+    || s148h_ttl3_miss="$s148h_ttl3_miss <LOW-1:leading-zero-epochs-containing-an-8-or-9>"
+  printf '%s' "$s148h_ttl3_region" | grep -qF 'script-file mode' \
+    || s148h_ttl3_miss="$s148h_ttl3_miss <INFO-4:script-file-mode>"
+  printf '%s' "$s148h_ttl3_region" | grep -qF 'set -uo pipefail' \
+    || s148h_ttl3_miss="$s148h_ttl3_miss <INFO-4:set--uo-pipefail>"
+fi
+if [ -z "$s148h_ttl3_miss" ]; then
+  ok "148h-ttl3: SPEC §7.1 pins the LOW-1 symptom (split comparisons, the 8-or-9 leading-zero reach set) and the INFO-4 measurement mode (script-file mode under set -uo pipefail), scoped to the §7.1 region (#656)"
+else
+  ng "148h-ttl3: SPEC §7.1 must carry both the LOW-1 symptom and the INFO-4 measurement-mode clauses (missing:$s148h_ttl3_miss) (#656)"
+fi
+
 # §148i-del (LOAD-BEARING RED — the deletion is complete): the retired writer script is GONE
 # and its basename survives NOWHERE in the AC-named surfaces (SPEC.md, .claude/commands/,
 # scripts/, scripts/test/). A surviving reference is either a dangling doc pointer or a live
