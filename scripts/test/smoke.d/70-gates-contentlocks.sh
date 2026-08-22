@@ -5076,3 +5076,145 @@ case "$s178c_miss" in
     ng "178c: the relocated-(d) mutant did NOT red at <178-d-lead-absent> — the §178 cut is not region-scoped (a (d) block outside §1.10 satisfies it); got:${s178c_miss:- <empty=GREEN>} (#696)"
     ;;
 esac
+
+# ---------- §179: authoring agents' skeptic-probe obligation (#698) ----------
+# The authoring agents carry the SPEC §1.10(d) self-claim discipline as an
+# in-prompt obligation: doc-writer and implementer gained a BYTE-IDENTICAL
+# clause ("attempt one violation of what you just asserted"), and test-writer
+# already carried the donor form ("confirm it **fails** (intentionally)").
+# Prompt prose has no runtime body — the mechanical face is a content lock over
+# the agent files (§175/§178 precedent).
+#
+# SECTION-SCOPED CUTS, fail-closed, factored as functions taking a file path so
+# the §179e fixture (and authoring mutants) run through the SAME functions as
+# the live check. Terminator = '^## ' — agent files carry depth-2 headings
+# only. A missing section heading reds a :section-absent flag. Never a
+# whole-file grep for doc-writer/implementer: §179e proves a whole-file check
+# cannot see the clause relocated under ## Forbidden — a semantic INVERSION
+# ("Forbidden: attempt one violation…") that still greens any unscoped grep.
+# test-writer's donor line IS whole-file-grepped on purpose: it is the
+# pre-existing clause in a small file, and no inversion hazard was ruled for it.
+#
+# §179a pins the FULL shared clause line (grep -F of the complete sentence, not
+# a fragment — a fragment survives a reword of the rest). §179b makes the
+# symmetry mechanical: the clause line extracted from each file must be
+# byte-identical (extraction keys on the stable lead fragment; the
+# empty-extraction states are owned by the §179a flags, so the compare fires
+# only when both sides carry the lead). §179c is the anti-inversion arm: ZERO
+# clause hits OUTSIDE each file's named section. §179d pins the implementer
+# Churn-discard carve-out — deleting it silently resurrects the
+# return-the-probe / discard-the-churn self-contradiction while the obligation
+# lock stays green.
+S179_END_RE='^## '
+S179_DOCW="$SHELL_ROOT/.claude/agents/doc-writer.md"
+S179_IMPL="$SHELL_ROOT/.claude/agents/implementer.md"
+S179_TESTW="$SHELL_ROOT/.claude/agents/test-writer.md"
+
+S179_CLAUSE='- Before you return, attempt one violation of what you just asserted and confirm it **fails**; ship the probe (command + output) as the SPEC §1.10(d) evidence — the bare assertion without its probe is not written.'
+S179_KEY='- Before you return, attempt one violation'
+S179_DONOR='- Run it and confirm it **fails** (intentionally). If it passes, either Phase A is wrong or the test is too weak.'
+S179_CARVE="Exception: the one probe's command+output pair and its red are return content, carried in (c) — the probe's iterations remain churn."
+
+s179_sec() {  # $1=agent-file $2=heading-regex → section body (heading excluded); empty if heading absent
+  awk -v h="$2" -v endre="$S179_END_RE" '$0~h{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s179_outside() {  # $1=agent-file $2=heading-regex → whole file MINUS the named section (its heading line excluded too)
+  awk -v h="$2" -v endre="$S179_END_RE" '$0~h{f=1;next} f&&$0~endre{f=0} !f{print}' "$1" 2>/dev/null
+}
+
+s179_docw_flags() {  # $1=doc-writer file → ` <flag>` per failure; empty = green
+  s179_dw_sec=$(s179_sec "$1" '^## Responsibilities$')
+  if [ -z "$s179_dw_sec" ]; then printf ' <179:doc-writer:section-absent>'; return 0; fi
+  printf '%s' "$s179_dw_sec" | grep -qF -- "$S179_CLAUSE" || printf ' <179:doc-writer>'
+}
+s179_impl_flags() {  # $1=implementer file → ` <flag>` per failure; empty = green
+  s179_im_sec=$(s179_sec "$1" '^## Engineering norms$')
+  if [ -z "$s179_im_sec" ]; then printf ' <179:implementer:section-absent>'; return 0; fi
+  printf '%s' "$s179_im_sec" | grep -qF -- "$S179_CLAUSE" || printf ' <179:implementer>'
+}
+s179_testw_flags() {  # $1=test-writer file → ` <flag>` on donor-line miss (whole-file grep by ruling; see header)
+  grep -qF -- "$S179_DONOR" "$1" 2>/dev/null || printf ' <179:test-writer>'
+}
+s179_carve_flags() {  # $1=implementer file → ` <flag>` per failure; empty = green
+  s179_cv_sec=$(s179_sec "$1" '^## Churn-discard$')
+  if [ -z "$s179_cv_sec" ]; then printf ' <179:implementer:churn-absent>'; return 0; fi
+  printf '%s' "$s179_cv_sec" | grep -qF -- "$S179_CARVE" || printf ' <179:carveout>'
+}
+s179_symmetry_flags() {  # $1=doc-writer file $2=implementer file → ` <179:symmetry>` on byte-mismatch of the two clause lines
+  s179_sy_a=$(s179_sec "$1" '^## Responsibilities$'  | grep -F -- "$S179_KEY" | head -n 1)
+  s179_sy_b=$(s179_sec "$2" '^## Engineering norms$' | grep -F -- "$S179_KEY" | head -n 1)
+  if [ -n "$s179_sy_a" ] && [ -n "$s179_sy_b" ]; then
+    [ "$s179_sy_a" = "$s179_sy_b" ] || printf ' <179:symmetry>'
+  fi
+}
+s179_outside_flags() {  # $1=doc-writer file $2=implementer file → ` <179:outside:<file>>` per out-of-section clause hit
+  [ "$(s179_outside "$1" '^## Responsibilities$'  | grep -cF -- "$S179_CLAUSE")" = 0 ] || printf ' <179:outside:doc-writer>'
+  [ "$(s179_outside "$2" '^## Engineering norms$' | grep -cF -- "$S179_CLAUSE")" = 0 ] || printf ' <179:outside:implementer>'
+}
+
+# §179a (LIVE CONTENT LOCK, name-which-reddens): each authoring agent's named
+# section carries its obligation clause in full.
+s179a_miss="$(s179_docw_flags "$S179_DOCW")$(s179_impl_flags "$S179_IMPL")$(s179_testw_flags "$S179_TESTW")"
+if [ -z "$s179a_miss" ]; then
+  ok "179a: skeptic-probe obligation — the full shared clause sits in doc-writer ## Responsibilities and implementer ## Engineering norms (section-scoped cuts), and test-writer carries the donor line (#698)"
+else
+  ng "179a: an authoring agent's skeptic-probe obligation is missing —$s179a_miss (#698)"
+fi
+
+# §179b (SYMMETRY): the clause lines extracted from the two named sections are
+# byte-identical — the shared-obligation symmetry is mechanical, not prose.
+s179b_miss=$(s179_symmetry_flags "$S179_DOCW" "$S179_IMPL")
+if [ -z "$s179b_miss" ]; then
+  ok "179b: symmetry — the doc-writer and implementer obligation clause lines are byte-identical (#698)"
+else
+  ng "179b: the doc-writer and implementer obligation clauses have drifted apart —$s179b_miss (#698)"
+fi
+
+# §179c (ZERO-OUTSIDE-SECTION, anti-inversion): the clause has no hit outside
+# its named section in either file (a copy under ## Forbidden is an inversion).
+s179c_miss=$(s179_outside_flags "$S179_DOCW" "$S179_IMPL")
+if [ -z "$s179c_miss" ]; then
+  ok "179c: zero-outside-section — the clause appears nowhere outside doc-writer ## Responsibilities / implementer ## Engineering norms (#698)"
+else
+  ng "179c: the obligation clause appears OUTSIDE its named section (relocation/inversion hazard) —$s179c_miss (#698)"
+fi
+
+# §179d (CARVE-OUT ANCHOR): implementer's ## Churn-discard carries the
+# probe-evidence Exception sentence — without it the obligation ("ship the
+# probe") contradicts the churn-discard contract ("return nothing but the
+# structured result") while the §179a lock stays green.
+s179d_miss=$(s179_carve_flags "$S179_IMPL")
+if [ -z "$s179d_miss" ]; then
+  ok "179d: churn-discard carve-out — the probe command+output Exception sentence sits in implementer ## Churn-discard (#698)"
+else
+  ng "179d: the Churn-discard probe-evidence carve-out is missing —$s179d_miss (#698)"
+fi
+
+# §179e (SECTION-SCOPING FIXTURE, the one permanent mutant, §178c idiom): a
+# doc-writer copy with the clause line MOVED from ## Responsibilities to under
+# ## Forbidden (splice keyed off the clause lead, never line numbers). The
+# clause is still IN the file — a whole-file grep still greens — yet the
+# section-scoped cut must red <179:doc-writer> AND the outside check must red
+# <179:outside:doc-writer>. A mutant that greens means the cut is not actually
+# section-scoped.
+s179e_mut="$TMP/s179_docw_clause_under_forbidden.md"
+awk -v key='Before you return, attempt one violation' '
+  index($0, key) > 0 {clause=$0; next}
+  {print}
+  /^## Forbidden$/ {print clause}
+' "$S179_DOCW" > "$s179e_mut"
+s179e_whole=$(grep -cF -- "$S179_CLAUSE" "$s179e_mut" 2>/dev/null)
+s179e_sec=$(s179_docw_flags "$s179e_mut")
+s179e_out=$(s179_outside_flags "$s179e_mut" "$S179_IMPL")
+case "$s179e_sec$s179e_out" in
+  *'<179:doc-writer>'*'<179:outside:doc-writer>'*)
+    if [ "${s179e_whole:-0}" -ge 1 ]; then
+      ok "179e: section-scoping proven — the clause-under-##-Forbidden mutant still greens a whole-file grep yet reds the section cut (<179:doc-writer>) and the outside check (<179:outside:doc-writer>) (#698)"
+    else
+      ng "179e: mutant construction broke — the clause vanished from the mutant file entirely, so this fixture no longer distinguishes section-scoping from whole-file grep (clause hits=${s179e_whole:-0}) (#698)"
+    fi
+    ;;
+  *)
+    ng "179e: the clause-under-##-Forbidden mutant did NOT red both section-scoped checks — the §179 cut is not section-scoped; got:${s179e_sec:- <sec=GREEN>}${s179e_out:- <outside=GREEN>} (#698)"
+    ;;
+esac
