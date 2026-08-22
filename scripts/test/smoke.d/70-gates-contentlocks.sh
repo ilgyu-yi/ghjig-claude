@@ -4959,3 +4959,120 @@ if s177_has_scope "$s177_fx/with-scope.md" && ! s177_has_scope "$s177_fx/git-onl
 else
   ng "177b: the execution-scope detector is not two-sided — the with-scope fixture must PASS and the git-only fixture must FAIL under the same anchor (with-scope=$(s177_has_scope "$s177_fx/with-scope.md" && echo pass || echo fail) git-only=$(s177_has_scope "$s177_fx/git-only.md" && echo pass || echo fail)) (#650)"
 fi
+
+# ---------- §178: same-change self-claim evidence discipline (#696) ----------
+# SPEC §1.10 part (d): a claim about an artifact authored in the same change
+# ships the evidence a skeptic would demand, or it is not written. Like parts
+# (a)'s semantic half, (b) and (c), the rule itself is authoring judgment with
+# no mechanical body-reader — so the mechanical face is a content lock over the
+# SPEC carrier (the §175 precedent).
+#
+# TWO-STAGE CUT, fail-closed. Stage 1 cuts the §1.10 region — `^### 1\.10 ` to
+# the next depth-2/3 heading. Stage 2 sub-cuts from the `**(d)** ` lead line to
+# region end. An empty region reds <178-region-absent>; an empty sub-cut reds
+# <178-d-lead-absent>. Never a whole-file grep: §178c proves that a whole-file
+# check cannot see a (d) block relocated OUT of §1.10.
+# S178_END_RE is a LOCAL copy of the terminator SHAPE $S116_END_RE carries
+# (50-perproject-recall.sh) — the same two-alternative form on purpose, never
+# the non-portable interval regex `^#{2,3}`. Local so this section stands alone.
+#
+# ANCHORS, name-which-reddens. The <178:d-lead> flag pins the FULL verbatim
+# lead line, not the bare `**(d)** ` marker: the marker survives any reword
+# INSIDE the lead bold sentence (e.g. dropping `or it is not written`), so a
+# marker-only flag cannot see the sentence it introduces. The five sentence
+# anchors pin the three evidence shapes (pred/cov/pair), the two-sided rule
+# (twoside), and the no-new-gate posture (nogate).
+#
+# §178b forecloses collision vacuity: each sentence anchor must have ZERO hits
+# in the §1.10 region OUTSIDE the (d) sub-region, so no (a)/(b)/(c) prose can
+# green a §178a flag while (d) itself has lost the sentence.
+S178_END_RE='^## |^### '
+S178_SPEC="$SHELL_ROOT/SPEC.md"
+
+s178_region() {  # $1=spec-file → §1.10 region body (heading excluded); empty if heading absent
+  awk -v endre="$S178_END_RE" '/^### 1\.10 /{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s178_dcut() {    # $1=spec-file → part-(d) sub-region: `**(d)** ` lead line → region end
+  s178_region "$1" | awk '/^\*\*\(d\)\*\* /{f=1} f{print}'
+}
+s178_pre_d() {   # $1=spec-file → §1.10 region MINUS the (d) sub-region (parts (a)–(c) prose)
+  s178_region "$1" | awk '/^\*\*\(d\)\*\* /{exit} {print}'
+}
+
+S178_LEAD='**(d)** **A claim about an artifact authored in the same change ships the evidence a skeptic would demand, or it is not written (#696).**'
+S178_PRED='A predicate claim ships the output of running the predicate on the real string'
+S178_COV='A coverage claim ships the counted number and the command that counted it'
+S178_PAIR='A machine-pair claim ships one attempted violation and its red'
+S178_TWOSIDE='the claim that carries its evidence passes, and the bare-prose form of the same claim is refused at authoring'
+S178_NOGATE='evidence-discipline on the author, not a new gate or reviewer tier'
+
+s178_flags() {  # $1=spec-file → prints ` <flag>` per failure (fail-closed cut + per-anchor); empty = green
+  s178_f_d=$(s178_dcut "$1")
+  if [ -z "$(s178_region "$1")" ]; then printf ' <178-region-absent>'; return 0; fi
+  if [ -z "$s178_f_d" ]; then printf ' <178-d-lead-absent>'; return 0; fi
+  printf '%s' "$s178_f_d" | grep -qF "$S178_LEAD"    || printf ' <178:d-lead>'
+  printf '%s' "$s178_f_d" | grep -qF "$S178_PRED"    || printf ' <178:pred>'
+  printf '%s' "$s178_f_d" | grep -qF "$S178_COV"     || printf ' <178:cov>'
+  printf '%s' "$s178_f_d" | grep -qF "$S178_PAIR"    || printf ' <178:pair>'
+  printf '%s' "$s178_f_d" | grep -qF "$S178_TWOSIDE" || printf ' <178:twoside>'
+  printf '%s' "$s178_f_d" | grep -qF "$S178_NOGATE"  || printf ' <178:nogate>'
+}
+
+s178_unique() {  # $1=spec-file → prints ` <178:unique:flag>` per sentence anchor that ALSO hits §1.10 outside (d)
+  if [ -z "$(s178_region "$1")" ]; then printf ' <178-region-absent>'; return 0; fi
+  s178_u_pre=$(s178_pre_d "$1")
+  [ "$(printf '%s' "$s178_u_pre" | grep -cF "$S178_PRED")"    = 0 ] || printf ' <178:unique:pred>'
+  [ "$(printf '%s' "$s178_u_pre" | grep -cF "$S178_COV")"     = 0 ] || printf ' <178:unique:cov>'
+  [ "$(printf '%s' "$s178_u_pre" | grep -cF "$S178_PAIR")"    = 0 ] || printf ' <178:unique:pair>'
+  [ "$(printf '%s' "$s178_u_pre" | grep -cF "$S178_TWOSIDE")" = 0 ] || printf ' <178:unique:twoside>'
+  [ "$(printf '%s' "$s178_u_pre" | grep -cF "$S178_NOGATE")"  = 0 ] || printf ' <178:unique:nogate>'
+}
+
+# §178a (LIVE CONTENT LOCK, name-which-reddens): the (d) sub-region of the live
+# SPEC's §1.10 carries the pinned lead line and the five sentence anchors.
+s178a_miss=$(s178_flags "$S178_SPEC")
+if [ -z "$s178a_miss" ]; then
+  ok "178a: SPEC §1.10 part (d) — the two-stage cut (§1.10 region → (d) sub-region) carries the full pinned lead sentence and the five evidence-shape anchors (pred/cov/pair/twoside/nogate) (#696)"
+else
+  ng "178a: SPEC §1.10(d) same-change self-claim discipline is missing from the (d) sub-region —$s178a_miss (#696)"
+fi
+
+# §178b (ANCHOR-UNIQUENESS, anti-collision): no sentence anchor is satisfiable
+# by (a)/(b)/(c) prose — zero hits for each in the region minus the (d) sub-region.
+s178b_dup=$(s178_unique "$S178_SPEC")
+if [ -z "$s178b_dup" ]; then
+  ok "178b: anchor uniqueness — no (d) sentence anchor appears in §1.10 outside the (d) sub-region, so no (a)/(b)/(c) prose can green a §178a flag by collision (#696)"
+else
+  ng "178b: a (d) sentence anchor collides with §1.10 prose outside the (d) sub-region — §178a would be satisfiable without part (d):$s178b_dup (#696)"
+fi
+
+# §178c (REGION-SCOPING FIXTURE, the one permanent mutant): a SPEC copy with the
+# WHOLE (d) block spliced out of §1.10 and re-emitted below `## 2.` (end of
+# file; splice keyed off the `**(d)** ` marker inside the §1.10 region, never
+# line numbers). The lead marker is still IN the file — a whole-file grep still
+# greens — yet the region-scoped checks must red <178-d-lead-absent>. A mutant
+# that greens means the cut is not actually region-scoped.
+s178c_mut="$TMP/s178_spec_d_below_2.md"
+awk '
+  /^### 1\.10 /{r=1}
+  r && /^## /{r=0}
+  r && /^\*\*\(d\)\*\* /{d=1}
+  d && /^## /{d=0}
+  d {blk[++n]=$0; next}
+  {print}
+  END{for(i=1;i<=n;i++) print blk[i]}
+' "$S178_SPEC" > "$s178c_mut"
+s178c_whole=$(grep -cF '**(d)** ' "$s178c_mut" 2>/dev/null)
+s178c_miss=$(s178_flags "$s178c_mut")
+case "$s178c_miss" in
+  *'<178-d-lead-absent>'*)
+    if [ "${s178c_whole:-0}" -ge 1 ]; then
+      ok "178c: region-scoping proven — the relocated-(d) mutant still greens a whole-file grep (lead marker present in file) yet reds the region-scoped cut at <178-d-lead-absent> (#696)"
+    else
+      ng "178c: mutant construction broke — the (d) lead marker vanished from the mutant file entirely, so this fixture no longer distinguishes region-scoping from whole-file grep (marker hits=${s178c_whole:-0}) (#696)"
+    fi
+    ;;
+  *)
+    ng "178c: the relocated-(d) mutant did NOT red at <178-d-lead-absent> — the §178 cut is not region-scoped (a (d) block outside §1.10 satisfies it); got:${s178c_miss:- <empty=GREEN>} (#696)"
+    ;;
+esac
