@@ -21,7 +21,7 @@ Your file reads, abandoned approaches, lint/smoke iterations, and dead ends live
 Return **exactly** these three, nothing else:
 - **(a) Commit / diff ref(s)** — the commit SHA(s) or diff you authored.
 - **(b) Plan-deviations** — where and why the implementation diverged from the Plan (empty if none).
-- **(c) Discoveries** — signal worth surfacing (a latent bug, a wrong assumption in the Plan, an adjacent caller the Plan missed; plus the SPEC §1.10(d) probe evidence — the one probe's command+output pair and its red). Empty if none.
+- **(c) Discoveries** — signal worth surfacing (a latent bug, a wrong assumption in the Plan, an adjacent caller the Plan missed; plus the SPEC §1.10(d) probe evidence — the one probe's command+output pair and its red). Never empty: it carries at least the probe evidence.
 
 Do not narrate the reads, the iterations, or the reasoning that got you there.
 
