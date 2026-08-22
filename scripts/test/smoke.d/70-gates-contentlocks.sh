@@ -1002,8 +1002,10 @@ fi
 #   FOUR SUBSTRINGS, name-which-reddens. Two sentences, two literals each; the message names the
 #     specific missing substring, never just "red":
 #     LOW-1 (symptom) — `splits the two comparisons into two` AND `leading-zero epochs containing
-#       an 8 or 9`: the corrected reach set (only leading-zero epochs with an 8 or 9 fall open in
-#       escape.sh, because the wrapper splits the two comparisons where escape.sh joins them).
+#       an 8 or 9`: the two literals SPEC §7.1's LOW-1 bullet is pinned on. §7.1 OWNS that claim
+#       and this comment restates none of it — a gloss of the reach set or its cause here would
+#       be a second copy to hand-sync against the very sentence this arm exists to hold still
+#       (SPEC §9 reference-don't-restate). Names WHICH literals are pinned, never why they hold.
 #     INFO-4 (cause / measurement mode) — `script-file mode` AND `set -uo pipefail`: the meta-claim
 #       #635 got wrong twice; locked alongside LOW-1 by plan-reviewer mandate.
 s148h_ttl3_hdr='### 7.1 TTL operand validation: the fall-open taxonomy'
