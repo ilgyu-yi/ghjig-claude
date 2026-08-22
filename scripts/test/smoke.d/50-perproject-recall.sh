@@ -4551,3 +4551,182 @@ else
   ng "160j: $s664j_bad python3 -c/stdin invocation site(s) under .claude/hooks/ run WITHOUT -I (of $s664j_total total; by file: $s664j_badsites) — a cwd import can shadow a non-preloaded module and forge the decision (SPEC §6.1.2). Fix: python3 -I -c (#664)"
 fi
 
+
+# ---------- §181 (#697): axis-recurrence signal — (issue, reason-class) recurrence over the reviewer-reject trail (Directive #688 item 3) ----------
+# Second consumer of the reviewer-reject trail: promotion_candidates.sh (§94)
+# aggregates category × reason-class and DROPS the issue target; axis_recurrence.sh
+# keeps it and surfaces the SECOND same-(issue,class) occurrence with the
+# `change the form, not the instance` directive phrase. Fixture-driven (the §94
+# consumer-script pattern): synthetic mktemp jsonl fed through the
+# resolve_audit_log positional-$1 seam — never the live/$SMOKE log. Observe-only
+# (§6.0 P3): the arms assert report text + exit 0, never a gate verdict.
+# Doc→Test→Code: §181a (SPEC content lock) is green from the Doc phase;
+# §181b–§181h drive the real script and stay RED via the missing-script branch
+# — one ng per script-dependent sub-arm (the §94b missing-script shape / §174h+
+# §174j dual-ng precedent) so the suite's assertion count is stable — until the
+# Code phase lands scripts/axis_recurrence.sh.
+
+# §181a: SPEC §6.1 axis-recurrence paragraph content lock — region-scoped to the
+# single paragraph line opening `**Axis-recurrence signal over the reviewer-reject
+# trail**` (SPEC paragraphs are one physical line, so the grep-F line IS the
+# region; the anchors below cannot green off a lookalike sentence elsewhere).
+# Full-sentence verbatim anchors; the ng names WHICH anchor reddened.
+s181_par=$(grep -F '**Axis-recurrence signal over the reviewer-reject trail**' "$SHELL_ROOT/SPEC.md")
+if [ -z "$s181_par" ]; then
+  ng "181a: SPEC §6.1 axis-recurrence paragraph (**Axis-recurrence signal over the reviewer-reject trail**) not found — the content lock has no region (#697)"
+else
+  s181a_miss=""
+  s181a_check() { printf '%s' "$s181_par" | grep -qF "$2" || s181a_miss="$s181a_miss $1"; }
+  s181a_check second-occurrence-rule 'It groups reject records by (issue, reason-class) across reviewer categories, and when the same target has drawn the same reason-class a second time it emits one line carrying `change the form, not the instance`; a first occurrence emits nothing.'
+  s181a_check first-occurrence-silence 'a first occurrence emits nothing'
+  s181a_check calibration-limit 'The signal is observe-only (§6.0 P3): no gate, no verdict change, no park consumes it, and no enforcement face is built on it until the signal is calibrated with an axis tag finer than reason-class — the report'"'"'s own header states this limit.'
+  s181a_check per-line-skip 'Malformed audit lines are skipped per-line (a bad record is never allowed to blind the whole report), and the reader fails open — absent or empty log, or missing `jq`, produce a note and exit 0.'
+  s181a_check wiring-deferral 'It is deliberately not wired into the §6.5(d) SessionStart advisory in its first period — the on-demand run lets the signal'"'"'s precision be observed before it gains an always-on face; the wiring is the named follow-up (the #398 shape: a fifth reader added to `session_start.sh` once calibrated).'
+  if [ -z "$s181a_miss" ]; then
+    ok "181a: SPEC §6.1 axis-recurrence paragraph carries all 5 contract anchors verbatim (#697)"
+  else
+    ng "181a: SPEC §6.1 axis-recurrence paragraph lost anchor(s):$s181a_miss (#697)"
+  fi
+fi
+
+# Contract strings (SPEC §6.1 paragraph → exact output surface). The pair line
+# is asserted WHOLE-LINE (grep -x): issue, class, count, jq-unique-sorted
+# category set, ts=<min>..<max> range, directive phrase — one drifted field
+# reddens the arm.
+S181_AX="$SHELL_ROOT/scripts/axis_recurrence.sh"
+s181_phrase='change the form, not the instance'
+s181_hdr1='axis-recurrence (reviewer-reject trail, second same-target same-class occurrence; observe-only):'
+s181_hdr2='  note: reason-class is not a calibrated axis key — two defects can share a class, one axis can span classes; signal, not verdict'
+s181_none='  (no recurring pairs)'
+s181_exp2='  issue=#20 | class=scope-bleed | rejects=2 | categories=issue-review,plan-review | ts=2026-07-01T10:00:00Z..2026-07-02T11:00:00Z — change the form, not the instance'
+s181_exp3='  issue=#20 | class=scope-bleed | rejects=3 | categories=activation,issue-review,plan-review | ts=2026-07-01T10:00:00Z..2026-07-03T09:00:00Z — change the form, not the instance'
+
+if [ ! -f "$S181_AX" ]; then
+  ng "181b: scripts/axis_recurrence.sh missing — Code not yet landed; second-occurrence pair line unproven (#697)"
+  ng "181c: two-sided negative (no-pair fixtures) — script missing (#697)"
+  ng "181d: header discipline (populated/empty/absent) — script missing (#697)"
+  ng "181e: source=test exclusion + missing-issue skip — script missing (#697)"
+  ng "181f: determinism (byte-identical reruns) — script missing (#697)"
+  ng "181g: torn-line per-line skip — script missing (#697)"
+  ng "181h: three-occurrence single-line probe — script missing (#697)"
+elif ! command -v jq >/dev/null 2>&1; then
+  ng "181b: jq not installed — cannot run axis-recurrence smoke (#697)"
+else
+  S181_DIR=$(mktemp -d)
+
+  # 181b positive fixture: one true pair (issue=#20 × scope-bleed, two LIVE
+  # rejects across two categories) + adversarial noise a reason-only grep would
+  # miscount: an escape event, a class-less reject, and a decision=notice line
+  # that CARRIES the class/issue tokens (predicate must require event=warn +
+  # decision=reject, not just the reason shape).
+  cat > "$S181_DIR/pair.jsonl" <<'S181FIX'
+{"ts":"2026-07-01T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+{"ts":"2026-07-02T11:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+{"ts":"2026-07-01T12:00:00Z","event":"escape","category":"force-push","decision":"skip","reason":"rebase tail","cwd":"/x","source":"live"}
+{"ts":"2026-07-01T13:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"free text, no tokens","cwd":"/x","source":"live"}
+{"ts":"2026-07-01T14:00:00Z","event":"warn","category":"lint","decision":"notice","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+S181FIX
+  s181_b_out=$(bash "$S181_AX" "$S181_DIR/pair.jsonl" 2>/dev/null); s181_b_rc=$?
+  s181_b_cnt=$(printf '%s\n' "$s181_b_out" | grep -cF "$s181_phrase")
+  if [ "$s181_b_rc" = 0 ] && [ "$s181_b_cnt" = 1 ] && printf '%s\n' "$s181_b_out" | grep -qxF "$s181_exp2"; then
+    ok "181b: second same-(issue,class) occurrence surfaces EXACTLY ONE whole-line-exact pair line (rejects=2, sorted categories, ts range) (#697)"
+  else
+    ng "181b: pair line wrong — rc=$s181_b_rc directive-lines=$s181_b_cnt (want 1) or whole-line mismatch vs [$s181_exp2] (#697)"
+  fi
+
+  # 181c negative fixture: a single occurrence, same-issue-DIFFERENT-class, and
+  # same-class-DIFFERENT-issue — none may pair; the no-pair placeholder must show.
+  cat > "$S181_DIR/nopair.jsonl" <<'S181FIX'
+{"ts":"2026-07-06T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=conflict issue=#30","cwd":"/x","source":"live"}
+{"ts":"2026-07-06T11:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#31","cwd":"/x","source":"live"}
+{"ts":"2026-07-06T12:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=conflict issue=#31","cwd":"/x","source":"live"}
+{"ts":"2026-07-06T13:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=mission-misfit issue=#32","cwd":"/x","source":"live"}
+{"ts":"2026-07-06T14:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=mission-misfit issue=#33","cwd":"/x","source":"live"}
+S181FIX
+  s181_c_out=$(bash "$S181_AX" "$S181_DIR/nopair.jsonl" 2>/dev/null); s181_c_rc=$?
+  s181_c_cnt=$(printf '%s\n' "$s181_c_out" | grep -cF "$s181_phrase")
+  if [ "$s181_c_rc" = 0 ] && [ "$s181_c_cnt" = 0 ] && printf '%s\n' "$s181_c_out" | grep -qxF "$s181_none"; then
+    ok "181c: single/cross-axis occurrences (same-issue-diff-class, same-class-diff-issue) emit ZERO directive lines + the no-pair placeholder (#697)"
+  else
+    ng "181c: no-pair fixture leaked a directive line or lost the placeholder — rc=$s181_c_rc directive-lines=$s181_c_cnt (want 0) placeholder=[$s181_none] (#697)"
+  fi
+
+  # 181d header discipline: BOTH headers (incl. the calibration-limit note,
+  # printed BEFORE any empty-log early exit) on populated AND empty AND absent
+  # log; exit 0 on all three. The ng names which case reddened.
+  : > "$S181_DIR/empty.jsonl"
+  s181_d_miss=""
+  s181d_case() { # $1=label $2=path
+    local out rc
+    out=$(bash "$S181_AX" "$2" 2>/dev/null); rc=$?
+    { [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qxF "$s181_hdr1" && printf '%s\n' "$out" | grep -qxF "$s181_hdr2"; } \
+      || s181_d_miss="$s181_d_miss $1(rc=$rc)"
+  }
+  s181d_case populated "$S181_DIR/pair.jsonl"
+  s181d_case empty "$S181_DIR/empty.jsonl"
+  s181d_case absent "$S181_DIR/does-not-exist.jsonl"
+  if [ -z "$s181_d_miss" ]; then
+    ok "181d: both headers (report title + calibration-limit note) present and exit 0 on populated, empty, and absent log (#697)"
+  else
+    ng "181d: header discipline broken on:$s181_d_miss — the note must print BEFORE any empty-log early exit (#697)"
+  fi
+
+  # 181e source + skip discipline: a would-be pair where the second record is
+  # source=test must NOT surface (LIVE-only), and class-carrying rejects with NO
+  # issue=# token are skipped — two such same-class lines must not pair on an
+  # empty/default issue key.
+  cat > "$S181_DIR/srcskip.jsonl" <<'S181FIX'
+{"ts":"2026-07-05T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=conflict issue=#40","cwd":"/x","source":"live"}
+{"ts":"2026-07-05T11:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=conflict issue=#40","cwd":"/x","source":"test"}
+{"ts":"2026-07-05T12:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=evidence-insufficient no issue token","cwd":"/x","source":"live"}
+{"ts":"2026-07-05T13:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=evidence-insufficient still none","cwd":"/x","source":"live"}
+S181FIX
+  s181_e_out=$(bash "$S181_AX" "$S181_DIR/srcskip.jsonl" 2>/dev/null); s181_e_rc=$?
+  s181_e_cnt=$(printf '%s\n' "$s181_e_out" | grep -cF "$s181_phrase")
+  if [ "$s181_e_rc" = 0 ] && [ "$s181_e_cnt" = 0 ] && printf '%s\n' "$s181_e_out" | grep -qxF "$s181_none"; then
+    ok "181e: test-source half-pair excluded (LIVE-only) and issue-less class lines skipped silently — no pair surfaced (#697)"
+  else
+    ng "181e: source/skip discipline broken — rc=$s181_e_rc directive-lines=$s181_e_cnt (want 0: test-source record or issue-less lines formed a pair) (#697)"
+  fi
+
+  # 181f determinism: two runs over the same fixture must be byte-identical
+  # (the jq-unique sorted category set is the deterministic surface).
+  s181_f_a=$(bash "$S181_AX" "$S181_DIR/pair.jsonl" 2>/dev/null)
+  s181_f_b=$(bash "$S181_AX" "$S181_DIR/pair.jsonl" 2>/dev/null)
+  if [ -n "$s181_f_a" ] && [ "$s181_f_a" = "$s181_f_b" ]; then
+    ok "181f: two runs over the same fixture are byte-identical (deterministic category ordering) (#697)"
+  else
+    ng "181f: reruns differ (or output empty) — nondeterministic ordering would make the observe-only signal unreadable diff-to-diff (#697)"
+  fi
+
+  # 181g torn-line: a truncated JSON line INTERPOSED between the two pair
+  # records — per-line skip (fromjson? posture) must still surface the pair;
+  # a whole-parse death would blind the report.
+  cat > "$S181_DIR/torn.jsonl" <<'S181FIX'
+{"ts":"2026-07-01T10:00:00Z","event":"warn","category":"issue-review","decision":"reject","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+{"ts":"2026-07-01T2
+{"ts":"2026-07-02T11:00:00Z","event":"warn","category":"plan-review","decision":"reject","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+S181FIX
+  s181_g_out=$(bash "$S181_AX" "$S181_DIR/torn.jsonl" 2>/dev/null); s181_g_rc=$?
+  if [ "$s181_g_rc" = 0 ] && printf '%s\n' "$s181_g_out" | grep -qxF "$s181_exp2"; then
+    ok "181g: torn JSON line skipped per-line — the pair around it still surfaces (#697)"
+  else
+    ng "181g: torn line blinded the report — rc=$s181_g_rc, expected pair line absent (per-line skip contract) (#697)"
+  fi
+
+  # 181h three-occurrence probe: a third same-(issue,class) record → STILL
+  # exactly one directive line, rejects=3, three sorted categories, widened ts range.
+  cat "$S181_DIR/pair.jsonl" > "$S181_DIR/triple.jsonl"
+  cat >> "$S181_DIR/triple.jsonl" <<'S181FIX'
+{"ts":"2026-07-03T09:00:00Z","event":"warn","category":"activation","decision":"reject","reason":"class=scope-bleed issue=#20","cwd":"/x","source":"live"}
+S181FIX
+  s181_h_out=$(bash "$S181_AX" "$S181_DIR/triple.jsonl" 2>/dev/null); s181_h_rc=$?
+  s181_h_cnt=$(printf '%s\n' "$s181_h_out" | grep -cF "$s181_phrase")
+  if [ "$s181_h_rc" = 0 ] && [ "$s181_h_cnt" = 1 ] && printf '%s\n' "$s181_h_out" | grep -qxF "$s181_exp3"; then
+    ok "181h: third occurrence folds into the SAME single line (rejects=3, 3 sorted categories, widened ts range) — no per-occurrence spam (#697)"
+  else
+    ng "181h: three-occurrence probe wrong — rc=$s181_h_rc directive-lines=$s181_h_cnt (want 1) or whole-line mismatch vs [$s181_exp3] (#697)"
+  fi
+
+  rm -rf "$S181_DIR"
+fi
