@@ -11,7 +11,8 @@ The Code phase routes here **by default**: `/work-on`'s Phase-C step dispatches 
 Before spawning, gather the explicit manifest — the subagent has **no access to this conversation**, so everything it needs must be in the manifest:
 - the **Plan** — from the PR body's `## Plan` / `## Checklist` (the planner output, §4.1);
 - the **failing Phase-B test** — the test file(s) the test-writer authored, **and how to run it** (the exact command);
-- the **named relevant file paths** — the files the implementation will touch (the PR body's `## Key context` is the source);
+- the **named relevant file paths** — the files the implementation will touch (the PR body's `## Key context` is the source). The relevant-file list carries either the derivation command that produced it or an explicit non-exhaustive label — the assembler treats an unlabeled list as an incomplete manifest.
+  An invariant and an example-list never co-locate in one handoff block — the invariant travels in its own labeled slot and its examples in another, and the assembler flags a co-located block at assembly rather than passing it through.
 - the **directive-level learnings** — the distilled `### Learnings for the next Execution` blocks `/work-on` reads back from the parent Directive's `/reflect` comments (§5.15) and injects (closes #477 signal 3). **Advisory context only** — codebase gotchas / conventions / what-to-reuse-or-avoid carried over from sibling Executions; it never gates the implementation. Absent when the Issue has no parent Directive or no enriched reflections yet.
 
 If the Plan or the failing test is missing, the manifest is incomplete — finish Phase A/B first; do not spawn against a partial manifest. The `directive-level learnings` field is optional — its absence does not make the manifest incomplete.

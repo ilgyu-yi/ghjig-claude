@@ -5218,3 +5218,131 @@ case "$s179e_sec$s179e_out" in
     ng "179e: the clause-under-##-Forbidden mutant did NOT red both section-scoped checks — the §179 cut is not section-scoped; got:${s179e_sec:- <sec=GREEN>}${s179e_out:- <outside=GREEN>} (#698)"
     ;;
 esac
+
+# ---------- §180: /implement manifest anti-enumeration discipline (#699) ----------
+# SPEC §5.28's Manifest contract and .claude/commands/implement.md's
+# ## Manifest contract carry the anti-enumeration discipline: the relevant-file
+# list carries its derivation command or an explicit non-exhaustive label
+# (slot), and an invariant never co-locates with an example-list in one handoff
+# block (coloc). Assembler prose has no runtime body — the mechanical face is a
+# content lock over the two carriers (§175/§178/§179 precedent).
+#
+# SECTION-SCOPED CUTS, fail-closed, factored as functions taking a file path so
+# the §180c fixture runs through the SAME functions as the live check (§178c/
+# §179e idiom). SPEC region = `^### 5\.28 ` → next depth-2/3 heading;
+# implement.md section = `^## Manifest contract` → next heading. An empty cut
+# reds a :section-absent flag. S180_END_RE is a LOCAL copy of the terminator
+# SHAPE $S116_END_RE carries (50-perproject-recall.sh) — the same
+# two-alternative form on purpose, never the non-portable interval regex
+# `^#{2,3}`; local so this section stands alone (implement.md carries depth-2
+# headings only, so the `^### ` alternative is inert there — harmless).
+#
+# SHARED CONSTANTS ARE THE SYMMETRY LOCK. Unlike §179b (extract-then-compare),
+# each shared sentence is ONE fixed grep -F constant checked against BOTH
+# carriers' cuts — a one-byte divergence in either copy misses the constant and
+# reds that carrier's §180a flag, so byte-symmetry needs no separate compare
+# arm. S3 (the two-sided restatement) is SPEC-ONLY by ruling: the command file
+# states the operative rule once; a copy of the restatement there would be a
+# second hand-synced surface. §180b makes that one-carrier rule a LOCK, not a
+# habit: zero S3 hits ANYWHERE in implement.md (whole-file grep on purpose),
+# and zero S1/S2/S3 hits outside each carrier's named cut.
+#
+# §180c models the relocation hazard on the SPEC side ONLY (judged ruling:
+# implement.md has no negative section — no ## Forbidden analogue — so there is
+# no inversion hazard to model there). The three sentences ride ONE paragraph
+# line in SPEC; the mutant splices that line out of §5.28 (keyed off S1's text,
+# never line numbers) and re-emits it after `## 8.`'s heading line — a
+# whole-file grep still greens, the region cut must red all three spec flags.
+S180_END_RE='^## |^### '
+S180_SPEC="$SHELL_ROOT/SPEC.md"
+S180_CMD="$SHELL_ROOT/.claude/commands/implement.md"
+
+S180_SLOT='The relevant-file list carries either the derivation command that produced it or an explicit non-exhaustive label — the assembler treats an unlabeled list as an incomplete manifest.'
+S180_COLOC='An invariant and an example-list never co-locate in one handoff block — the invariant travels in its own labeled slot and its examples in another, and the assembler flags a co-located block at assembly rather than passing it through.'
+S180_TWOSIDE='Two-sided: a file list carrying its derivation command or a non-exhaustive label passes assembly; a block co-locating an invariant with an example-list is flagged at assembly.'
+
+s180_spec_region() {  # $1=spec-file → §5.28 region body (heading excluded); empty if heading absent
+  awk -v endre="$S180_END_RE" '/^### 5\.28 /{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s180_spec_outside() {  # $1=spec-file → whole file MINUS the §5.28 region (its heading line excluded too)
+  awk -v endre="$S180_END_RE" '/^### 5\.28 /{f=1;next} f&&$0~endre{f=0} !f{print}' "$1" 2>/dev/null
+}
+s180_cmd_sec() {  # $1=implement.md file → ## Manifest contract section body (heading excluded); empty if heading absent
+  awk -v endre="$S180_END_RE" '/^## Manifest contract/{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s180_cmd_outside() {  # $1=implement.md file → whole file MINUS the ## Manifest contract section (its heading line excluded too)
+  awk -v endre="$S180_END_RE" '/^## Manifest contract/{f=1;next} f&&$0~endre{f=0} !f{print}' "$1" 2>/dev/null
+}
+
+s180_spec_flags() {  # $1=spec-file → ` <flag>` per failure (fail-closed cut + per-anchor); empty = green
+  s180_sp_r=$(s180_spec_region "$1")
+  if [ -z "$s180_sp_r" ]; then printf ' <180:spec:section-absent>'; return 0; fi
+  printf '%s' "$s180_sp_r" | grep -qF -- "$S180_SLOT"    || printf ' <180:spec:slot>'
+  printf '%s' "$s180_sp_r" | grep -qF -- "$S180_COLOC"   || printf ' <180:spec:coloc>'
+  printf '%s' "$s180_sp_r" | grep -qF -- "$S180_TWOSIDE" || printf ' <180:spec:twoside>'
+}
+s180_cmd_flags() {  # $1=implement.md file → ` <flag>` per failure (fail-closed cut + per-anchor); empty = green
+  s180_cm_s=$(s180_cmd_sec "$1")
+  if [ -z "$s180_cm_s" ]; then printf ' <180:cmd:section-absent>'; return 0; fi
+  printf '%s' "$s180_cm_s" | grep -qF -- "$S180_SLOT"  || printf ' <180:cmd:slot>'
+  printf '%s' "$s180_cm_s" | grep -qF -- "$S180_COLOC" || printf ' <180:cmd:coloc>'
+}
+s180_outside_flags() {  # $1=spec-file $2=implement.md file → ` <180:outside:<carrier>:<which>>` per out-of-cut hit
+  s180_ou_sp=$(s180_spec_outside "$1")
+  s180_ou_cm=$(s180_cmd_outside "$2")
+  [ "$(printf '%s' "$s180_ou_sp" | grep -cF -- "$S180_SLOT")"    = 0 ] || printf ' <180:outside:spec:slot>'
+  [ "$(printf '%s' "$s180_ou_sp" | grep -cF -- "$S180_COLOC")"   = 0 ] || printf ' <180:outside:spec:coloc>'
+  [ "$(printf '%s' "$s180_ou_sp" | grep -cF -- "$S180_TWOSIDE")" = 0 ] || printf ' <180:outside:spec:twoside>'
+  [ "$(printf '%s' "$s180_ou_cm" | grep -cF -- "$S180_SLOT")"    = 0 ] || printf ' <180:outside:cmd:slot>'
+  [ "$(printf '%s' "$s180_ou_cm" | grep -cF -- "$S180_COLOC")"   = 0 ] || printf ' <180:outside:cmd:coloc>'
+  # S3 is SPEC-only: whole-file grep on implement.md on purpose (one-carrier lock).
+  [ "$(grep -cF -- "$S180_TWOSIDE" "$2" 2>/dev/null)"            = 0 ] || printf ' <180:outside:cmd:twoside>'
+}
+
+# §180a (LIVE CONTENT LOCK, name-which-reddens, per-carrier flags): the SPEC
+# §5.28 region carries S1/S2/S3; the implement.md ## Manifest contract section
+# carries S1/S2. One grep -F constant per sentence against both cuts — the
+# shared constants ARE the byte-symmetry lock.
+s180a_miss="$(s180_spec_flags "$S180_SPEC")$(s180_cmd_flags "$S180_CMD")"
+if [ -z "$s180a_miss" ]; then
+  ok "180a: manifest anti-enumeration lock — SPEC §5.28 carries slot/coloc/twoside and implement.md ## Manifest contract carries slot/coloc, byte-identical via the shared grep -F constants (#699)"
+else
+  ng "180a: a manifest anti-enumeration sentence is missing (or has diverged) from a carrier's cut —$s180a_miss (#699)"
+fi
+
+# §180b (ZERO-OUTSIDE-CUT + ONE-CARRIER LOCK): S1/S2 have zero hits outside
+# each carrier's named cut; S3 has zero hits outside the SPEC region AND zero
+# anywhere in implement.md — the SPEC-only ruling is mechanical, not a habit.
+s180b_dup=$(s180_outside_flags "$S180_SPEC" "$S180_CMD")
+if [ -z "$s180b_dup" ]; then
+  ok "180b: zero-outside — no anti-enumeration sentence strays outside its named cut, and the two-sided restatement stays SPEC-only (zero hits anywhere in implement.md) (#699)"
+else
+  ng "180b: an anti-enumeration sentence appears outside its carrier's cut (relocation/second-copy hazard) —$s180b_dup (#699)"
+fi
+
+# §180c (REGION-SCOPING FIXTURE, the one permanent mutant, SPEC side only —
+# see header for the judged ruling): a SPEC copy with the manifest paragraph
+# line spliced out of §5.28 and re-emitted after `## 8.`'s heading line (splice
+# keyed off S1's text, never line numbers). The sentences are still IN the
+# file — a whole-file grep still greens — yet the region-scoped cut must red
+# all three spec flags. A mutant that greens means the cut is not region-scoped.
+s180c_mut="$TMP/s180_spec_manifest_below_8.md"
+awk -v key='The relevant-file list carries either the derivation command' '
+  index($0, key) > 0 && blk == "" {blk=$0; next}
+  {print}
+  /^## 8\. / && blk != "" {print blk; blk=""}
+' "$S180_SPEC" > "$s180c_mut"
+s180c_whole=$(grep -cF -- "$S180_SLOT" "$s180c_mut" 2>/dev/null)
+s180c_miss=$(s180_spec_flags "$s180c_mut")
+case "$s180c_miss" in
+  *'<180:spec:slot>'*'<180:spec:coloc>'*'<180:spec:twoside>'*)
+    if [ "${s180c_whole:-0}" -ge 1 ]; then
+      ok "180c: region-scoping proven — the relocated-manifest mutant still greens a whole-file grep (slot sentence present in file) yet reds the region cut at <180:spec:slot> <180:spec:coloc> <180:spec:twoside> (#699)"
+    else
+      ng "180c: mutant construction broke — the slot sentence vanished from the mutant file entirely, so this fixture no longer distinguishes region-scoping from whole-file grep (hits=${s180c_whole:-0}) (#699)"
+    fi
+    ;;
+  *)
+    ng "180c: the relocated-manifest mutant did NOT red all three region-scoped flags — the §180 cut is not region-scoped (a manifest block outside §5.28 satisfies it); got:${s180c_miss:- <empty=GREEN>} (#699)"
+    ;;
+esac
