@@ -42,7 +42,7 @@ Turn an upstream **Initiative** (an `initiative`-labelled Issue, SPEC §1.7) int
      --label "status:proposed" \
      "${PLABEL[@]}"
    ```
-   The body's line 1 is `Parent Initiative: #N`. At create time the `label-parent-consistency` matcher is **not** engaged (it is scoped to the `--add-label` edit path) — so the **step-4 I2 gate is the effective parent-XOR check** for the create path (it sees the full proposal bodies before filing). The filed Directives are `status:proposed` and are **never activated** by this command. (The body/comment temp files in steps 2 and 5 are created with `mktemp` and `rm`'d after the `gh` call — no predictable path, cleaned up.)
+   The body's line 1 is `Parent Initiative: #N`. At create time the `label-parent-consistency` matcher is **not** engaged (it is scoped to the `--add-label` edit path) — so the **step-4 I2 gate is the effective parent-XOR check** for the create path (it sees the full proposal bodies before filing). The filed Directives are `status:proposed` and are **never activated** by this command. (The step-2 comment temp file is created with `mktemp`; the body files are created at step 3. Both are `rm`'d after the `gh` call — no predictable path, cleaned up.)
 
 6. **Audit log** — `audit_log info initiative-consume extracted "initiative=#<N> count=<M> directives=<#a,#b,...>"` (decision `extracted`; or `under-specified` from step 2; or `revise` if it halted on the faithfulness backstop).
 

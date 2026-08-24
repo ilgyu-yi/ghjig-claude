@@ -37,7 +37,7 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 - The PR body is **editorial**, not append-only. Curate right after each commit.
 - Order: **commit → PR body update**. Fact first, then reflection.
 - Right before updating, refetch the remote body — if it changed (external edit), abort the auto-update.
-- Evidence discipline binds **any durable-artifact body** — Issue, Directive, PR: (a) a quotation resolves at the attributed file; (b) a corpus claim carries pinned command+output; (c) no claim that expires before the artifact — remove or pin, never refresh; (d) a same-change self-claim ships its evidence. The writing surfaces carry it. Full contract: SPEC §1.10.
+- Evidence discipline binds **any durable-artifact body** — Issue, Directive, PR: (a) a quotation resolves at the attributed file; (b) a corpus claim carries pinned command+output; (c) no claim that expires before the artifact — remove or pin, never refresh; (d) a same-change self-claim ships its evidence or is not written. Full contract: SPEC §1.10.
 
 ## Subagents
 | Situation | Agent |
