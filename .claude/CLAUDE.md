@@ -31,13 +31,13 @@ Reach for `/recall` at **recall-shaped** moments — user-asked ("have we…?") 
 ## Active SSOT maintenance
 Code changes commit with the SSOT items they invalidate or update. If a doc change is intentionally omitted, the commit body says `Docs: n/a — <short reason>`.
 
-`docs/*.md` are **thin pointers**, not parallel content — each leads with a "Full details in SPEC §X" reference and carries no detailed contract content that could drift from SPEC (SPEC §9; smoke-enforced). SPEC is the single source; a digest that restates a contract is a second copy to hand-sync.
+`docs/*.md` are **thin pointers**, not parallel content — each leads with a "Full details in SPEC §X" reference and carries no detailed contract content that could drift from SPEC (SPEC §9; smoke-enforced).
 
 ## PR-as-living-doc
 - The PR body is **editorial**, not append-only. Curate right after each commit.
 - Order: **commit → PR body update**. Fact first, then reflection.
 - Right before updating, refetch the remote body — if it changed (external edit), abort the auto-update.
-- Evidence discipline: a quotation resolves at the attributed file; a corpus claim carries pinned command+output; no claim that expires before the artifact — remove or pin, never refresh; a same-change self-claim ships its evidence or is not written. Full contract: SPEC §1.10.
+- Evidence discipline binds **any durable-artifact body** — Issue, Directive, PR: (a) a quotation resolves at the attributed file; (b) a corpus claim carries pinned command+output; (c) no claim that expires before the artifact — remove or pin, never refresh; (d) a same-change self-claim ships its evidence or is not written. Full contract: SPEC §1.10.
 
 ## Subagents
 | Situation | Agent |

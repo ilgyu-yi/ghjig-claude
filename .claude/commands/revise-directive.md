@@ -20,7 +20,9 @@ Issues are SSOT. The Project Item is unchanged by this command (body content isn
    - If `status:proposed` label present: error ("Directive is Proposed; revise the body via `gh issue edit` directly until activation") and stop. (Proposed Directives haven't been reviewer-vetted yet; activation is the first reviewer gate. Revising a Proposed Directive without re-activation is a contract gap — file a new `/activate` invocation after the body edit instead.)
    - If `status:blocked` label present: error ("Directive is Blocked; unblock via `/activate` first — that command re-runs the reviewer on the current body") and stop.
 
-2. **Author the new body** — the user supplies the replacement body (full content per `.claude/templates/directive.md`: Objective / Success signals / Non-goals / Constraints / MISSION fit). Refuse to proceed if any required section is missing.
+2. **Author the new body** — the user supplies the replacement body (full content per `.claude/templates/directive.md`: Objective / Success signals / Non-goals / Constraints / MISSION fit). Refuse to proceed if any required section is missing. Write the replacement to `<new-body-file>`, which step 6 consumes via `--body-file`.
+
+2.5. Before the `gh …` call that writes the body, run `bash .claude/ghjig-root/scripts/lint_citations.sh <body-file>` and surface its report — the stdout findings **and** the stderr `citation note` lines, since a report relayed without them reads as though the whole body was examined when it was not. It decides the lexical half of SPEC §1.10 part (a); it exits 0 always, gates nothing, and a finding is never a refusal to write (SPEC §1.10, §5.2). Run it on `<new-body-file>` directly — no staging copy. A replacement body is the standing contract Execution Issues are judged against, so part (c)'s half-life rule binds hardest here.
 
 3. **Reviewer gate** — invoke `activation-reviewer` (SPEC §4.9) on the **new** body. Pass: proposed new body, list of currently Active Directives (filter out this one — it's about to change), MISSION.md content. Parse the verdict per `/file-directive` step 2 dispatch.
 

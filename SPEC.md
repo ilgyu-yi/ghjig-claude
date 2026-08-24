@@ -2589,7 +2589,7 @@ GHJig-Claude/
 
 ## 9. Template specifications
 
-Each `.claude/templates/` file is read by a command and variable-substituted at use time. Single source of truth.
+Each `.claude/templates/` file is read by a command and variable-substituted at use time. Single source of truth. A skeleton a shell authoring step composes a durable body from carries the §1.10 authoring hint as a head comment, so the obligation reaches the author at the moment the body is written rather than only at the gate that reads it; which skeletons those are is decided by the rule, not by a roster kept here (§1.10(c)).
 
 **`docs/*.md` and `.claude/CLAUDE.md` are thin pointers, not parallel content.** The human-facing `docs/*.md` digests (e.g. `ENGINEERING_FLOW.md`, `DIR_MODE_FLOW.md`, `SUBAGENTS.md`) exist as a readable on-ramp to a SPEC section — they must **lead with a "Full details/spec in SPEC §X" reference and carry no parallel or detailed contract content** that could silently drift from the SPEC. SPEC is the single source; a digest that restates a contract becomes a second copy to keep in sync by hand (the divergence hazard §1.3's single-file principle exists to prevent). Smoke enforces the lead-with-a-SPEC-reference rule (§91). When a digest would need detail to be useful, link to the SPEC section instead of duplicating it.
 

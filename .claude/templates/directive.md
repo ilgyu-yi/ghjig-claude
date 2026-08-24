@@ -1,3 +1,4 @@
+<!-- Before the `gh …` call that writes the body, run `bash .claude/ghjig-root/scripts/lint_citations.sh <body-file>` and surface its report — the stdout findings **and** the stderr `citation note` lines, since a report relayed without them reads as though the whole body was examined when it was not. It decides the lexical half of SPEC §1.10 part (a); it exits 0 always, gates nothing, and a finding is never a refusal to write (SPEC §1.10, §5.2). -->
 ## Objective
 <One-paragraph statement of what this Directive is trying to achieve. Must name a concrete artifact-level boundary — file paths, issue counts, AC ticks, merge events — not "improve" or "optimize" without a target.>
 

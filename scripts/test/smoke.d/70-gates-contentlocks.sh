@@ -5346,3 +5346,234 @@ case "$s180c_miss" in
     ng "180c: the relocated-manifest mutant did NOT red all three region-scoped flags — the §180 cut is not region-scoped (a manifest block outside §5.28 satisfies it); got:${s180c_miss:- <empty=GREEN>} (#699)"
     ;;
 esac
+
+# ---------- §182: SPEC §1.10 authoring-clause delivery at the writing surfaces (#705) ----------
+# The §1.10 contract now reaches the author AT THE MOMENT a durable body is
+# written: eight surfaces carry an authoring clause. SEVEN carry ONE
+# byte-identical shared line — the four commands that make the `gh …` write call
+# (work-on, sync-pr, revise-directive, consume-initiative) and the three body
+# templates (issue, directive, pr_body), where it rides inside an `<!-- … -->`
+# comment. The EIGHTH, .claude/agents/planner.md, carries its OWN line: the
+# planner stages no file and makes no `gh` call, so the shared clause (whose
+# subject is the reader run before that call) would be FALSE there. Prompt and
+# template prose have no runtime body — the mechanical face is a content lock
+# over the eight carriers (§175/§178/§179/§180 precedent).
+#
+# PER-CARRIER EXPECTED-PATTERN MAP, fail-closed, factored as functions taking a
+# file path so the §182c fixture (and the AC-8 eight-way mutation witness) run
+# through the SAME functions as the live check (§178c/§179e/§180c idiom). ONE
+# pattern over all eight would red at planner.md, so the map is per-carrier by
+# construction; an unknown key resolves to the EMPTY pattern and reds
+# `<182:<key>:no-pattern>` instead of passing vacuously. The loop is
+# count-guarded at exactly 8 (smoke.sh:26 discipline) so a silently-emptied map
+# or a vanished carrier file cannot green "all eight carriers".
+#
+# §182a also pins the two anchors the clause POINTS AT — a clause whose
+# referents rotted is a dangling instruction: SPEC §5.2's `- **Citation check**`
+# bullet (region-scoped to `^### 5\.2 `) and scripts/lint_citations.sh's own
+# advisory declaration (its header line plus the `part (a) — advisory, exit 0
+# always` report line the code emits).
+#
+# §182b is symmetry plus two negative cuts. Symmetry is EXTRACT-THEN-COMPARE
+# (§179b idiom), never compare-to-the-constant: the span is cut from the LEAD
+# through the TAIL terminator, which strips each carrier's own prefix (`3.5. `,
+# indentation, `<!-- `) and its own trailing sentence, so the seven spans must be
+# byte-identical to EACH OTHER — a consistent reword of all seven keeps §182b
+# green and reds §182a, which is the right split of duties between the two arms.
+# The negative cuts: ZERO clause hits inside a `^## Forbidden$` section (that
+# heading exists in revise-directive.md and consume-initiative.md, and a clause
+# RELOCATED there would invert its meaning while still greening a whole-file
+# grep — the §179e hazard), and ZERO hits of the shared constant in
+# .claude/CLAUDE.md (the mechanical face of "the always-on surface restates no
+# clause content the writing surfaces carry"; that file's byte ceiling is owned
+# by §104b and is deliberately not re-asserted here).
+#
+# §182d is the paired POSITIVE at .claude/CLAUDE.md: its evidence-discipline
+# pointer must still carry `§1.10` AND all four labels (a)(b)(c)(d). No conflict
+# with §182b — that arm forbids the clause CONSTANT there, this one requires the
+# LABELS; together they pin the pointer-vs-carrier split the delivery rests on.
+S182_END_RE='^## '
+S182_SPEC_END_RE='^## |^### '
+
+# The shared clause, byte-identical at seven carriers (the templates wrap it as
+# `<!-- ` + this + ` -->`, which a grep -F substring match sees through).
+S182_CLAUSE='Before the `gh …` call that writes the body, run `bash .claude/ghjig-root/scripts/lint_citations.sh <body-file>` and surface its report — the stdout findings **and** the stderr `citation note` lines, since a report relayed without them reads as though the whole body was examined when it was not. It decides the lexical half of SPEC §1.10 part (a); it exits 0 always, gates nothing, and a finding is never a refusal to write (SPEC §1.10, §5.2).'
+# Span delimiters for the §182b extraction: LEAD strips each carrier's prefix,
+# TAIL its trailing sentence. Both are INSIDE the constant above.
+S182_LEAD='Before the `gh …` call that writes the body'
+S182_TAIL='(SPEC §1.10, §5.2).'
+# planner.md's own line, and its lead (fixture/extraction key, never a line no.).
+S182_PLANNER='- SPEC §1.10 binds you as an author even though you write no durable body yourself: part (a) at **file** granularity for every `## Key context` `file:line` you cite, and part (d) for every claim you make about the plan'"'"'s own products. The lexical reader cannot run here — you stage no file and perform no write — so the mechanical read happens downstream at `/work-on`'"'"'s Doc phase, where a finding is a re-plan input and never a gate.'
+S182_PLANNER_LEAD='- SPEC §1.10 binds you as an author'
+# The two referents the clause points at.
+S182_SPEC_ANCHOR='- **Citation check** (before the reviewer gate): run `scripts/lint_citations.sh`'
+S182_LINT_HDR='born-advisory, non-gating citation reader'
+S182_LINT_RPT='SPEC §1.10 part (a) — advisory, exit 0 always'
+S182_CLAUDEMD_KEY='- Evidence discipline binds'
+
+s182_shared_carriers() { printf '%s\n' work-on sync-pr revise-directive consume-initiative tmpl-issue tmpl-directive tmpl-pr-body; }
+s182_carriers() { s182_shared_carriers; printf '%s\n' planner; }
+
+s182_path() {  # $1=carrier-key → carrier path; EMPTY on an unknown key (fail-closed)
+  case "$1" in
+    work-on)            printf '%s' "$SHELL_ROOT/.claude/commands/work-on.md" ;;
+    sync-pr)            printf '%s' "$SHELL_ROOT/.claude/commands/sync-pr.md" ;;
+    revise-directive)   printf '%s' "$SHELL_ROOT/.claude/commands/revise-directive.md" ;;
+    consume-initiative) printf '%s' "$SHELL_ROOT/.claude/commands/consume-initiative.md" ;;
+    tmpl-issue)         printf '%s' "$SHELL_ROOT/.claude/templates/issue.md" ;;
+    tmpl-directive)     printf '%s' "$SHELL_ROOT/.claude/templates/directive.md" ;;
+    tmpl-pr-body)       printf '%s' "$SHELL_ROOT/.claude/templates/pr_body.md" ;;
+    planner)            printf '%s' "$SHELL_ROOT/.claude/agents/planner.md" ;;
+    *)                  : ;;
+  esac
+}
+s182_expect() {  # THE MAP: $1=carrier-key → expected line; EMPTY on an unknown key (fail-closed)
+  case "$1" in
+    work-on)            printf '%s' "$S182_CLAUSE" ;;
+    sync-pr)            printf '%s' "$S182_CLAUSE" ;;
+    revise-directive)   printf '%s' "$S182_CLAUSE" ;;
+    consume-initiative) printf '%s' "$S182_CLAUSE" ;;
+    tmpl-issue)         printf '%s' "$S182_CLAUSE" ;;
+    tmpl-directive)     printf '%s' "$S182_CLAUSE" ;;
+    tmpl-pr-body)       printf '%s' "$S182_CLAUSE" ;;
+    planner)            printf '%s' "$S182_PLANNER" ;;
+    *)                  : ;;
+  esac
+}
+s182_lead() {  # $1=carrier-key → the stable lead fragment of that carrier's line
+  case "$1" in
+    planner) printf '%s' "$S182_PLANNER_LEAD" ;;
+    *)       printf '%s' "$S182_LEAD" ;;
+  esac
+}
+
+s182_presence_flags() {  # $1=override-carrier-key ('' = none) $2=override-path → ` <flag>` per failure; empty = green
+  for s182_k in $(s182_carriers); do
+    s182_p=$(s182_path "$s182_k")
+    if [ -n "${1-}" ] && [ "$s182_k" = "${1-}" ]; then s182_p="${2-}"; fi
+    s182_e=$(s182_expect "$s182_k")
+    if [ -z "$s182_e" ]; then printf ' <182:%s:no-pattern>' "$s182_k"; continue; fi
+    if [ -z "$s182_p" ] || [ ! -f "$s182_p" ]; then printf ' <182:%s:file-absent>' "$s182_k"; continue; fi
+    grep -qF -- "$s182_e" "$s182_p" 2>/dev/null || printf ' <182:%s>' "$s182_k"
+  done
+}
+s182_checked_count() {  # COUNT-GUARD: carriers that actually got compared (non-empty pattern AND present file)
+  s182_cnt=0
+  for s182_ck in $(s182_carriers); do
+    [ -n "$(s182_expect "$s182_ck")" ] || continue
+    [ -f "$(s182_path "$s182_ck")" ] || continue
+    s182_cnt=$((s182_cnt + 1))
+  done
+  printf '%s' "$s182_cnt"
+}
+s182_spec_region() {  # $1=spec-file → §5.2 region body (heading excluded); empty if heading absent
+  awk -v endre="$S182_SPEC_END_RE" '/^### 5\.2 /{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s182_referent_flags() {  # $1=spec-file $2=lint_citations.sh → ` <flag>` per rotted referent; empty = green
+  s182_rf_r=$(s182_spec_region "$1")
+  if [ -z "$s182_rf_r" ]; then
+    printf ' <182:spec-5.2:region-absent>'
+  else
+    printf '%s' "$s182_rf_r" | grep -qF -- "$S182_SPEC_ANCHOR" || printf ' <182:spec-5.2:citation-check>'
+  fi
+  if [ ! -f "$2" ]; then printf ' <182:lint:absent>'; return 0; fi
+  head -n 20 "$2" | grep -qF -- "$S182_LINT_HDR" || printf ' <182:lint:advisory-header>'
+  grep -qF -- "$S182_LINT_RPT" "$2" 2>/dev/null   || printf ' <182:lint:part-a-report>'
+}
+s182_span() {  # $1=file $2=lead → the clause span LEAD..TAIL from the first line carrying LEAD; empty if absent
+  awk -v lead="$2" -v tail="$S182_TAIL" '
+    !d {
+      i = index($0, lead)
+      if (i > 0) {
+        s = substr($0, i); j = index(s, tail)
+        if (j > 0) { print substr(s, 1, j + length(tail) - 1); d = 1 }
+      }
+    }
+  ' "$1" 2>/dev/null
+}
+s182_symmetry_flags() {  # $1=override-carrier-key ('' = none) $2=override-path → ` <182:sym:<key>>` per byte-divergence from the first extracted span
+  s182_ref=''
+  for s182_sk in $(s182_shared_carriers); do
+    s182_sy_p=$(s182_path "$s182_sk")
+    if [ -n "${1-}" ] && [ "$s182_sk" = "${1-}" ]; then s182_sy_p="${2-}"; fi
+    s182_sp=$(s182_span "$s182_sy_p" "$(s182_lead "$s182_sk")")
+    if [ -z "$s182_sp" ]; then printf ' <182:sym:%s:span-absent>' "$s182_sk"; continue; fi
+    if [ -z "$s182_ref" ]; then s182_ref="$s182_sp"; continue; fi
+    [ "$s182_sp" = "$s182_ref" ] || printf ' <182:sym:%s>' "$s182_sk"
+  done
+}
+s182_forbidden_sec() {  # $1=file → ## Forbidden section body (heading excluded); empty if heading absent
+  awk -v endre="$S182_END_RE" '/^## Forbidden$/{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null
+}
+s182_forbidden_flags() {  # $1=label $2=file → ` <flag>` on a missing heading (fail-closed) or an in-section clause hit
+  grep -q '^## Forbidden$' "$2" 2>/dev/null || { printf ' <182:forbidden:%s:heading-absent>' "$1"; return 0; }
+  [ "$(s182_forbidden_sec "$2" | grep -cF -- "$S182_CLAUSE")" = 0 ] || printf ' <182:forbidden:%s>' "$1"
+}
+s182_claudemd_neg_flags() {  # $1=.claude/CLAUDE.md → ` <flag>` if the shared clause constant appears there at all
+  if [ ! -f "$1" ]; then printf ' <182:claude-md:absent>'; return 0; fi
+  [ "$(grep -cF -- "$S182_CLAUSE" "$1" 2>/dev/null)" = 0 ] || printf ' <182:claude-md:clause-restated>'
+}
+s182_claudemd_pos_flags() {  # $1=.claude/CLAUDE.md → ` <flag>` per missing piece of the evidence-discipline pointer
+  if [ ! -f "$1" ]; then printf ' <182:claude-md:absent>'; return 0; fi
+  s182_cm_sec=$(awk -v endre="$S182_END_RE" '/^## PR-as-living-doc$/{f=1;next} f&&$0~endre{exit} f{print}' "$1" 2>/dev/null)
+  if [ -z "$s182_cm_sec" ]; then printf ' <182:claude-md:section-absent>'; return 0; fi
+  s182_cm_line=$(printf '%s' "$s182_cm_sec" | grep -F -- "$S182_CLAUDEMD_KEY" | head -n 1)
+  if [ -z "$s182_cm_line" ]; then printf ' <182:claude-md:pointer-absent>'; return 0; fi
+  printf '%s' "$s182_cm_line" | grep -qF -- '§1.10' || printf ' <182:claude-md:no-spec-ref>'
+  for s182_lb in '(a)' '(b)' '(c)' '(d)'; do
+    printf '%s' "$s182_cm_line" | grep -qF -- "$s182_lb" || printf ' <182:claude-md:no-%s>' "$s182_lb"
+  done
+}
+
+# §182a (LIVE CONTENT LOCK, name-which-reddens, count-guarded): one loop over
+# the eight carriers through the per-carrier map, plus the two referents the
+# clause points at.
+s182a_miss="$(s182_presence_flags '' '')$(s182_referent_flags "$SHELL_ROOT/SPEC.md" "$SHELL_ROOT/scripts/lint_citations.sh")"
+s182a_n=$(s182_checked_count)
+if [ "$s182a_n" != 8 ]; then
+  ng "182a: count-guard — only $s182a_n of 8 authoring-clause carriers were actually compared (empty map entry or missing carrier file); flags:${s182a_miss:- <none>} (#705)"
+elif [ -n "$s182a_miss" ]; then
+  ng "182a: an authoring-clause carrier (or a referent the clause points at) is missing —$s182a_miss (#705)"
+else
+  ok "182a: authoring-clause delivery — all 8 carriers carry their expected line (7 × the shared clause, planner.md × its own), and SPEC §5.2's Citation-check bullet + lint_citations.sh's advisory declaration still stand (#705)"
+fi
+
+# §182b (SYMMETRY + ANTI-INVERSION): the extracted spans are byte-identical
+# across the seven shared-clause carriers; zero clause hits under a
+# `^## Forbidden$` heading; zero hits of the shared constant in .claude/CLAUDE.md.
+s182b_miss="$(s182_symmetry_flags '' '')$(s182_forbidden_flags revise-directive "$(s182_path revise-directive)")$(s182_forbidden_flags consume-initiative "$(s182_path consume-initiative)")$(s182_claudemd_neg_flags "$SHELL_ROOT/.claude/CLAUDE.md")"
+if [ -z "$s182b_miss" ]; then
+  ok "182b: symmetry + anti-inversion — the seven extracted clause spans are byte-identical, no clause sits under a ## Forbidden heading, and .claude/CLAUDE.md restates zero clause bytes (#705)"
+else
+  ng "182b: the shared clause has drifted, inverted (## Forbidden), or been restated on the always-on surface —$s182b_miss (#705)"
+fi
+
+# §182c (PER-CARRIER-MAP FIXTURE, the one permanent mutant, §179e idiom): a
+# planner.md copy with its OWN clause line deleted (splice keyed off the lead,
+# never a line number). planner.md is the carrier that proves the map is
+# per-carrier: its slot holds the ONLY pattern the other seven do not share, so
+# a map that silently fell back to the shared clause — or skipped this slot —
+# cannot produce exactly ` <182:planner>` and nothing else.
+s182c_mut="$TMP/s182_planner_clause_deleted.md"
+awk -v key="$(s182_lead planner)" 'index($0, key) > 0 {next} {print}' "$(s182_path planner)" > "$s182c_mut"
+s182c_orig_n=$(awk 'END{print NR}' "$(s182_path planner)")
+s182c_mut_n=$(awk 'END{print NR}' "$s182c_mut")
+s182c_flags=$(s182_presence_flags planner "$s182c_mut")
+if [ "$s182c_mut_n" != "$((s182c_orig_n - 1))" ]; then
+  ng "182c: mutant construction broke — expected exactly one line deleted from planner.md ($s182c_orig_n → $((s182c_orig_n - 1))), got $s182c_mut_n; the fixture proves nothing (#705)"
+elif [ "$s182c_flags" = ' <182:planner>' ]; then
+  ok "182c: per-carrier map proven — deleting planner.md's own clause line reds exactly <182:planner> and no other carrier (#705)"
+else
+  ng "182c: the planner-clause-deleted mutant did NOT red exactly <182:planner> — the map is not per-carrier (or names the wrong carrier); got:${s182c_flags:- <empty=GREEN>} (#705)"
+fi
+
+# §182d (ALWAYS-ON POINTER, the paired positive): .claude/CLAUDE.md is a surface
+# this change touched, so it is bound too — its evidence-discipline pointer must
+# still carry §1.10 and all four labels. §182b forbids the clause CONSTANT here;
+# this arm requires the LABELS. Byte ceiling: owned by §104b, not re-asserted.
+s182d_miss=$(s182_claudemd_pos_flags "$SHELL_ROOT/.claude/CLAUDE.md")
+if [ -z "$s182d_miss" ]; then
+  ok "182d: always-on pointer — .claude/CLAUDE.md's PR-as-living-doc evidence-discipline line carries §1.10 and all four labels (a)(b)(c)(d) (#705)"
+else
+  ng "182d: .claude/CLAUDE.md's evidence-discipline pointer lost its §1.10 reference or a label —$s182d_miss (#705)"
+fi
