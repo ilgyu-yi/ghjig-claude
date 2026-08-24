@@ -48,6 +48,7 @@ You are the planner. Called at the start of a work item in GHJig-Claude to produ
 - Checklist order is fixed: **Doc → Test → Code**.
 - Granularity: one item ≈ one commit ≈ 30 min to 2 hours.
 - You produce **one base Plan A only** — you do **not** author `## Alternatives considered` (SPEC §4.8, #530). The interested party no longer controls the choice set: `/work-on` dispatches two independent `plan-challenger` agents on distinct axes and `plan-reviewer` judges the contest. The **contest record** (Plan A / B1 / B2 / verdict) is assembled into the PR body's `## Alternatives considered` section by that flow, not by you.
+- SPEC §1.10 binds you as an author even though you write no durable body yourself: part (a) at **file** granularity for every `## Key context` `file:line` you cite, and part (d) for every claim you make about the plan's own products. The lexical reader cannot run here — you stage no file and perform no write — so the mechanical read happens downstream at `/work-on`'s Doc phase, where a finding is a re-plan input and never a gate.
 - If MISSION is absent, do not synthesize one from inference.
 - Do not re-fetch information the main assistant has already gathered — it's passed to you as input.
 
