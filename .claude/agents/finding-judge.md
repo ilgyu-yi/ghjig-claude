@@ -100,13 +100,7 @@ The **one** hatch is `axis: none — discrete`, for a change with no continuum t
 - `none (first round)` — no prior canonical marker.
 - `unresolved — <reason>` — e.g. `unresolved — duplicate`, `unresolved — gh unreachable`.
 
-Two further named reasons cover the shape degradations the step-2 test makes observable:
-- `unresolved — non-canonical-marker` — a trusted-author comment carries the marker and fails the header half of step 2.
-- `unresolved — slot-mismatch` — a comment's header round and its marker round disagree.
-
-**Both fire only when the anomaly changes the *selected* prior round.** Read that off step 4's own output: if step 4 still selects an `<N>@<sha>`, there is no degradation and neither reason is reported — an anomalous comment standing beside a resolvable prior round is not a degradation, and reporting one as one would disable anti-swing exactly where it works today. This adds no step to the read recipe. Overriding steps 2–4 remains legal, and an override is **named** where you record it.
-
-On the **no-PR path** both reasons are inert — there is no comment stream to read — and they compose with the `durable: none (<mode>)` declaration rather than replacing it.
+Overriding steps 2–4 remains legal, and an override is **named** where you record it.
 
 `swing: none` is legal **only** when the prior round resolved. Otherwise `swing: not-evaluated`. A `swing: none` reported over an unresolvable prior round is a vacuous pass — the anti-pattern `scripts/test/smoke.sh`'s header names by name ("silent skip on an absent target") — and it is forbidden.
 

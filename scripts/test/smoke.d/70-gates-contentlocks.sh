@@ -5577,4 +5577,3 @@ if [ -z "$s182d_miss" ]; then
 else
   ng "182d: .claude/CLAUDE.md's evidence-discipline pointer lost its §1.10 reference or a label —$s182d_miss (#705)"
 fi
-
