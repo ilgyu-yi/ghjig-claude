@@ -15,10 +15,30 @@
 # mid-prose, a marker without the header, a concrete marker quoted mid-body —
 # counts for nothing and can never raise the round derivation's max.
 #
+# Two near-canonical classes on TRUSTED comments are surfaced as informational
+# `anomaly: …` lines on stderr: (a) a marker as the last content line with no
+# canonical header, (b) header and marker both position-bound but their rounds
+# disagreeing. Anomaly lines are never facts — the stdout grammar and the exit
+# codes are unchanged by them — and every other lookalike shape stays silent BY
+# DESIGN: position-binding is the forgery guard, and the anomaly channel must
+# not become an oracle for probing it.
+#
+# Round tokens are normalized to base-10 before any use (a leading-zero token
+# such as 08 is round 8), so shell arithmetic never sees an octal literal and
+# two comments claiming rounds 08 and 8 are one duplicate round (exit 3).
+#
 # Trusted-author filter: the jq select runs at the gh -q boundary and is
 # byte-identical to the literal `.claude/hooks/helpers/ac_closeout_gate.sh` and
 # `scripts/ac_closeout.sh` carry (parity is suite-checked structurally). A PR
 # comment is writable by anyone; an unfiltered read is an injection channel.
+#
+# Fetch: `gh pr view --json comments` paginates the FULL comment stream at
+# export time (cursor pagination; verified on gh 2.92.0, command + output
+# pinned in #713's Doc commit body), so the derivation reads every comment,
+# not a window. On a gh too old to paginate the export the residual is an
+# oldest-first window that silently hides the NEWEST rounds — a gh-version
+# dependence, not a script knob; the duplicate refusal (exit 3) still holds
+# over whatever stream gh returns.
 #
 # Modes:
 #   rounds   <pr>              one `round=<N> head=<sha>` fact per canonical
@@ -64,6 +84,11 @@ MRK_ANY_RE='<!-- finding-judge: round=[0-9]+ head=[0-9a-fA-F]+ -->'
 
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
+# norm_round <digits> — the canonical base-10 spelling of a round token
+# (callers guarantee digits). Applied at every lift seam so shell arithmetic
+# never sees an octal literal: 08 IS round 8, and 08 beside 8 is one duplicate.
+norm_round() { printf '%s\n' "$((10#$1))"; }
+
 last_content_line() { awk 'NF{l=$0} END{print l}'; }
 
 # Fetch trusted-author comment bodies, one base64 line per comment. The
@@ -72,7 +97,7 @@ last_content_line() { awk 'NF{l=$0} END{print l}'; }
 # appended OUTSIDE that literal (adjacent shell strings) so per-comment
 # boundaries survive multi-line bodies without touching the shared filter.
 fetch_trusted_b64() {
-  gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "MAINTAINER" or . == "COLLABORATOR")) | .body'' | @base64'
+  gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body'' | @base64'
 }
 
 # hdr_round <first-line>  → prints N (caller guarantees the line matched HDR_RE)
@@ -96,12 +121,38 @@ canon_fact() {
   printf '%s\n' "$first" | grep -qE "$HDR_RE" || return 1
   last=$(printf '%s\n' "$body" | last_content_line)
   printf '%s\n' "$last" | grep -qE "$MRK_RE" || return 1
-  hn=$(hdr_round "$first")
+  hn=$(norm_round "$(hdr_round "$first")")
   read -r mn sha <<EOF
 $(mrk_fields "$last")
 EOF
+  mn=$(norm_round "$mn")
   [ "$hn" = "$mn" ] || return 1
   printf '%s %s\n' "$hn" "$sha"
+}
+
+# note_anomaly <body> — the informational stderr channel for the TWO
+# near-canonical classes the header documents, on TRUSTED comments only (the
+# fetch is already trust-filtered). Anomaly lines are never facts: stdout
+# grammar and exit codes are untouched, and every other lookalike shape stays
+# silent BY DESIGN (position-binding is the forgery guard).
+note_anomaly() {
+  local body="$1" first last hn mn sha
+  last=$(printf '%s\n' "$body" | last_content_line)
+  if ! printf '%s\n' "$last" | grep -qE "$MRK_RE"; then return 0; fi
+  first=$(printf '%s\n' "$body" | head -n 1)
+  if ! printf '%s\n' "$first" | grep -qE "$HDR_RE"; then
+    printf 'anomaly: headerless marker — a trusted comment ends with a canonical finding-judge marker but its first line is not the triage header (not counted)\n' >&2
+    return 0
+  fi
+  hn=$(norm_round "$(hdr_round "$first")")
+  read -r mn sha <<EOF
+$(mrk_fields "$last")
+EOF
+  mn=$(norm_round "$mn")
+  if [ "$hn" != "$mn" ]; then
+    printf 'anomaly: header/marker round mismatch — a trusted comment binds header round %s to marker round %s (not counted)\n' "$hn" "$mn" >&2
+  fi
+  return 0
 }
 
 # collect_facts <pr> — fills the globals:
@@ -118,6 +169,8 @@ collect_facts() {
     if fact=$(canon_fact "$body"); then
       FACTS="${FACTS}${fact}
 "
+    else
+      note_anomaly "$body"
     fi
   done <<EOF
 $b64
@@ -159,7 +212,8 @@ EOF
 }
 
 cmd_show() {
-  local pr="$1" want="$2" b64 line body fact n sha hit="" hits=0
+  local pr="$1" want b64 line body fact n sha hit="" hits=0
+  want=$(norm_round "$2")
   b64=$(fetch_trusted_b64 "$pr") || die "could not read PR #$pr comments (gh pr view failed)"
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -193,10 +247,11 @@ cmd_validate() {
   last=$(last_content_line < "$f")
   printf '%s\n' "$last" | grep -qE "$MRK_RE" \
     || die "reject: marker is not the last content line"
-  hn=$(hdr_round "$first")
+  hn=$(norm_round "$(hdr_round "$first")")
   read -r mn sha <<EOF
 $(mrk_fields "$last")
 EOF
+  mn=$(norm_round "$mn")
   [ "$hn" = "$mn" ] \
     || die "reject: header round ($hn) != marker round ($mn)"
   collect_facts "$pr"
@@ -233,7 +288,11 @@ cmd_post() {
   next=$((max + 1))
 
   TMPF=$(mktemp "${TMPDIR:-/tmp}/ghjig-judged-list.XXXXXXXX") || die "mktemp failed"
+  # Cleanup covers EXIT and, routed through it, INT and TERM — a Ctrl-C or a
+  # TERM in the gh window must not leak the temp file.
   trap 'rm -f "${TMPF:-}"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   # Compose: header first line, the judge output as the body (every bare
   # @mention broken with a zero-width space — the ac_closeout.sh idiom — so
   # the post cannot mass-ping), marker last content line.
@@ -249,7 +308,11 @@ cmd_post() {
   cmd_validate "$pr" "$TMPF"
 
   # Exactly one attempt; a gh failure fails the script closed — no retry.
-  gh pr comment "$pr" --body-file "$TMPF" \
+  # Backgrounded + `wait` (not a foreground call): bash DEFERS a trapped
+  # signal until a foreground child completes, so a foreground gh would hold
+  # the INT/TERM cleanup hostage for its whole stall; `wait` is interruptible.
+  gh pr comment "$pr" --body-file "$TMPF" &
+  wait $! \
     || die "gh pr comment failed — nothing was retried; re-run after fixing gh"
 }
 

@@ -545,3 +545,256 @@ else
     fi
   fi
 fi
+
+# ---------- §183p–§183t: the reader residuals (#713) ----------
+# Phase B arms for the five contracts #713's Doc phase pinned in the script
+# header: base-10 round normalization (AC1), full-stream fetch + duplicate
+# refusal over a deep stream (AC2 — behavior lock, born green), the two named
+# anomaly classes on stderr with every other lookalike silent (AC3), a cleanup
+# trap that covers INT/TERM (AC4), and the MAINTAINER token gone from the
+# shared trusted-author literal (AC5). §183p/q/s/t are born RED and green with
+# #713's Code phase; §183r locks behavior the current script already exhibits.
+
+# s183j_run_split <fixture> <crc> <stderr-file> <mode+args…> — like s183j_run
+# but stdout only on the wire, stderr captured separately (the anomaly channel
+# is a stderr contract: fact/next= grammar on stdout must stay anomaly-free).
+s183j_run_split() {
+  s183j_rs_fx="$1"; s183j_rs_crc="$2"; s183j_rs_err="$3"; shift 3
+  : > "$S183J_LOG"
+  rm -f "$S183J_POSTED"
+  S183J_GH_LOG="$S183J_LOG" S183J_GH_FX_JSON="$s183j_rs_fx" \
+  S183J_GH_POSTED="$S183J_POSTED" S183J_GH_COMMENT_RC="$s183j_rs_crc" \
+  PATH="$S183J_DIR/bin:$PATH" "$S183J_SCRIPT" "$@" 2>"$s183j_rs_err"
+}
+
+# FX-Z8: one trusted canonical comment whose header AND marker both carry the
+# zero-padded token 08 (they agree, so the comment is canonical; only the token
+# spelling is unusual). FX-Z8D adds a second canonical comment claiming round 8
+# unpadded — one round, two spellings, one duplicate.
+cat > "$S183J_FX/fx_z8.json" <<'S183J_JSON'
+{"comments":[
+{"authorAssociation":"OWNER","body":"## Finding triage (round 08)\n\n- Z: zero-padded round token\n\n<!-- finding-judge: round=08 head=abc0008 -->"}
+]}
+S183J_JSON
+cat > "$S183J_FX/fx_z8d.json" <<'S183J_JSON'
+{"comments":[
+{"authorAssociation":"OWNER","body":"## Finding triage (round 08)\n\n- Z: zero-padded spelling\n\n<!-- finding-judge: round=08 head=abc0008 -->"},
+{"authorAssociation":"MEMBER","body":"## Finding triage (round 8)\n\n- Z: unpadded spelling of the SAME round\n\n<!-- finding-judge: round=8 head=def0008 -->"}
+]}
+S183J_JSON
+
+# Anomaly-class fixtures (AC3). FX-AN-A: trusted, valid marker as the LAST
+# content line, but no canonical first-line header. FX-AN-B: trusted, canonical
+# header (round 4) and position-bound marker whose round (5) disagrees.
+cat > "$S183J_FX/fx_an_a.json" <<'S183J_JSON'
+{"comments":[
+{"authorAssociation":"OWNER","body":"prose first line, no triage header anywhere\n\n<!-- finding-judge: round=6 head=ddd4444 -->"}
+]}
+S183J_JSON
+cat > "$S183J_FX/fx_an_b.json" <<'S183J_JSON'
+{"comments":[
+{"authorAssociation":"OWNER","body":"## Finding triage (round 4)\n\n- header says 4, marker says 5\n\n<!-- finding-judge: round=5 head=eee5555 -->"}
+]}
+S183J_JSON
+
+# §183p (ROUNDS — ZERO-PADDED ROUND TOKEN, AC1; born RED until #713 Code): a
+# trusted canonical comment spelling its round 08 must derive, not abort: the
+# token normalizes to base-10 BEFORE any arithmetic — fact `round=8`, next=9,
+# exit 0, and the raw 08 spelling never reaches stdout. The duplicate half:
+# canonical 08 beside canonical 8 is ONE round claimed twice — duplicate, exit
+# 3, no next=. (Today both halves die at the $((max + 1)) octal abort: "08:
+# value too great for base", exit 1.)
+if [ -n "$S183J_UNREADY" ]; then
+  ng "183p: rounds — zero-padded round normalization not exercised: $S183J_UNREADY (fail-closed red, not a skip) (#713)"
+else
+  s183j_p_out=$(s183j_run "$S183J_FX/fx_z8.json" 0 rounds 42); s183j_p_rc=$?
+  s183j_p_miss=""
+  [ "$s183j_p_rc" = 0 ] || s183j_p_miss="$s183j_p_miss <rc=$s183j_p_rc>"
+  printf '%s\n' "$s183j_p_out" | grep -qx 'round=8 head=abc0008' || s183j_p_miss="$s183j_p_miss <normalized-fact-round=8-missing>"
+  printf '%s\n' "$s183j_p_out" | grep -qx 'next=9' || s183j_p_miss="$s183j_p_miss <next=9-missing>"
+  if printf '%s\n' "$s183j_p_out" | grep -q 'round=08'; then s183j_p_miss="$s183j_p_miss <raw-08-token-leaked>"; fi
+  s183j_p_out2=$(s183j_run "$S183J_FX/fx_z8d.json" 0 rounds 42); s183j_p_rc2=$?
+  [ "$s183j_p_rc2" = 3 ] || s183j_p_miss="$s183j_p_miss <08-vs-8-rc=$s183j_p_rc2!=3>"
+  printf '%s\n' "$s183j_p_out2" | grep -q 'duplicate' || s183j_p_miss="$s183j_p_miss <08-vs-8-duplicate-not-named>"
+  if printf '%s\n' "$s183j_p_out2" | grep -q '^next='; then s183j_p_miss="$s183j_p_miss <08-vs-8-next=-emitted>"; fi
+  if [ -z "$s183j_p_miss" ]; then
+    ok "183p: rounds — round token 08 normalizes to round=8/next=9, and 08 beside 8 is one duplicate round (exit 3) (#713)"
+  else
+    ng "183p: a zero-padded round token broke the derivation (octal abort or missed 08/8 duplicate) —$s183j_p_miss (#713)"
+  fi
+fi
+
+# §183q (ROUNDS — THE TWO NAMED ANOMALY CLASSES, AC3; born RED until #713
+# Code): on TRUSTED comments, (a) a valid marker as the last content line with
+# no canonical header and (b) a position-bound header/marker pair whose rounds
+# disagree each surface EXACTLY ONE informational `anomaly: …` line on STDERR —
+# the two classes named distinctly (their lines differ) — while the stdout
+# grammar and exit code stay exactly what they are today (zero facts, next=1,
+# exit 0). Negative face (green today, must STAY green): the prose-lookalike
+# (FX-C) and quoted-mid-body-marker (FX-E) shapes are silent BY DESIGN — the
+# anomaly channel must not become an oracle for probing position-binding.
+if [ -n "$S183J_UNREADY" ]; then
+  ng "183q: rounds — anomaly-class stderr surfacing not exercised: $S183J_UNREADY (fail-closed red, not a skip) (#713)"
+else
+  s183j_q_miss=""
+  s183j_q_out_a=$(s183j_run_split "$S183J_FX/fx_an_a.json" 0 "$S183J_DIR/err_a" rounds 42); s183j_q_rc_a=$?
+  s183j_q_out_b=$(s183j_run_split "$S183J_FX/fx_an_b.json" 0 "$S183J_DIR/err_b" rounds 42); s183j_q_rc_b=$?
+  s183j_q_an_a=$(grep -c '^anomaly:' "$S183J_DIR/err_a"); s183j_q_an_b=$(grep -c '^anomaly:' "$S183J_DIR/err_b")
+  [ "$s183j_q_rc_a" = 0 ] || s183j_q_miss="$s183j_q_miss <headerless-rc=$s183j_q_rc_a>"
+  [ "$s183j_q_rc_b" = 0 ] || s183j_q_miss="$s183j_q_miss <mismatch-rc=$s183j_q_rc_b>"
+  [ "$s183j_q_an_a" = 1 ] || s183j_q_miss="$s183j_q_miss <headerless-anomaly-lines=$s183j_q_an_a!=1>"
+  [ "$s183j_q_an_b" = 1 ] || s183j_q_miss="$s183j_q_miss <mismatch-anomaly-lines=$s183j_q_an_b!=1>"
+  [ "$(grep '^anomaly:' "$S183J_DIR/err_a")" != "$(grep '^anomaly:' "$S183J_DIR/err_b")" ] \
+    || s183j_q_miss="$s183j_q_miss <two-classes-one-name>"
+  # stdout grammar unchanged by the anomaly channel: zero facts, next=1, and
+  # never an anomaly line on stdout.
+  for s183j_q_out in "$s183j_q_out_a" "$s183j_q_out_b"; do
+    [ "$(printf '%s\n' "$s183j_q_out" | grep -c '^round=')" = 0 ] || s183j_q_miss="$s183j_q_miss <anomaly-comment-counted-as-fact>"
+    printf '%s\n' "$s183j_q_out" | grep -qx 'next=1' || s183j_q_miss="$s183j_q_miss <next=1-missing>"
+    if printf '%s\n' "$s183j_q_out" | grep -q '^anomaly:'; then s183j_q_miss="$s183j_q_miss <anomaly-leaked-to-stdout>"; fi
+  done
+  # Negative face: every OTHER lookalike shape stays silent.
+  s183j_run_split "$S183J_FX/fx_c.json" 0 "$S183J_DIR/err_c" rounds 42 >/dev/null
+  s183j_run_split "$S183J_FX/fx_e.json" 0 "$S183J_DIR/err_e" rounds 42 >/dev/null
+  if grep -q '^anomaly:' "$S183J_DIR/err_c"; then s183j_q_miss="$s183j_q_miss <prose-lookalike-raised-anomaly>"; fi
+  if grep -q '^anomaly:' "$S183J_DIR/err_e"; then s183j_q_miss="$s183j_q_miss <quoted-mid-body-marker-raised-anomaly>"; fi
+  if [ -z "$s183j_q_miss" ]; then
+    ok "183q: rounds — headerless-marker and header/marker-mismatch each one distinct anomaly: stderr line; stdout grammar, exit codes, and lookalike silence unchanged (#713)"
+  else
+    ng "183q: the two near-canonical classes are not surfaced as named stderr anomalies (or the channel leaked/over-fired) —$s183j_q_miss (#713)"
+  fi
+fi
+
+# §183r (ROUNDS/POST — FULL-STREAM READ + DUPLICATE REFUSAL DEEP IN THE
+# STREAM, AC2; born GREEN — a behavior lock on the documented full-stream
+# read): a canonical comment sitting beyond position 100 of the served stream
+# is still counted by `rounds`, and a `post` whose duplicate twin hides that
+# deep exits 3 with ZERO posts — a windowed (first-100) read would miss both.
+if [ -n "$S183J_UNREADY" ]; then
+  ng "183r: full-stream deep-comment read not exercised: $S183J_UNREADY (fail-closed red, not a skip) (#713)"
+else
+  jq -n '{comments: ([range(110) | {authorAssociation: "OWNER", body: ("filler prose comment \(.) — no triage shape")}]
+                     + [{authorAssociation: "OWNER", body: "## Finding triage (round 7)\n\n- deep canonical\n\n<!-- finding-judge: round=7 head=abc0007 -->"}])}' \
+    > "$S183J_FX/fx_deep.json"
+  jq -n '{comments: ([{authorAssociation: "OWNER", body: "## Finding triage (round 7)\n\n- shallow twin\n\n<!-- finding-judge: round=7 head=aaa0007 -->"}]
+                     + [range(110) | {authorAssociation: "OWNER", body: ("filler prose comment \(.) — no triage shape")}]
+                     + [{authorAssociation: "OWNER", body: "## Finding triage (round 7)\n\n- deep twin\n\n<!-- finding-judge: round=7 head=bbb0007 -->"}])}' \
+    > "$S183J_FX/fx_deepdup.json"
+  s183j_r_miss=""
+  s183j_r_out=$(s183j_run "$S183J_FX/fx_deep.json" 0 rounds 42); s183j_r_rc=$?
+  [ "$s183j_r_rc" = 0 ] || s183j_r_miss="$s183j_r_miss <deep-rounds-rc=$s183j_r_rc>"
+  printf '%s\n' "$s183j_r_out" | grep -qx 'round=7 head=abc0007' || s183j_r_miss="$s183j_r_miss <deep-canonical-not-counted>"
+  printf '%s\n' "$s183j_r_out" | grep -qx 'next=8' || s183j_r_miss="$s183j_r_miss <next=8-missing>"
+  s183j_run "$S183J_FX/fx_deepdup.json" 0 post 42 "$S183J_FX/p1.txt" >/dev/null; s183j_r_rc2=$?
+  s183j_r_posts=$(s183j_posts)
+  [ "$s183j_r_rc2" = 3 ] || s183j_r_miss="$s183j_r_miss <deep-duplicate-post-rc=$s183j_r_rc2!=3>"
+  [ "$s183j_r_posts" = 0 ] || s183j_r_miss="$s183j_r_miss <colliding-round-posted=$s183j_r_posts>"
+  if [ -z "$s183j_r_miss" ]; then
+    ok "183r: a canonical round beyond position 100 still counts, and a post over its deep duplicate twin refuses with exit 3, zero posts (#713)"
+  else
+    ng "183r: the derivation read a WINDOW, not the stream — a deep canonical round was missed or a colliding round was minted —$s183j_r_miss (#713)"
+  fi
+fi
+
+# §183s (POST — CLEANUP TRAP COVERS INT/TERM, AC4; born RED until #713 Code):
+# drive `post` into its stalled window (a gh stub that blocks on a FIFO after
+# touching a readiness file), TERM the script there, and require the 0600 temp
+# file gone afterwards. Deterministic: readiness file + bounded poll, no fixed
+# sleeps. NOTE the platform residual: bash's termsig handler happens to run the
+# EXIT trap on an untrapped TERM, so the kill half is green even today — the
+# half that is RED today is the registration check: the cleanup trap must be
+# REGISTERED for INT and TERM (the AC's literal contract; on shells without
+# that termsig courtesy, EXIT-only means a leak). Structural extraction of the
+# trap lines, same discipline as §183m — not a prose pin.
+if [ -n "$S183J_UNREADY" ]; then
+  ng "183s: post — INT/TERM cleanup-trap coverage not exercised: $S183J_UNREADY (fail-closed red, not a skip) (#713)"
+else
+  s183j_s_miss=""
+  # Structural half: the trap registration(s) cover INT and TERM (grep -w is
+  # token-exact, so a bare EXIT-only registration cannot satisfy either).
+  s183j_s_traps=$(grep -E '^[[:space:]]*trap[[:space:]]' "$S183J_SCRIPT")
+  printf '%s\n' "$s183j_s_traps" | grep -qw 'INT' || s183j_s_miss="$s183j_s_miss <no-trap-registered-for-INT>"
+  printf '%s\n' "$s183j_s_traps" | grep -qw 'TERM' || s183j_s_miss="$s183j_s_miss <no-trap-registered-for-TERM>"
+  # Behavioral half: TERM in the stalled window leaves no temp file behind.
+  s183j_s_tmp="$S183J_DIR/actmp"; s183j_s_fifo="$S183J_DIR/blockfifo"; s183j_s_ready="$S183J_DIR/blockready"
+  mkdir -p "$s183j_s_tmp" "$S183J_DIR/binblock"
+  rm -f "$s183j_s_fifo" "$s183j_s_ready" "$s183j_s_tmp"/ghjig-judged-list.* 2>/dev/null
+  mkfifo "$s183j_s_fifo"
+  cat > "$S183J_DIR/binblock/gh" <<'S183J_GH_BLOCK'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "pr view")
+    q=""; prev=""
+    for a in "$@"; do case "$prev" in -q|--jq) q="$a";; esac; prev="$a"; done
+    if [ -n "$q" ]; then jq -r "$q" < "${S183J_GH_FX_JSON:?}"; else cat "${S183J_GH_FX_JSON:?}"; fi
+    ;;
+  "pr comment")
+    echo "$$" > "${S183J_BLOCK_READY:?}"
+    read -r _ < "${S183J_BLOCK_FIFO:?}"
+    exit 0 ;;
+esac
+exit 0
+S183J_GH_BLOCK
+  chmod +x "$S183J_DIR/binblock/gh"
+  S183J_GH_FX_JSON="$S183J_FX/fx_a.json" S183J_BLOCK_READY="$s183j_s_ready" \
+  S183J_BLOCK_FIFO="$s183j_s_fifo" TMPDIR="$s183j_s_tmp" \
+  PATH="$S183J_DIR/binblock:$PATH" "$S183J_SCRIPT" post 42 "$S183J_FX/p1.txt" >/dev/null 2>&1 &
+  s183j_s_pid=$!
+  # Off the job table: no "Terminated: 15" notice pollutes the suite output.
+  # Liveness below is kill -0 polling, so losing `wait` on the pid costs nothing.
+  disown "$s183j_s_pid" 2>/dev/null
+  s183j_s_i=0
+  while [ ! -s "$s183j_s_ready" ] && [ "$s183j_s_i" -lt 150 ]; do sleep 0.1; s183j_s_i=$((s183j_s_i + 1)); done
+  if [ ! -s "$s183j_s_ready" ]; then
+    s183j_s_miss="$s183j_s_miss <stalled-window-never-reached>"
+    kill -KILL "$s183j_s_pid" 2>/dev/null
+  else
+    # Inside the window: exactly one 0600 temp file exists (proves the window
+    # was real before we assert its cleanup).
+    s183j_s_n=$(find "$s183j_s_tmp" -name 'ghjig-judged-list.*' | wc -l | tr -d ' ')
+    [ "$s183j_s_n" = 1 ] || s183j_s_miss="$s183j_s_miss <window-tempfiles=$s183j_s_n!=1>"
+    s183j_s_mode=$(ls -l "$s183j_s_tmp"/ghjig-judged-list.* 2>/dev/null | awk 'NR==1{print substr($1,1,10)}')
+    [ "$s183j_s_mode" = "-rw-------" ] || s183j_s_miss="$s183j_s_miss <temp-mode=$s183j_s_mode!=0600>"
+    kill -TERM "$s183j_s_pid" 2>/dev/null
+    s183j_s_i=0
+    while kill -0 "$s183j_s_pid" 2>/dev/null && [ "$s183j_s_i" -lt 150 ]; do sleep 0.1; s183j_s_i=$((s183j_s_i + 1)); done
+    if kill -0 "$s183j_s_pid" 2>/dev/null; then
+      s183j_s_miss="$s183j_s_miss <script-survived-TERM>"
+      kill -KILL "$s183j_s_pid" 2>/dev/null
+    fi
+    s183j_s_left=$(find "$s183j_s_tmp" -name 'ghjig-judged-list.*' | wc -l | tr -d ' ')
+    [ "$s183j_s_left" = 0 ] || s183j_s_miss="$s183j_s_miss <temp-leaked-on-TERM=$s183j_s_left>"
+  fi
+  # Unblock/reap the stub (it outlives the TERMed script, parked on the FIFO).
+  if [ -s "$s183j_s_ready" ]; then kill -KILL "$(cat "$s183j_s_ready")" 2>/dev/null; fi
+  rm -f "$s183j_s_fifo"
+  if [ -z "$s183j_s_miss" ]; then
+    ok "183s: post — the cleanup trap is registered for INT and TERM, and a TERM in the stalled gh window leaves no temp file (#713)"
+  else
+    ng "183s: the temp-file cleanup does not cover INT/TERM —$s183j_s_miss (#713)"
+  fi
+fi
+
+# §183t (TRUSTED-AUTHOR LITERAL — MAINTAINER GONE FROM ALL THREE CARRIERS, AC5;
+# born RED until #713 Code): MAINTAINER is not a CommentAuthorAssociation enum
+# value — in an allowlist it can only fail to match, never widen trust. The
+# shared -q literal (extracted structurally, the same s183j_filter_lits §183m
+# proves on gate-vs-remedy) must not carry the token in ANY of its three
+# carriers; §183m's byte-parity stays green across the move.
+if [ -n "$S183J_UNREADY" ]; then
+  ng "183t: trusted-author literal MAINTAINER absence not exercised: $S183J_UNREADY (fail-closed red, not a skip) (#713)"
+else
+  s183j_t_miss=""
+  for s183j_t_f in "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" "$SHELL_ROOT/scripts/ac_closeout.sh" "$S183J_SCRIPT"; do
+    s183j_t_lit=$(s183j_filter_lits "$s183j_t_f")
+    [ -n "$s183j_t_lit" ] || s183j_t_miss="$s183j_t_miss <literal-unextractable:$(basename "$s183j_t_f")>"
+    if printf '%s\n' "$s183j_t_lit" | grep -qF 'MAINTAINER'; then
+      s183j_t_miss="$s183j_t_miss <MAINTAINER-still-in:$(basename "$s183j_t_f")>"
+    fi
+  done
+  if [ -z "$s183j_t_miss" ]; then
+    ok "183t: the shared trusted-author -q literal carries no MAINTAINER token in any of its three carriers (#713)"
+  else
+    ng "183t: the inert MAINTAINER token survives in the shared trusted-author literal —$s183j_t_miss (#713)"
+  fi
+fi

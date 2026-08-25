@@ -44,7 +44,7 @@ while IFS= read -r n; do
   # boundary), mirroring ac_closeout_gate.sh:215-216 — a drive-by comment from
   # an untrusted account must not count.
   comments=$(gh issue view "$n" --json comments \
-    -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "MAINTAINER" or . == "COLLABORATOR")) | .body' 2>/dev/null) || {
+    -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body' 2>/dev/null) || {
     echo "ac_closeout: failed to read comments on issue #$n" >&2
     continue
   }
