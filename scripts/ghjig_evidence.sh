@@ -60,7 +60,9 @@
 # inserts a `\ no-eol` marker line before the pin line; the recovery rule is:
 # the output bytes are the block bytes between the command line and the
 # pin/marker line, minus the injected final newline when the marker is
-# present.
+# present. The marker line is reserved: newline-terminated output whose final
+# line is exactly `\ no-eol` is refused (exit 1) — otherwise recovery could
+# not tell honest output from the injected marker.
 #
 # Pin: `pin: <head-sha> <YYYY-MM-DD>Z` — the repo HEAD at emission and the
 # UTC date; `(dirty)` after the sha marks an unclean tree. Byte-identical
@@ -73,9 +75,10 @@
 # GROUP (kill -TERM -- -pgid), so pipeline members do not survive the leader.
 #
 # Exit codes: 0 ok · 1 usage/environment/refusal (NUL span, newline command,
-# symlink or containment refusal, bad timeout override) · 2 evidence command
-# failed or timed out (child rc named on stderr) · 3 quotation does not
-# resolve. Every failure path emits nothing on stdout.
+# newline path, reserved `\ no-eol` final line, symlink or containment
+# refusal, bad timeout override) · 2 evidence command failed or timed out
+# (child rc named on stderr) · 3 quotation does not resolve. Every failure
+# path emits nothing on stdout.
 set -euo pipefail
 
 PROG="ghjig_evidence"
@@ -113,7 +116,7 @@ pin_line() {
 # fence must outrun every such payload run.
 fence_for() {
   local n
-  n=$(cat -- "$@" | awk '
+  n=$(cat -- "$@" | LC_ALL=C awk '
     { line = $0
       sub(/^ ? ? ?/, "", line)
       if (match(line, /^`+/) && RLENGTH > max) max = RLENGTH }
@@ -154,9 +157,16 @@ run_evidence() {
   wd=$!
   set +m
   wait "$child" || rc=$?
+  if [ -e "$flag" ]; then
+    # A `trap '' TERM` pipeline member survives the watchdog's TERM: escalate
+    # to KILL on the child's group before the watchdog goes.
+    kill -KILL -- "-$child" 2>/dev/null || true
+  fi
   kill -TERM -- "-$wd" 2>/dev/null || true
   wait "$wd" 2>/dev/null || true
-  if [ -e "$flag" ] && [ "$rc" -ne 0 ]; then
+  if [ -e "$flag" ]; then
+    # UNCONDITIONAL on the flag: a trap-TERM-exit-0 child returns rc=0 under
+    # timeout, and a timed-out run must never yield a block.
     die "evidence command timed out after ${t}s (child rc=$rc); nothing emitted" 2
   fi
   [ "$rc" -eq 0 ] || die "evidence command failed: child rc=$rc; nothing emitted" 2
@@ -164,6 +174,8 @@ run_evidence() {
   pin=$(pin_line) || die "cannot resolve repo HEAD for the pin" 1
   if [ -s "$outf" ] && [ -n "$(tail -c 1 "$outf")" ]; then
     noeol=1
+  elif [ -s "$outf" ] && [ "$(tail -n 1 "$outf")" = '\ no-eol' ]; then
+    die "output's final line is the reserved marker line '\\ no-eol' — recovery could not tell it from the injected marker; refused" 1
   fi
   printf '$ %s\n' "$cmd" > "$TMPD/cmdline"
   fence=$(fence_for "$TMPD/cmdline" "$outf")
@@ -189,6 +201,9 @@ run_quote() {
   [ "$#" -eq 2 ] || usage
   local path="$1" spanarg="$2" spanf srcf span pin fence hit rc line
   local top dir dphys
+  case "$path" in
+    *$'\n'*) die "path contains a newline — the attribution line must stay a single line; refused" 1 ;;
+  esac
   spanf="$TMPD/span"
   if [ "$spanarg" = "-" ]; then
     cat > "$spanf" || die "cannot read span from stdin" 1
@@ -232,7 +247,7 @@ run_quote() {
   # minus NUL, already refused). awk exit 3 = miss; any other non-zero is a
   # matcher failure (awk exec error, E2BIG) and fails CLOSED.
   rc=0
-  hit=$(SPAN="$span" awk '
+  hit=$(SPAN="$span" LC_ALL=C awk '
     { src = src $0 "\n" }
     END {
       span = ENVIRON["SPAN"]
@@ -248,10 +263,13 @@ run_quote() {
   line="$hit"
   pin=$(pin_line) || die "cannot resolve repo HEAD for the pin" 1
   printf '%s\n' "$span" > "$TMPD/spanshow"
-  fence=$(fence_for "$TMPD/spanshow")
+  # The attribution line joins the fence computation: every payload line the
+  # block carries — span AND attribution — must be outrun structurally.
+  printf 'quoted from %s:%s\n' "$path" "$line" > "$TMPD/attrshow"
+  fence=$(fence_for "$TMPD/spanshow" "$TMPD/attrshow")
   printf '%s\n' "$fence"
   printf '%s\n' "$span"
-  printf 'quoted from %s:%s\n' "$path" "$line"
+  cat -- "$TMPD/attrshow"
   printf '%s\n' "$pin"
   printf '%s\n' "$fence"
 }

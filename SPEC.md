@@ -2548,8 +2548,8 @@ GHJig-Claude/
 │   ├── ceremony_candidates.sh        ← clusters commit-history ceremony mis-sizing → measure-first candidates (§6.0 P3, §6.5(d))
 │   ├── clone-into.sh
 │   ├── dir_mode_project.sh
-│   ├── ghjig_file_review_post.sh      ← posts a self COMMENT review to the current-branch PR, reading the caller-written <esd>/file-review/staging body (single fixed-form permissions.allow wrapper; §5.7.1, #598, #633)
 │   ├── ghjig_evidence.sh              ← the render/pointer helper: evidence/quote authoring path for durable-body facts (#637 item 5, #716)
+│   ├── ghjig_file_review_post.sh      ← posts a self COMMENT review to the current-branch PR, reading the caller-written <esd>/file-review/staging body (single fixed-form permissions.allow wrapper; §5.7.1, #598, #633)
 │   ├── ghjig_judged_list.sh           ← the judged-list PR comment's single code home: rounds/show/post/validate (§4.13, #711)
 │   ├── ghjig_skip.sh                   ← writes a one-shot file-based skip token (§7 file-token escape channel)
 │   ├── ensure_v3_labels.sh           ← installs directive / status / P0-P3 labels (§0.4)

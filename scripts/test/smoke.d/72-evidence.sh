@@ -25,14 +25,20 @@ if false; then . "$(dirname "${BASH_SOURCE[0]}")/_preamble.sh"; fi
 #     `quoted from <path>:<line>`, line = newlines-before-match + 1.
 #   * block shape — fence escalation past any payload backtick run opening a
 #     line at <=3 spaces of indentation; `\ no-eol` marker line before the pin
-#     when the output lacks a trailing newline. Recovery rule (byte-identical
-#     re-execution, #637's discrimination signal): the output bytes are the
-#     block bytes between the command line and the pin/marker line, minus the
-#     injected final newline when the marker is present.
+#     when the output lacks a trailing newline; newline-terminated output whose
+#     final line is literally `\ no-eol` is refused (exit 1 — the marker line
+#     is reserved). Recovery rule (byte-identical re-execution, #637's
+#     discrimination signal): the output bytes are the block bytes between the
+#     command line and the pin/marker line, minus the injected final newline
+#     when the marker is present.
 #   * pin — `pin: <head-sha> <YYYY-MM-DD>Z`; `(dirty)` after the sha on an
 #     unclean tree, absent on a clean one.
 #   * timeout — GHJIG_EVIDENCE_TIMEOUT (digits only) expires the child's whole
-#     PROCESS GROUP: pipeline members do not survive the leader.
+#     PROCESS GROUP: pipeline members do not survive the leader, and the
+#     timeout flag alone forces exit 2 — a child that traps TERM and exits 0
+#     cannot launder a timed-out run into a green block.
+#   * quote path — a newline-bearing <path> is refused (exit 1): the
+#     attribution line must stay a single line inside the fence.
 #   * environment — pure-local: a green evidence run needs only the
 #     bash/git/awk/coreutils dirs on PATH (no gh, no jq, no curl).
 # Exit codes pinned: 0 ok · 1 usage/environment/refusal · 2 evidence command
@@ -431,7 +437,10 @@ fi
 # pipeline of two pgrep-able sentinels (argv-tagged bash wrappers around
 # sleep) returns non-zero (exit 2) within a bounded wait, emits nothing, and
 # leaves NO sentinel survivor — a leader-only TERM would orphan the second
-# pipeline member.
+# pipeline member. The sentinels are EXEC-PROOF (`sleep 300; :` — the trailing
+# command keeps the tagged bash resident instead of exec-replacing itself with
+# sleep), so the pgrep probe actually sees group members and a leader-only
+# kill REDS this arm instead of passing blind.
 if [ -n "$S184E_UNREADY" ]; then
   ng "184n: timeout — process-group kill not exercised: $S184E_UNREADY (fail-closed red, not a skip) (#716)"
 else
@@ -441,7 +450,7 @@ else
   (
     cd "$S184E_R1" \
       && GHJIG_EVIDENCE_TIMEOUT=1 "$S184E_SCRIPT" evidence \
-           "bash -c 'sleep 300' ${s184e_n_tag}A | bash -c 'sleep 300' ${s184e_n_tag}B" \
+           "bash -c 'sleep 300; :' ${s184e_n_tag}A | bash -c 'sleep 300; :' ${s184e_n_tag}B" \
            >"$S184E_DIR/n.out" 2>"$S184E_DIR/n.err"
     printf '%s\n' "$?" > "$s184e_n_rcf"
   ) &
@@ -533,5 +542,91 @@ else
     ok "184p: block shape — an indented 3-backtick payload run forces a longer opening fence, bytes recover exactly (#716)"
   else
     ng "184p: fence escalation does not outrun an indented payload fence —$s184e_p_miss (#716)"
+  fi
+fi
+
+# §184q (TIMEOUT — TRAP-TERM-EXIT-0 CHILD STILL FAILS CLOSED; born RED before
+# the fix): a child that traps TERM and exits 0 hands rc=0 back under the
+# watchdog's TERM — the timeout flag ALONE must force exit 2 with byte-empty
+# stdout and the timeout named on stderr. Bounded like §184n: background run,
+# rc file, 20s poll (a hung run is a red, never a hung suite).
+if [ -n "$S184E_UNREADY" ]; then
+  ng "184q: timeout — trap-TERM-exit-0 fail-closed not exercised: $S184E_UNREADY (fail-closed red, not a skip) (#716)"
+else
+  s184e_q_rcf="$S184E_DIR/q.rc"
+  rm -f "$s184e_q_rcf"
+  (
+    cd "$S184E_R1" \
+      && GHJIG_EVIDENCE_TIMEOUT=1 "$S184E_SCRIPT" evidence \
+           "trap 'exit 0' TERM; sleep 300" \
+           >"$S184E_DIR/q.out" 2>"$S184E_DIR/q.err"
+    printf '%s\n' "$?" > "$s184e_q_rcf"
+  ) &
+  s184e_q_bg=$!
+  disown "$s184e_q_bg" 2>/dev/null
+  s184e_q_miss=""
+  s184e_q_i=0
+  while [ ! -s "$s184e_q_rcf" ] && [ "$s184e_q_i" -lt 200 ]; do sleep 0.1; s184e_q_i=$((s184e_q_i + 1)); done
+  if [ ! -s "$s184e_q_rcf" ]; then
+    s184e_q_miss="$s184e_q_miss <no-return-within-20s-bound>"
+    kill -KILL "$s184e_q_bg" 2>/dev/null
+  else
+    s184e_q_rc=$(cat "$s184e_q_rcf")
+    [ "$s184e_q_rc" = 2 ] || s184e_q_miss="$s184e_q_miss <rc=$s184e_q_rc!=2:cooperative-exit-laundered-the-timeout>"
+    [ ! -s "$S184E_DIR/q.out" ] || s184e_q_miss="$s184e_q_miss <stdout-not-empty>"
+    grep -qi 'timed out' "$S184E_DIR/q.err" || s184e_q_miss="$s184e_q_miss <timeout-not-named-on-stderr>"
+  fi
+  if [ -z "$s184e_q_miss" ]; then
+    ok "184q: timeout — a trap-TERM-exit-0 child still exits 2 with empty stdout: the flag, not the child rc, decides (#716)"
+  else
+    ng "184q: a cooperative-exit child laundered a timeout —$s184e_q_miss (#716)"
+  fi
+fi
+
+# §184r (BLOCK SHAPE — RESERVED MARKER LINE REFUSED; born RED before the fix):
+# newline-terminated output whose FINAL line is literally `\ no-eol` collides
+# with the injected marker — refusal, exit 1, empty stdout, the marker named
+# on stderr. Positive twin: the same literal line MID-payload (not final)
+# stays honest output — exit 0 and the recovery rule restores it byte-exact.
+if [ -n "$S184E_UNREADY" ]; then
+  ng "184r: block shape — reserved-marker-line refusal not exercised: $S184E_UNREADY (fail-closed red, not a skip) (#716)"
+else
+  s184e_r_cmd="printf '%s\n' payload '\ no-eol'"
+  s184e_run "$S184E_R1" "$S184E_DIR/r.out" "$S184E_DIR/r.err" evidence "$s184e_r_cmd"; s184e_r_rc=$?
+  s184e_r_miss=""
+  [ "$s184e_r_rc" = 1 ] || s184e_r_miss="$s184e_r_miss <collision-rc=$s184e_r_rc!=1>"
+  [ ! -s "$S184E_DIR/r.out" ] || s184e_r_miss="$s184e_r_miss <collision-emitted-output>"
+  grep -qF 'no-eol' "$S184E_DIR/r.err" || s184e_r_miss="$s184e_r_miss <reserved-marker-not-named-on-stderr>"
+  s184e_r_cmd2="printf '%s\n' '\ no-eol' tail"
+  s184e_run "$S184E_R1" "$S184E_DIR/r2.out" "$S184E_DIR/r2.err" evidence "$s184e_r_cmd2"; s184e_r_rc2=$?
+  [ "$s184e_r_rc2" = 0 ] || s184e_r_miss="$s184e_r_miss <mid-payload-control-rc=$s184e_r_rc2!=0>"
+  bash -c "$s184e_r_cmd2" > "$S184E_DIR/r2.expect"
+  s184e_recover "$S184E_DIR/r2.out" "$S184E_DIR/r2.got"
+  cmp -s "$S184E_DIR/r2.expect" "$S184E_DIR/r2.got" || s184e_r_miss="$s184e_r_miss <mid-payload-control-bytes-not-verbatim>"
+  if [ -z "$s184e_r_miss" ]; then
+    ok "184r: block shape — a final literal '\\ no-eol' line is refused by name (exit 1, nothing emitted); the mid-payload twin recovers byte-exact (#716)"
+  else
+    ng "184r: the reserved no-eol marker line is not protected —$s184e_r_miss (#716)"
+  fi
+fi
+
+# §184s (QUOTE — NEWLINE-BEARING PATH REFUSED; born RED on the message class:
+# pre-fix the path fell into the not-a-regular-file exit 1 WITHOUT naming the
+# newline): a <path> argument carrying a newline would split the attribution
+# line across the fence — exit 1, nothing emitted, the newline named on
+# stderr (parity with §184f's newline-command refusal on the evidence face).
+if [ -n "$S184E_UNREADY" ]; then
+  ng "184s: quote — newline-path refusal not exercised: $S184E_UNREADY (fail-closed red, not a skip) (#716)"
+else
+  s184e_s_path=$'note\n.txt'
+  s184e_run "$S184E_R1" "$S184E_DIR/s.out" "$S184E_DIR/s.err" quote "$s184e_s_path" "$S184E_FX/span_g.txt"; s184e_s_rc=$?
+  s184e_s_miss=""
+  [ "$s184e_s_rc" = 1 ] || s184e_s_miss="$s184e_s_miss <rc=$s184e_s_rc!=1>"
+  [ ! -s "$S184E_DIR/s.out" ] || s184e_s_miss="$s184e_s_miss <stdout-not-empty>"
+  grep -qi 'newline' "$S184E_DIR/s.err" || s184e_s_miss="$s184e_s_miss <refusal-class-newline-not-named>"
+  if [ -z "$s184e_s_miss" ]; then
+    ok "184s: quote — a newline-bearing path is refused (exit 1, nothing emitted, newline named on stderr) (#716)"
+  else
+    ng "184s: a newline-bearing quote path was not refused by name —$s184e_s_miss (#716)"
   fi
 fi
