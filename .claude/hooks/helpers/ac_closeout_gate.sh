@@ -355,7 +355,7 @@ pr_needs_closeout() {
     # from an untrusted account cannot unlock the merge. The author filter runs
     # as a jq `select` at the gh boundary; only trusted comment bodies return.
     comments=$(_ac_run_gh issue view "$n" --json comments \
-      -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "MAINTAINER" or . == "COLLABORATOR")) | .body' 2>/dev/null)
+      -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body' 2>/dev/null)
     rc=$?
     [ "$rc" != 0 ] && return 2
     # Canonical marker from a trusted author present → covered.

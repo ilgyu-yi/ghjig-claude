@@ -97,7 +97,7 @@ last_content_line() { awk 'NF{l=$0} END{print l}'; }
 # appended OUTSIDE that literal (adjacent shell strings) so per-comment
 # boundaries survive multi-line bodies without touching the shared filter.
 fetch_trusted_b64() {
-  gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "MAINTAINER" or . == "COLLABORATOR")) | .body'' | @base64'
+  gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body'' | @base64'
 }
 
 # hdr_round <first-line>  → prints N (caller guarantees the line matched HDR_RE)
