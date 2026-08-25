@@ -27,14 +27,17 @@
 #                              the attributed repo-relative path, then emit
 #                              the quotation block (fenced span, a
 #                              `quoted from <path>:<line>` attribution, the
-#                              pin line). Resolution source: on a clean,
-#                              tracked path the HEAD blob (`git show`), so
-#                              the attestation binds to the pin and a symlink
-#                              entry yields its link text, never its target's
-#                              content; on a dirty or untracked path the
-#                              worktree file is read only after a symlink-leaf
-#                              refusal and a physical-directory containment
-#                              check, and the pin carries the (dirty) mark.
+#                              pin line). Resolution source keys on
+#                              TRACKED-ness, not per-file cleanliness: a
+#                              TRACKED path resolves via the HEAD blob
+#                              (`git show`) even when its worktree copy
+#                              diverged, so the attestation binds to the pin
+#                              and a symlink entry yields its link text,
+#                              never its target's content; an UNTRACKED path
+#                              falls back to the worktree read only after a
+#                              symlink-leaf refusal and a physical-directory
+#                              containment check. The (dirty) pin mark is
+#                              tree-level, not per-file.
 #                              A miss exits 3 naming the path and the miss on
 #                              stderr and emits NOTHING — there is no
 #                              emit-anyway form.
@@ -91,10 +94,92 @@ EOF
 
 command -v git >/dev/null 2>&1 || die "git not found"
 
+TMPD=$(mktemp -d "${TMPDIR:-/tmp}/ghjig_evidence.XXXXXX") || die "mktemp failed"
+trap 'rm -rf "$TMPD"' EXIT
+
+# pin_line — `pin: <head-sha>[ (dirty)] <YYYY-MM-DD>Z` for the CALLING repo
+# (resolved at cwd). The (dirty) mark is tree-level: any uncommitted change
+# marks the pin, whichever file it touches.
+pin_line() {
+  local sha dirty=""
+  sha=$(git rev-parse HEAD 2>/dev/null) || return 1
+  [ -z "$(git status --porcelain 2>/dev/null)" ] || dirty=" (dirty)"
+  printf 'pin: %s%s %sZ\n' "$sha" "$dirty" "$(date -u +%Y-%m-%d)"
+}
+
+# fence_for <payload-file>… — max(3, longest backtick run opening a payload
+# line at up to three spaces of indentation, plus one): CommonMark closes an
+# N-fence with >=N backticks indented up to three spaces, so the emitted
+# fence must outrun every such payload run.
+fence_for() {
+  local n
+  n=$(cat -- "$@" | awk '
+    { line = $0
+      sub(/^ ? ? ?/, "", line)
+      if (match(line, /^`+/) && RLENGTH > max) max = RLENGTH }
+    END { print max + 0 }')
+  n=$((n + 1))
+  [ "$n" -ge 3 ] || n=3
+  printf '%*s' "$n" '' | tr ' ' '\140'
+}
+
+run_evidence() {
+  [ "$#" -eq 1 ] || usage
+  local cmd="$1" t=60 child wd rc=0 outf flag pin fence noeol=""
+  case "$cmd" in
+    *$'\n'*) die "command contains a newline — the block's \$-line must re-execute as the whole command; refused" 1 ;;
+  esac
+  if [ -n "${GHJIG_EVIDENCE_TIMEOUT+x}" ]; then
+    case "$GHJIG_EVIDENCE_TIMEOUT" in
+      ''|*[!0-9]*) die "bad GHJIG_EVIDENCE_TIMEOUT '${GHJIG_EVIDENCE_TIMEOUT}' — digits only, capped at 600" 1 ;;
+    esac
+    t="$GHJIG_EVIDENCE_TIMEOUT"
+    [ "$t" -le 600 ] || t=600
+  fi
+  outf="$TMPD/out"
+  flag="$TMPD/timedout"
+  # Own PROCESS GROUP via job control at spawn (`set -m`); stdout captured to
+  # a temp FILE (never a pipe); stderr passes through. The watchdog runs in
+  # its own group too, so killing it never leaves a stray sleep behind.
+  set -m
+  bash -c "$cmd" > "$outf" &
+  child=$!
+  (
+    sleep "$t"
+    : > "$flag"
+    kill -TERM -- "-$child" 2>/dev/null || true
+    sleep 5
+    kill -KILL -- "-$child" 2>/dev/null || true
+  ) &
+  wd=$!
+  set +m
+  wait "$child" || rc=$?
+  kill -TERM -- "-$wd" 2>/dev/null || true
+  wait "$wd" 2>/dev/null || true
+  if [ -e "$flag" ] && [ "$rc" -ne 0 ]; then
+    die "evidence command timed out after ${t}s (child rc=$rc); nothing emitted" 2
+  fi
+  [ "$rc" -eq 0 ] || die "evidence command failed: child rc=$rc; nothing emitted" 2
+  # Emission-time pin: HEAD/tree state AFTER the command ran.
+  pin=$(pin_line) || die "cannot resolve repo HEAD for the pin" 1
+  if [ -s "$outf" ] && [ -n "$(tail -c 1 "$outf")" ]; then
+    noeol=1
+  fi
+  printf '$ %s\n' "$cmd" > "$TMPD/cmdline"
+  fence=$(fence_for "$TMPD/cmdline" "$outf")
+  printf '%s\n' "$fence"
+  printf '$ %s\n' "$cmd"
+  cat -- "$outf"
+  [ -z "$noeol" ] || printf '\n\\ no-eol\n'
+  printf '%s\n' "$pin"
+  printf '%s\n' "$fence"
+}
+
 mode="${1:-}"
 case "$mode" in
   evidence)
-    die "evidence mode not implemented yet (#716 Phase C)" 1
+    shift
+    run_evidence "$@"
     ;;
   quote)
     die "quote mode not implemented yet (#716 Phase C)" 1
