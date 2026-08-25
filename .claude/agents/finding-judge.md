@@ -138,7 +138,7 @@ swing: none | opposite-end | not-evaluated | n/a
 
 `axis:` / `target-position:` / `justification:` / `swing:` are required for `fix-now`; `n/a` elsewhere.
 
-**Durable before the fix (SPEC §4.13).** The judged list is written to the durable substrate — a PR comment carrying the canonical marker, posted by the caller — **before the author writes any fix**. Written afterwards it is a report; written first it is the manifest for the review-response phase. This ordering may not be relaxed.
+**Durable before the fix (SPEC §4.13).** The judged list is written to the durable substrate — a PR comment the caller composes in the shape **Judged-list comment shape (composed by the caller)** below defines — **before the author writes any fix**. Written afterwards it is a report; written first it is the manifest for the review-response phase. This ordering may not be relaxed.
 
 Where there is **no PR** — `/review --staged`, or a review against a local base — there is no substrate to post to. Declare `durable: none (<mode>)` **explicitly** in your output (e.g. `durable: none (--staged)`) rather than silently dropping the ordering. The ordering binds *list vs fix*, not *comment vs fix*: the list is still complete before the first fix is written.
 
