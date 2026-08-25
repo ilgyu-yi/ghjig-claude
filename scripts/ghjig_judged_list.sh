@@ -15,10 +15,30 @@
 # mid-prose, a marker without the header, a concrete marker quoted mid-body —
 # counts for nothing and can never raise the round derivation's max.
 #
+# Two near-canonical classes on TRUSTED comments are surfaced as informational
+# `anomaly: …` lines on stderr: (a) a marker as the last content line with no
+# canonical header, (b) header and marker both position-bound but their rounds
+# disagreeing. Anomaly lines are never facts — the stdout grammar and the exit
+# codes are unchanged by them — and every other lookalike shape stays silent BY
+# DESIGN: position-binding is the forgery guard, and the anomaly channel must
+# not become an oracle for probing it.
+#
+# Round tokens are normalized to base-10 before any use (a leading-zero token
+# such as 08 is round 8), so shell arithmetic never sees an octal literal and
+# two comments claiming rounds 08 and 8 are one duplicate round (exit 3).
+#
 # Trusted-author filter: the jq select runs at the gh -q boundary and is
 # byte-identical to the literal `.claude/hooks/helpers/ac_closeout_gate.sh` and
 # `scripts/ac_closeout.sh` carry (parity is suite-checked structurally). A PR
 # comment is writable by anyone; an unfiltered read is an injection channel.
+#
+# Fetch: `gh pr view --json comments` paginates the FULL comment stream at
+# export time (cursor pagination; verified on gh 2.92.0, command + output
+# pinned in #713's Doc commit body), so the derivation reads every comment,
+# not a window. On a gh too old to paginate the export the residual is an
+# oldest-first window that silently hides the NEWEST rounds — a gh-version
+# dependence, not a script knob; the duplicate refusal (exit 3) still holds
+# over whatever stream gh returns.
 #
 # Modes:
 #   rounds   <pr>              one `round=<N> head=<sha>` fact per canonical
