@@ -175,6 +175,87 @@ run_evidence() {
   printf '%s\n' "$fence"
 }
 
+# has_nul <file> — true when the file carries a NUL byte (byte-count delta
+# across `tr -d '\0'`; shells' capture channels strip NUL, so a NUL-bearing
+# comparison could false-hit — refusal is the only safe answer).
+has_nul() {
+  local a b
+  a=$(wc -c < "$1") || return 2
+  b=$(LC_ALL=C tr -d '\0' < "$1" | wc -c) || return 2
+  [ "$a" -ne "$b" ]
+}
+
+run_quote() {
+  [ "$#" -eq 2 ] || usage
+  local path="$1" spanarg="$2" spanf srcf span pin fence hit rc line
+  local top dir dphys
+  spanf="$TMPD/span"
+  if [ "$spanarg" = "-" ]; then
+    cat > "$spanf" || die "cannot read span from stdin" 1
+  else
+    [ -f "$spanarg" ] || die "span file '$spanarg' not found" 1
+    cat -- "$spanarg" > "$spanf" || die "cannot read span file '$spanarg'" 1
+  fi
+  if has_nul "$spanf"; then
+    die "NUL byte in span — refused: a NUL-stripped comparison could false-hit" 1
+  fi
+  srcf="$TMPD/src"
+  if git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+    # TRACKED: the HEAD blob is the resolution source, even when the worktree
+    # copy diverged — the attestation binds to the pin, and a symlink entry
+    # yields its link text, never its target's content.
+    git show "HEAD:./$path" > "$srcf" 2>/dev/null \
+      || die "tracked path '$path' has no HEAD blob to resolve against" 1
+  else
+    # UNTRACKED: worktree read, only after the symlink-leaf refusal and the
+    # physical-directory containment check.
+    [ ! -L "$path" ] || die "refusing symlink leaf '$path' — a read-through cannot attest the attributed path" 1
+    [ -f "$path" ] || die "path '$path' is not a readable regular file" 1
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository" 1
+    top=$(cd "$top" && pwd -P) || die "cannot resolve the repository root physically" 1
+    dir=$(dirname -- "$path")
+    dphys=$(cd "$dir" 2>/dev/null && pwd -P) || die "cannot resolve the directory of '$path'" 1
+    case "$dphys/" in
+      "$top"/*) : ;;
+      *) die "path '$path' resolves outside the repository — containment refused" 1 ;;
+    esac
+    cat -- "$path" > "$srcf" || die "cannot read '$path'" 1
+  fi
+  if has_nul "$srcf"; then
+    die "NUL byte in the resolution source: refusing '$path'" 1
+  fi
+  # Trailing newlines of the span are not significant; NUL was refused above,
+  # so the capture channel is byte-safe for everything that remains.
+  span=$(cat -- "$spanf")
+  [ -n "$span" ] || die "empty span — nothing to resolve" 1
+  # Fixed-string byte match; span crosses into awk via ENVIRON (byte-safe
+  # minus NUL, already refused). awk exit 3 = miss; any other non-zero is a
+  # matcher failure (awk exec error, E2BIG) and fails CLOSED.
+  rc=0
+  hit=$(SPAN="$span" awk '
+    { src = src $0 "\n" }
+    END {
+      span = ENVIRON["SPAN"]
+      pos = index(src, span)
+      if (pos == 0) exit 3
+      pre = substr(src, 1, pos - 1)
+      print gsub(/\n/, "", pre) + 1
+    }' "$srcf") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    [ "$rc" -eq 3 ] || die "span matcher failed (rc=$rc) — fail-closed, neither a hit nor a silent miss" 1
+    die "quotation does not resolve: the span was not found in '$path'" 3
+  fi
+  line="$hit"
+  pin=$(pin_line) || die "cannot resolve repo HEAD for the pin" 1
+  printf '%s\n' "$span" > "$TMPD/spanshow"
+  fence=$(fence_for "$TMPD/spanshow")
+  printf '%s\n' "$fence"
+  printf '%s\n' "$span"
+  printf 'quoted from %s:%s\n' "$path" "$line"
+  printf '%s\n' "$pin"
+  printf '%s\n' "$fence"
+}
+
 mode="${1:-}"
 case "$mode" in
   evidence)
@@ -182,7 +263,8 @@ case "$mode" in
     run_evidence "$@"
     ;;
   quote)
-    die "quote mode not implemented yet (#716 Phase C)" 1
+    shift
+    run_quote "$@"
     ;;
   *)
     usage
