@@ -5577,3 +5577,336 @@ if [ -z "$s182d_miss" ]; then
 else
   ng "182d: .claude/CLAUDE.md's evidence-discipline pointer lost its §1.10 reference or a label —$s182d_miss (#705)"
 fi
+
+# ---------- §183: the judged-list comment shape, stated where the caller composes it (#711) ----------
+# Anchored at 43bf616 (the #711 Doc commit) and its parent 45d497b (merged main).
+# At 45d497b `.claude/agents/finding-judge.md` read-recipe step 2 tested an
+# incoming comment for BOTH a literal HTML marker AND a first line matching a
+# header regex, while `.claude/commands/review.md` / `ship.md` — the surfaces
+# that COMPOSE that comment — instructed the marker half only. 43bf616 states the
+# shape once, in the contract SSOT: a `fixture:canonical-comment` slice carrying
+# one exemplar (marker in PLACEHOLDER form, so a concrete instance in a
+# repository file can never be quoted into a judged-list comment and counted a
+# second time), and a `fixture:comment-envelope` block the judge renders with
+# `<N>` / `<sha>` ALREADY SUBSTITUTED, which the caller copies line-for-line.
+#
+# WHAT THIS BLOCK LOCKS, and the one thing it refuses to do: the header regex and
+# the marker template are EXTRACTED from read-recipe step 2's own rule line and
+# compared against the producer surfaces — NEITHER LITERAL IS WRITTEN ANYWHERE IN
+# THIS SUITE. A restated copy here would be the very §9 hand-sync the Issue
+# forbids, and §183d is the mechanical proof that no such copy exists: it
+# censuses the extracted literals across tracked files and demands a single
+# carrier, so a copy pasted into this file reds §183d rather than passing
+# unnoticed. The extraction anchors below are the phrases that INTRODUCE the
+# literals, never the literals themselves (the §182b LEAD/TAIL idiom).
+#
+# BOTH producer surfaces are round-tripped by §183b, not just the fixture. The
+# fixture is the exemplar a human reads; the ENVELOPE is what the caller actually
+# copies at runtime. Comparing only the fixture would let the envelope drift away
+# from the consumer test with every arm green — the same
+# presence-arm-that-cannot-see-the-composition defect this Issue is about,
+# reappearing one level in.
+#
+# Every function takes a FILE PATH (or a root) so the mutation fixtures and the
+# live arms run the SAME code (the §180c / §182c idiom), and every extraction is
+# guarded non-empty, so an emptied capture reds a named flag instead of passing
+# vacuously — the "silent skip on an absent target" anti-pattern
+# scripts/test/smoke.sh's own header names. NO LIVE FILE IS MUTATED: the mutation
+# witnesses for this block ran out-of-tree, against copies, through these same
+# functions.
+#
+# ENFORCEMENT FACE (§6.0 P1): suite-level, deliberately not a PreToolUse matcher.
+# SPEC §4.13 rules `finding-judge` a fail-open ADVISORY layer, and a matcher would
+# convert it into the blocker that ruling forbids — so a producer instruction
+# that stops matching the consumer test reds a run instead of blocking a call.
+S183_JUDGE="$SHELL_ROOT/.claude/agents/finding-judge.md"
+S183_CMD_DIR="$SHELL_ROOT/.claude/commands"
+S183_GATE="$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh"
+S183_RULE_MARKER_KEY='literal HTML marker `'
+S183_RULE_REGEX_KEY='first line matching `'
+# §183c's derivation key: the instruction that makes the judged list durable.
+# Deliberately the half the Code phase does NOT rewrite — it rewrites what
+# FOLLOWS it — so the producer set stays derived across the change.
+S183_PRODUCER_KEY='post the judged list to the PR'
+S183_COPY_KEY='verbatim'
+S183_RETIRED_DERIVATION='1 + canonical-marker count'
+S183_SUB_N=7       # the concrete round substituted for `<N>` in the round trip
+S183_SLICE_MAX=24  # slice bound — a runaway terminator would swallow far more
+
+s183_delim() {  # $1=fixture-name $2=start|end → that fixture's delimiter literal
+  printf '<!-- fixture:%s:%s -->' "$1" "$2"
+}
+s183_delim_count() {  # $1=file $2=fixture-name $3=start|end → occurrence count (0 on an absent file)
+  if [ ! -f "$1" ]; then printf '0'; return 0; fi
+  grep -cF -- "$(s183_delim "$2" "$3")" "$1" 2>/dev/null || :
+}
+s183_slice() {  # $1=file $2=fixture-name → the lines strictly between start and end; empty if start absent
+  [ -f "$1" ] || return 0
+  S183_S="$(s183_delim "$2" start)" S183_E="$(s183_delim "$2" end)" awk '
+    !f && index($0, ENVIRON["S183_S"]) > 0 { f=1; next }
+    f && index($0, ENVIRON["S183_E"]) > 0 { exit }
+    f { print }
+  ' "$1" 2>/dev/null
+}
+s183_slice_content() {  # $1=file $2=fixture-name → the slice's CONTENT lines (fence + blank lines dropped)
+  s183_slice "$1" "$2" | awk '$0 !~ /^```/ && $0 !~ /^[[:space:]]*$/'
+}
+s183_rule_field() {  # $1=file $2=intro-anchor → the backtick span read-recipe step 2 introduces with that anchor
+  [ -f "$1" ] || return 0
+  S183_KEY="$2" awk '
+    /^2\. / && !d {
+      k = ENVIRON["S183_KEY"]
+      i = index($0, k); if (i == 0) { d = 1; next }
+      r = substr($0, i + length(k)); j = index(r, "`"); if (j == 0) { d = 1; next }
+      print substr(r, 1, j - 1); d = 1
+    }
+  ' "$1" 2>/dev/null
+}
+s183_envelope_field() {  # $1=file $2=field-name → the RENDERED value the judge emits for that envelope field
+  s183_slice_content "$1" comment-envelope | S183_FLD="$2: " awk '
+    !d { k = ENVIRON["S183_FLD"]; if (index($0, k) == 1) { print substr($0, length(k) + 1); d = 1 } }
+  '
+}
+s183_shape_heading() {  # $1=file → the `## ` heading that OWNS the canonical-comment fixture (derived, never named)
+  [ -f "$1" ] || return 0
+  S183_S="$(s183_delim canonical-comment start)" awk '
+    /^## / { h = substr($0, 4) }
+    index($0, ENVIRON["S183_S"]) > 0 && h != "" { print h; exit }
+  ' "$1" 2>/dev/null
+}
+s183_gh_filter() {  # $1=file → the trusted-author `gh -q` jq filter, cut between `-q '` and its closing quote
+  [ -f "$1" ] || return 0
+  S183_QK="-q '" S183_QC="'" awk '
+    !d && index($0, "authorAssociation") > 0 {
+      k = ENVIRON["S183_QK"]; c = ENVIRON["S183_QC"]
+      i = index($0, k); if (i == 0) next
+      r = substr($0, i + length(k)); j = index(r, c); if (j == 0) next
+      print substr(r, 1, j - 1); d = 1
+    }
+  ' "$1" 2>/dev/null
+}
+s183_round_derivation() {  # $1=file → the first inline-code span on read-recipe step 3 (the form that step NAMES)
+  [ -f "$1" ] || return 0
+  awk '
+    /^3\. / && !d {
+      i = index($0, "`"); if (i == 0) { d = 1; next }
+      r = substr($0, i + 1); j = index(r, "`"); if (j == 0) { d = 1; next }
+      print substr(r, 1, j - 1); d = 1
+    }
+  ' "$1" 2>/dev/null
+}
+s183_producers() {  # $1=commands-dir → DERIVED (never listed): basenames instructing that the judged list be posted
+  ( cd "$1" 2>/dev/null && grep -lF -- "$S183_PRODUCER_KEY" ./*.md 2>/dev/null ) | sed 's|^\./||' | sort
+}
+s183_producer_line() {  # $1=file → that producer's durable-before-the-fix instruction line
+  grep -F -- "$S183_PRODUCER_KEY" "$1" 2>/dev/null | head -n 1
+}
+s183_header_matches() {  # $1=header line carrying `<N>` $2=extracted regex → rc 0 iff the SUBSTITUTED line matches
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  printf '%s\n' "${1//<N>/$S183_SUB_N}" | grep -qE -- "$2"
+}
+s183_census() {  # $1=root $2=literal → sorted TRACKED files carrying that literal; empty if git cannot enumerate
+  ( cd "$1" 2>/dev/null && git ls-files -z 2>/dev/null | xargs -0 grep -lF -- "$2" 2>/dev/null ) | sort
+}
+
+s183_anti_vacuity_flags() {  # $1=judge-file → ` <flag>` per failure; empty = green
+  if [ ! -f "$1" ]; then printf ' <183:a:judge-file-absent>'; return 0; fi
+  for s183_av_fx in canonical-comment comment-envelope; do
+    s183_av_s=$(s183_delim_count "$1" "$s183_av_fx" start)
+    s183_av_e=$(s183_delim_count "$1" "$s183_av_fx" end)
+    [ "$s183_av_s" = 1 ] || printf ' <183:a:%s:start-x%s>' "$s183_av_fx" "$s183_av_s"
+    [ "$s183_av_e" = 1 ] || printf ' <183:a:%s:end-x%s>' "$s183_av_fx" "$s183_av_e"
+    s183_av_n=$(s183_slice "$1" "$s183_av_fx" | awk 'END{print NR}')
+    if [ "${s183_av_n:-0}" -lt 1 ]; then
+      printf ' <183:a:%s:slice-empty>' "$s183_av_fx"
+    elif [ "$s183_av_n" -gt "$S183_SLICE_MAX" ]; then
+      printf ' <183:a:%s:slice-unbounded-x%s>' "$s183_av_fx" "$s183_av_n"
+    fi
+    [ "$(s183_slice_content "$1" "$s183_av_fx" | awk 'END{print NR}')" -ge 1 ] \
+      || printf ' <183:a:%s:no-content-lines>' "$s183_av_fx"
+  done
+  for s183_av_r in 'unresolved — non-canonical-marker' 'unresolved — slot-mismatch'; do
+    grep -qF -- "$s183_av_r" "$1" 2>/dev/null || printf ' <183:a:reason:%s>' "${s183_av_r##* }"
+  done
+}
+
+s183_roundtrip_flags() {  # $1=judge-file → ` <flag>` per failure; empty = green
+  if [ ! -f "$1" ]; then printf ' <183:b:judge-file-absent>'; return 0; fi
+  s183_rt_re=$(s183_rule_field "$1" "$S183_RULE_REGEX_KEY")
+  s183_rt_mk=$(s183_rule_field "$1" "$S183_RULE_MARKER_KEY")
+  [ -n "$s183_rt_re" ] || printf ' <183:b:extract:header-regex-empty>'
+  [ -n "$s183_rt_mk" ] || printf ' <183:b:extract:marker-template-empty>'
+  if [ -z "$s183_rt_re" ] || [ -z "$s183_rt_mk" ]; then return 0; fi
+  # (i) the FIXTURE exemplar — line 1 is the header, the last content line the marker.
+  s183_rt_fh=$(s183_slice_content "$1" canonical-comment | awk 'NR==1')
+  s183_rt_fm=$(s183_slice_content "$1" canonical-comment | awk 'END{if (NR > 0) print}')
+  if [ -z "$s183_rt_fh" ]; then printf ' <183:b:fixture:header-empty>'
+  elif ! s183_header_matches "$s183_rt_fh" "$s183_rt_re"; then printf ' <183:b:fixture:header>'; fi
+  if [ -z "$s183_rt_fm" ]; then printf ' <183:b:fixture:marker-empty>'
+  elif [ "$s183_rt_fm" != "$s183_rt_mk" ]; then printf ' <183:b:fixture:marker>'; fi
+  # (ii) the ENVELOPE's RENDERED lines — what the caller copies at runtime.
+  s183_rt_eh=$(s183_envelope_field "$1" comment-header)
+  s183_rt_em=$(s183_envelope_field "$1" comment-marker)
+  if [ -z "$s183_rt_eh" ]; then printf ' <183:b:envelope:header-empty>'
+  elif ! s183_header_matches "$s183_rt_eh" "$s183_rt_re"; then printf ' <183:b:envelope:header>'; fi
+  if [ -z "$s183_rt_em" ]; then printf ' <183:b:envelope:marker-empty>'
+  elif [ "$s183_rt_em" != "$s183_rt_mk" ]; then printf ' <183:b:envelope:marker>'; fi
+}
+
+s183_producer_flags() {  # $1=commands-dir $2=shape-heading → ` <flag>` per producer that composes instead of copying
+  if [ -z "$2" ]; then printf ' <183:c:heading-underivable>'; return 0; fi
+  for s183_pf in $(s183_producers "$1"); do
+    s183_pl=$(s183_producer_line "$1/$s183_pf")
+    if [ -z "$s183_pl" ]; then printf ' <183:c:%s:line-absent>' "$s183_pf"; continue; fi
+    printf '%s' "$s183_pl" | grep -qF -- "$2"             || printf ' <183:c:%s:no-shape-pointer>' "$s183_pf"
+    printf '%s' "$s183_pl" | grep -qF -- "$S183_COPY_KEY" || printf ' <183:c:%s:no-copy-instruction>' "$s183_pf"
+  done
+}
+s183_producer_floor_flags() {  # $1=commands-dir → ` <flag>` per FLOOR member missing from the DERIVED set
+  s183_pd=$(s183_producers "$1")
+  for s183_fl in review.md ship.md; do
+    printf '%s\n' "$s183_pd" | grep -qx -- "$s183_fl" || printf ' <183:c:floor-missing:%s>' "$s183_fl"
+  done
+}
+
+s183_negative_cut_flags() {  # $1=root $2=override-relpath ('' = none) $3=override-path → ` <flag>` per stray hit
+  for s183_nc_f in .claude/commands/review.md .claude/commands/ship.md SPEC.md docs/SUBAGENTS.md; do
+    s183_nc_p="$1/$s183_nc_f"
+    if [ -n "${2-}" ] && [ "$s183_nc_f" = "${2-}" ]; then s183_nc_p="${3-}"; fi
+    if [ -z "$s183_nc_p" ] || [ ! -f "$s183_nc_p" ]; then printf ' <183:e:%s:file-absent>' "$s183_nc_f"; continue; fi
+    for s183_nc_l in "$S183_HDR_RE" "$S183_HDR_RENDERED"; do
+      if [ -z "$s183_nc_l" ]; then printf ' <183:e:literal-empty>'; continue; fi
+      s183_nc_n=$(grep -cF -- "$s183_nc_l" "$s183_nc_p" 2>/dev/null || :)
+      [ "${s183_nc_n:-0}" = 0 ] || printf ' <183:e:%s:x%s>' "$s183_nc_f" "$s183_nc_n"
+    done
+  done
+}
+
+s183_census_flags() {  # $1=root $2=judge-relpath → ` <flag>` unless each lifted literal has that single carrier
+  for s183_cs_l in "$S183_HDR_RE" "$S183_HDR_RENDERED"; do
+    if [ -z "$s183_cs_l" ]; then printf ' <183:d:literal-empty>'; continue; fi
+    s183_cs_f=$(s183_census "$1" "$s183_cs_l")
+    s183_cs_n=$(printf '%s\n' "$s183_cs_f" | grep -c . || :)
+    if [ "${s183_cs_n:-0}" = 0 ]; then
+      printf ' <183:d:census-unavailable>'
+    elif [ "$s183_cs_n" != 1 ]; then
+      printf ' <183:d:carriers-x%s>' "$s183_cs_n"
+    elif [ "$s183_cs_f" != "$2" ]; then
+      printf ' <183:d:wrong-carrier:%s>' "$s183_cs_f"
+    fi
+  done
+}
+
+s183_derivation_flags() {  # $1=judge-file → ` <flag>` per failure of the derivation read-recipe step 3 NAMES
+  s183_dv=$(s183_round_derivation "$1")
+  if [ -z "$s183_dv" ]; then printf ' <183:g:derivation-unreadable>'; return 0; fi
+  case "$s183_dv" in *'max(round=)'*)        : ;; *) printf ' <183:g:not-max-of-round>' ;; esac
+  case "$s183_dv" in *'canonical comments'*) : ;; *) printf ' <183:g:not-over-canonical-comments>' ;; esac
+  case "$s183_dv" in *count*) printf ' <183:g:count-form-is-the-derivation>' ;; *) : ;; esac
+  s183_dv_n=$(grep -cF -- "$S183_RETIRED_DERIVATION" "$1" 2>/dev/null || :)
+  [ "${s183_dv_n:-0}" -le 1 ] || printf ' <183:g:retired-form-x%s>' "$s183_dv_n"
+}
+
+# The two lifted header literals §183d/§183e census and cut against. Lifted, not
+# written: `S183_HDR_RE` is read-recipe step 2's own regex, `S183_HDR_RENDERED`
+# is line 1 of the canonical-comment exemplar. Both are guarded non-empty at
+# every use site — an empty lift reds `<183:*:literal-empty>`, never passes.
+S183_HDR_RE=$(s183_rule_field "$S183_JUDGE" "$S183_RULE_REGEX_KEY")
+S183_HDR_RENDERED=$(s183_slice_content "$S183_JUDGE" canonical-comment | awk 'NR==1')
+
+# §183a (ANTI-VACUITY): the contract SSOT resolves; each fixture pair opens and
+# closes exactly once; each slice is non-empty AND bounded, so a runaway
+# terminator cannot swallow the file into a slice that then "matches"; and the
+# two `prior-round:` reasons this change makes observable are present.
+s183a_miss=$(s183_anti_vacuity_flags "$S183_JUDGE")
+if [ -z "$s183a_miss" ]; then
+  ok "183a: anti-vacuity — finding-judge.md carries the canonical-comment and comment-envelope fixture pairs exactly once each, both slices non-empty and bounded, and both new prior-round reasons stand (#711)"
+else
+  ng "183a: a judged-list fixture slice is missing, duplicated, empty or unbounded, or a prior-round reason vanished —$s183a_miss (#711)"
+fi
+
+# §183b (THE ROUND TRIP — the core lock): the header regex and the marker
+# template are LIFTED from read-recipe step 2's own rule line, then BOTH producer
+# surfaces are compared against them — the fixture exemplar (line 1 under `<N>`
+# substitution; last content line byte-identical to the template) AND the
+# envelope's RENDERED `comment-header:` / `comment-marker:` values, which are what
+# the caller copies. Nothing is restated: an empty lift reds `<183:b:extract:…>`.
+s183b_miss=$(s183_roundtrip_flags "$S183_JUDGE")
+if [ -z "$s183b_miss" ]; then
+  ok "183b: round trip — the header regex and marker template lifted from read-recipe step 2 accept BOTH producer surfaces: the canonical-comment exemplar and the envelope's rendered lines (#711)"
+else
+  ng "183b: a producer surface no longer satisfies the consumer test lifted from read-recipe step 2 (or the lift came back empty) —$s183b_miss (#711)"
+fi
+
+# §183c (THE PRODUCER INSTRUCTION): every surface that instructs the judged list
+# be posted must point at the shape section BY HEADING — the heading itself
+# derived as the one owning the canonical-comment fixture, never named here — and
+# must instruct a VERBATIM COPY of the judge's rendered lines. A producer that
+# leaves its composer to place a round number into two slots is what this arm
+# reds; two slots filled from one scalar can disagree, and the consumer test then
+# rejects the comment its own flow produced. The producer set is DERIVED by
+# `grep -l` over the command files and count-guarded, so an emptied set cannot
+# green "every producer"; review.md and ship.md are asserted as a FLOOR, not a
+# roster (SPEC.md:594 licenses a roster inside a test assertion).
+s183c_heading=$(s183_shape_heading "$S183_JUDGE")
+s183c_n=$(s183_producers "$S183_CMD_DIR" | awk 'END{print NR}')
+s183c_miss="$(s183_producer_floor_flags "$S183_CMD_DIR")$(s183_producer_flags "$S183_CMD_DIR" "$s183c_heading")"
+if [ "${s183c_n:-0}" -lt 2 ]; then
+  ng "183c: count-guard — the derived judged-list producer set holds ${s183c_n:-0} member(s), below the two-member floor, so 'every producer carries the copy instruction' would be vacuous; flags:${s183c_miss:- <none>} (#711)"
+elif [ -z "$s183c_miss" ]; then
+  ok "183c: producer instruction — all $s183c_n derived judged-list producers point at the shape section by heading and instruct a verbatim copy of the judge's rendered lines (#711)"
+else
+  ng "183c: a judged-list producer does not point at the shape section by heading, or still leaves its composer to compose the comment instead of copying the judge's rendered lines —$s183c_miss (#711)"
+fi
+
+# §183d (ONE-FILE CENSUS): each lifted literal resolves in exactly ONE tracked
+# file, and that file is the contract SSOT. This is what FORCES §183b's
+# extract-then-compare: a literal restated in this suite — or hand-synced into a
+# caller — makes the census return a second carrier and reds here.
+s183d_miss=$(s183_census_flags "$SHELL_ROOT" '.claude/agents/finding-judge.md')
+if [ -z "$s183d_miss" ]; then
+  ok "183d: one-file census — both lifted header literals resolve in exactly one tracked file, .claude/agents/finding-judge.md, so no hand-synced second copy exists (§9) (#711)"
+else
+  ng "183d: a judged-list header literal is carried by other than exactly the contract SSOT — a second hand-synced copy, or an unreadable census —$s183d_miss (#711)"
+fi
+
+# §183e (NEGATIVE CUTS, §9): zero hits of either lifted header literal in the two
+# callers, SPEC.md, and docs/SUBAGENTS.md. Those surfaces REFERENCE the shape; a
+# surface that starts carrying the string is the hand-sync §183d measures
+# tree-wide, caught here at the specific files §9 governs. Fail-closed on an
+# absent file — a vanished surface is not a pass.
+s183e_miss=$(s183_negative_cut_flags "$SHELL_ROOT" '' '')
+if [ -z "$s183e_miss" ]; then
+  ok "183e: negative cuts — review.md, ship.md, SPEC.md and docs/SUBAGENTS.md carry zero bytes of either header literal; they reference the shape, never restate it (§9) (#711)"
+else
+  ng "183e: a header literal has been copied into a caller, SPEC.md or docs/SUBAGENTS.md (or the surface vanished) —$s183e_miss (#711)"
+fi
+
+# §183f (THE UNTOUCHED READ): the trusted-author `gh -q` filter is cut from the
+# judge's read recipe and from helpers/ac_closeout_gate.sh and compared
+# byte-for-byte. #711 changes what the comment LOOKS like, never WHICH comments
+# are ingested; a widened `authorAssociation` set would turn a PR comment —
+# writable by anyone — into an injection channel straight into the judge's input.
+s183f_a=$(s183_gh_filter "$S183_JUDGE")
+s183f_b=$(s183_gh_filter "$S183_GATE")
+if [ -z "$s183f_a" ] || [ -z "$s183f_b" ]; then
+  ng "183f: the trusted-author gh -q filter could not be cut from both carriers (judge:${s183f_a:+present}${s183f_a:-ABSENT} gate:${s183f_b:+present}${s183f_b:-ABSENT}) — the ingestion filter is UNTESTED, not unchanged (#711)"
+elif [ "$s183f_a" = "$s183f_b" ]; then
+  ok "183f: untouched read — finding-judge.md's trusted-author gh -q filter is byte-identical to helpers/ac_closeout_gate.sh's, so the shape change cannot have widened comment ingestion (#711)"
+else
+  ng "183f: finding-judge.md's trusted-author gh -q filter has diverged from helpers/ac_closeout_gate.sh's — comment ingestion may have been widened (#711)"
+fi
+
+# §183g (THE DERIVATION): read-recipe step 3 must NAME `1 + max(round=)` over
+# canonical comments, and the retired marker-count form must not BE that
+# derivation. A count of markers runs short whenever a historical non-canonical
+# comment exists and re-issues a live round number — the collision a judged round
+# on PR #706 had to override. The arm reads the first inline-code span on step 3
+# (the form the step names) and bounds how often the retired string may appear in
+# the file at all, so it cannot be reinstated in a second place.
+s183g_miss=$(s183_derivation_flags "$S183_JUDGE")
+if [ -z "$s183g_miss" ]; then
+  ok "183g: derivation — read-recipe step 3 names 1 + max(round=) over canonical comments, and the retired marker-count form is nowhere the derivation (#711)"
+else
+  ng "183g: read-recipe step 3 no longer names the max-of-round derivation, or the retired marker-count form has been reinstated —$s183g_miss (#711)"
+fi
