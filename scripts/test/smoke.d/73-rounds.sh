@@ -34,10 +34,14 @@ if false; then . "$(dirname "${BASH_SOURCE[0]}")/_preamble.sh"; fi
 #     not: membership and order both come from `mergedAt` (over-fetch, sort
 #     desc, cut to M, emit oldest→newest), resolved via
 #     `gh pr list --state merged --limit <over-fetch> --json number,mergedAt`.
+#     M is read in base 10, so a leading-zero M is its decimal magnitude and the
+#     over-fetch of `--recent 08` is 4×8.
 #   * single code home — the shipped script carries NO header/marker literal of
 #     its own: the canonicity test lives only in the child.
-#   * usage — no arguments is a usage error: exit 1, the usage text on stderr,
-#     nothing on stdout.
+#   * usage — an empty input set and a non-numeric PR argument are both usage
+#     errors: exit 1, the usage text on stderr, nothing on stdout. The explicit
+#     list is validated in full BEFORE any PR is reported, so a rejected argv
+#     leaves stdout byte-empty even when an earlier argument was reportable.
 # Exit codes pinned: 0 whenever the sweep ran (per-PR failures are reported) ·
 # 1 usage error.
 #
@@ -454,5 +458,54 @@ else
     ok "185j: usage — no arguments exits 1 with both input routes named on stderr and nothing on stdout (#721)"
   else
     ng "185j: the no-argument invocation is not a stderr usage error —$s185r_j_miss (#721)"
+  fi
+fi
+
+# §185k (USAGE — THE EXPLICIT LIST IS VALIDATED BEFORE ANYTHING IS REPORTED,
+# born GREEN): on the explicit-list route the whole argument vector is checked
+# before the first PR is reported, so an invocation whose FIRST argument is a
+# perfectly reportable PR and whose second is non-numeric exits 1 with the usage
+# text on stderr and stdout BYTE-EMPTY — the reportable PR's line is never
+# emitted ahead of the rejection. The reportable-PR-first argv is what pins the
+# ORDERING: a lone bad argument would red on nothing but the exit code, while
+# exit 1 after a partial report would contradict the exit-code contract, under
+# which 1 means the sweep never started and a fabricated `pr=` line on stdout
+# would be read as a swept PR.
+if [ -n "$S185R_UNREADY" ]; then
+  ng "185k: usage — validate-before-emit on the explicit list not exercised: $S185R_UNREADY (fail-closed red, not a skip) (#721)"
+else
+  s185r_k_out=$(s185r_run - "$S185R_DIR/err_k" 42 notanum); s185r_k_rc=$?
+  s185r_k_miss=""
+  [ "$s185r_k_rc" = 1 ] || s185r_k_miss="$s185r_k_miss <rc=$s185r_k_rc!=1>"
+  [ -z "$s185r_k_out" ] || s185r_k_miss="$s185r_k_miss <stdout-not-empty:[$(s185r_flat "$s185r_k_out")]>"
+  grep -q '^usage: ghjig_rounds.sh <pr>' "$S185R_DIR/err_k" \
+    || s185r_k_miss="$s185r_k_miss <usage-line-missing-on-stderr>"
+  if [ -z "$s185r_k_miss" ]; then
+    ok "185k: usage — a reportable PR followed by a non-numeric argument exits 1 with usage on stderr and byte-empty stdout: no report precedes the rejection (#721)"
+  else
+    ng "185k: a non-numeric argument in the explicit list was not rejected ahead of emission —$s185r_k_miss (#721)"
+  fi
+fi
+
+# §185l (--recent — M IS A DECIMAL MAGNITUDE, born GREEN): a leading-zero M is
+# read in base 10, so `--recent 08` is eight and resolves its window with the
+# 4×M over-fetch of eight — `--limit 32` on the resolution — and exits 0. Read
+# as a shell numeric literal instead, `08` is an octal literal with no valid
+# value, so the window resolves to nothing at all. The --limit is taken from the
+# stub's RECORDED argv (the §185g/§185h idiom), so what is asserted is the
+# resolution actually sent rather than a computed intent.
+if [ -n "$S185R_UNREADY" ]; then
+  ng "185l: --recent — the base-10 reading of M not exercised: $S185R_UNREADY (fail-closed red, not a skip) (#721)"
+else
+  s185r_run "$S185R_FX/list_win.json" "$S185R_DIR/err_l" --recent 08 >/dev/null; s185r_l_rc=$?
+  s185r_l_lim=$(grep '^pr list ' "$S185R_LOG" 2>/dev/null | head -n 1 \
+    | awk '{for (i = 1; i < NF; i++) if ($i == "--limit") print $(i + 1)}' | head -n 1)
+  s185r_l_miss=""
+  [ "$s185r_l_rc" = 0 ] || s185r_l_miss="$s185r_l_miss <rc=$s185r_l_rc!=0>"
+  [ "${s185r_l_lim:-none}" = 32 ] || s185r_l_miss="$s185r_l_miss <resolution-limit=${s185r_l_lim:-none}!=32(4x8)>"
+  if [ -z "$s185r_l_miss" ]; then
+    ok "185l: --recent — a leading-zero M is decimal: --recent 08 over-fetches 4×8 (--limit 32 on the recorded resolution) and exits 0 (#721)"
+  else
+    ng "185l: M is not read in base 10 (a leading-zero M is not its decimal magnitude) —$s185r_l_miss (#721)"
   fi
 fi
