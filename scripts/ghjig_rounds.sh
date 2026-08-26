@@ -13,7 +13,7 @@
 #
 # Usage:
 #   ghjig_rounds.sh <pr> [<pr>…]   report those PRs, in the order given
-#   ghjig_rounds.sh --recent <M>   report the M most recently MERGED PRs
+#   ghjig_rounds.sh --recent <M>   report up to M of the most recently MERGED PRs
 #
 # Output (stdout), one line per PR then one trend line:
 #   pr=<N> rounds=<K>                  K judged rounds (K=0 when none)
@@ -38,19 +38,20 @@
 # undercounts (markers {1,3} would report 2). When the fact-line count and
 # `next − 1` disagree, that gap is reported as an informational `anomaly:` line
 # on stderr; anomaly output is never a fact, never changes a reported round
-# count, and never touches the exit code.
+# count, and never touches the exit code. The child's stderr is forwarded
+# verbatim, so its own two anomaly classes share this prefix and — unlike the
+# line above — carry no `pr=`; on a multi-PR sweep a child anomaly is therefore
+# not attributable to a PR from the output alone.
 #
 # Window resolution (`--recent <M>`) is MERGE-ORDERED, which the listing API is
 # not: `gh pr list --state merged` returns createdAt-descending, so both the
 # membership of a `--limit M` window and the order within it can disagree with
 # merge order — a long-lived PR that merged late sits below PRs that merged
 # earlier, which would bias the very trend this instrument reports. So the
-# window is over-fetched, sorted by `mergedAt` descending, cut to M, and
+# window is over-fetched, sorted by `mergedAt` descending, cut to at most M, and
 # emitted oldest→newest. The over-fetch is 4×M with a floor of 20 and a cap of
-# 200 (never below M) — wide enough that the window is not a listing prefix,
-# bounded so one report cannot fetch unboundedly; a merge older than the fetched
-# page is out of reach by that cap, not by a knob. The resolution runs ONCE per
-# invocation. The resolution command, verbatim:
+# 200 (never below M) — wide enough that the window is not a listing prefix.
+# The resolution runs ONCE per invocation. The resolution command, verbatim:
 #
 #   gh pr list --state merged --limit <over-fetch> --json number,mergedAt
 #
@@ -63,8 +64,10 @@
 # as does a child that exits 0 without a parsable `next=` (reported `rc=0`).
 #
 # Exit codes: 0 whenever the sweep ran — a PR whose derivation failed is
-# REPORTED, never fatal (fail-open reporter) · 1 usage error, or a `--recent`
-# window that could not be resolved at all. Nothing here fails closed: this is
+# REPORTED, never fatal (fail-open reporter) · 1 anything that prevented the
+# sweep from starting at all — a usage error, an absent dependency, an
+# unreachable code home, or a `--recent` window that could not be resolved.
+# A per-PR derivation failure is never one of these. Nothing here fails closed: this is
 # an advisory reporter, and evidence/gates elsewhere keep their own posture.
 set -euo pipefail
 
@@ -72,8 +75,8 @@ PROG="ghjig_rounds"
 
 # The over-fetch of the `--recent` listing: the window is decided by mergedAt,
 # so the fetch must reach PAST the M topmost createdAt-descending entries or the
-# window could only ever be a listing prefix. Factor 4 with a floor, capped so a
-# large M cannot turn one report into an unbounded fetch; never below M itself.
+# window could only ever be a listing prefix. Factor 4, with a floor, a cap, and
+# never below M itself.
 OVERFETCH_FACTOR=4
 OVERFETCH_FLOOR=20
 OVERFETCH_CAP=200
@@ -83,7 +86,7 @@ die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-1}"; }
 usage() {
   cat >&2 <<'EOF'
 usage: ghjig_rounds.sh <pr> [<pr>...]   report those PRs in the order given
-       ghjig_rounds.sh --recent <M>     report the M most recently merged PRs
+       ghjig_rounds.sh --recent <M>     report up to M of the most recently merged PRs
 output: one `pr=<N> rounds=<K|ambiguous(duplicate)|error(rc=<rc>)>` line per PR, then `trend: ...`
 exit codes: 0 the sweep ran (per-PR failures are reported) / 1 usage or unresolvable window
 EOF
@@ -140,11 +143,17 @@ report_pr() {
   TREND="${TREND:+$TREND }$tok"
 }
 
-# resolve_recent <M> — print the M most recently MERGED PR numbers, oldest
-# first. Merge order is not listing order, so the listing is over-fetched,
-# sorted by mergedAt descending, cut to M, and re-reversed. One `pr list` call.
+# resolve_recent <M> — print up to M of the most recently MERGED PR numbers,
+# oldest first. Merge order is not listing order, so the listing is over-fetched,
+# sorted by mergedAt descending, cut to at most M, and re-reversed. One `pr list`
+# call. The listing can hold fewer than M merged PRs, and the trend line's one
+# token per reported PR is what states the sample actually reported.
 resolve_recent() {
-  local m="$1" over json nums
+  local m over json nums
+  # Base-10 lift before any arithmetic: is_num admits a leading zero, which bash
+  # would read as octal. The child code home states the same rule at its own
+  # lift seam; this consumer is one hop from that guard.
+  m=$((10#$1))
   over=$((m * OVERFETCH_FACTOR))
   [ "$over" -ge "$OVERFETCH_FLOOR" ] || over="$OVERFETCH_FLOOR"
   [ "$over" -le "$OVERFETCH_CAP" ] || over="$OVERFETCH_CAP"
@@ -174,6 +183,12 @@ EOF
     ;;
   -*) usage ;;
   *)
+    # Validate every argument BEFORE any is reported: a non-numeric argument is a
+    # usage error, and exit 1 means the sweep never started (see the exit codes
+    # above), so it must not follow a partially emitted report.
+    for apr in "$@"; do
+      is_num "$apr" || usage
+    done
     for apr in "$@"; do
       report_pr "$apr"
     done
