@@ -4330,7 +4330,10 @@ if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
 #   - 4 MB as 60 000 short lines, one span — the file-size axis.
 #   - the SAME 4 MB as ONE line: the per-record normalisation is quadratic in line
 #     length, so a one-line file never entered the trim loop (0.32 s at 256 KB
-#     doubling cleanly to 66.9 s at 4 MB). Reachable with nothing planted — a minified
+#     doubling cleanly to 66.9 s at 4 MB — #677's figure on its own host; this
+#     arm's own measurement of the same axis at the pre-fix blob fca2e4b is
+#     26.7 s, and that is the figure the 5 s bound below derives from).
+#     Reachable with nothing planted — a minified
 #     bundle, a one-line JSON dump, an inlined SVG.
 #   - 30 spans against the same file — the multiplier a one-span arm cannot see.
 #   - a 1.6 MB BODY on one line: the extractor's own scan is quadratic in one BODY
@@ -4338,8 +4341,25 @@ if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
 #     the cited artifact's lines were capped (measured: 118 s in extraction alone).
 #   - 250 spans against the span-count cap: rungs 1 and 3 fork a git process per span,
 #     so a GitHub-legal 64 KB body of minimal spans ran for two minutes.
-# The bounds are deliberately loose (20 s) — they separate linear from quadratic by
-# more than an order of magnitude without pinning machine speed.
+# Each leg's bound is set from ITS OWN measured pair (#694): at least 4x above that
+# leg's healthy cost and at least 4x below its pre-fix cost, both measured at
+# d376190 on arm64 macOS, the pre-fix half against the pre-bounding reader blob
+# (fca2e4b) or with that leg's own cap lifted. many-line 0.56 s / >120 s -> 15;
+# one-line 0.29 s / 26.7 s -> 5; 30-span 5.63 s / >400 s -> 60; body-line
+# 0.20 s / 28.3 s -> 5. A single uniform bound cannot be stated: the healthy-to-
+# pre-fix figures differ by three orders of magnitude across the legs, so one
+# number is either loose enough to miss a regression or tight enough to red a
+# healthy host.
+# The 250-span leg carries NO clock bound. Its measured pair is 19.9 s / 24.9 s -
+# a 1.25x window. A bound CAN be placed inside a gap that narrow on one host, but
+# it cannot be placed safely: no value clears the 4x floor both sides, and any
+# value inside a 1.25x window pins machine speed to within 25%. The 20 s bound it
+# used to carry is the proof - this host measures 19.9 s and redded on a healthy
+# tree (#694). Its guard is `s174h_clsC -eq 200`, which asserts the cap actually
+# truncated 250 spans to 200: that is the mechanism bounding the cost, and it is
+# machine-independent. What retiring the clock gives up is the class where per-span
+# work becomes uniformly slower while the cap still truncates - the cap bounds the
+# NUMBER of forks, not the cost of each. Stated rather than covered (SPEC 1.11 L3).
 # §174j shares this repo, so it is nested here — but its ng path is duplicated into
 # BOTH guard arms below. Nested inside the success branch alone it emitted neither ok
 # nor ng when the precondition failed, so the suite would report fail=0 with one fewer
@@ -4390,14 +4410,14 @@ else
   s174h_t0=$SECONDS
   s174h_clsC=$(s174_count 'unresolved' "$(bash "$S174_CHECKER" "$S174H_WORK/probeC.md" 2>/dev/null)")
   s174h_elC=$(( SECONDS - s174h_t0 ))
-  if [ "$s174h_el" -lt 20 ] && [ "$s174h_cls" -eq 1 ] \
-     && [ "$s174h_el1" -lt 20 ] && [ "$s174h_cls1" -eq 1 ] \
-     && [ "$s174h_elN" -lt 20 ] && [ "$s174h_clsN" -eq 30 ] \
-     && [ "$s174h_elB" -lt 20 ] \
-     && [ "$s174h_elC" -lt 20 ] && [ "$s174h_clsC" -eq 200 ]; then
-    ok "174h: 4 MB as 60 000 lines (${s174h_el}s), the same 4 MB as ONE line (${s174h_el1}s), 30 spans against it (${s174h_elN}s), a 1.6 MB single-line BODY (${s174h_elB}s) and 250 spans capped to 200 (${s174h_elC}s) all finish inside the bound — every factor of the product is capped (PR #677)"
+  if [ "$s174h_el" -lt 15 ] && [ "$s174h_cls" -eq 1 ] \
+     && [ "$s174h_el1" -lt 5 ] && [ "$s174h_cls1" -eq 1 ] \
+     && [ "$s174h_elN" -lt 60 ] && [ "$s174h_clsN" -eq 30 ] \
+     && [ "$s174h_elB" -lt 5 ] \
+     && [ "$s174h_clsC" -eq 200 ]; then
+    ok "174h: 4 MB as 60 000 lines (${s174h_el}s < 15), the same 4 MB as ONE line (${s174h_el1}s < 5), 30 spans against it (${s174h_elN}s < 60) and a 1.6 MB single-line BODY (${s174h_elB}s < 5) each finish inside ITS OWN measured bound; 250 spans are bounded by the cap, not the clock — classified ${s174h_clsC} of 250 (PR #677, #694)"
   else
-    ng "174h: every factor of the cost must be bounded under 20s — 4 MB many-line (1 unresolved), 4 MB one-line (1 unresolved), 30 spans (30 unresolved), a 1.6 MB one-line body, and 250 spans classified down to the 200 cap — got many=${s174h_el}s/$s174h_cls oneline=${s174h_el1}s/$s174h_cls1 multi=${s174h_elN}s/$s174h_clsN bodyline=${s174h_elB}s spancount=${s174h_elC}s/$s174h_clsC (PR #677)"
+    ng "174h: every factor of the cost must be bounded — many-line <15s (1 unresolved), one-line <5s (1 unresolved), 30 spans <60s (30 unresolved), a 1.6 MB one-line body <5s, and 250 spans truncated by the cap to 200 (no clock bound on that leg, #694) — got many=${s174h_el}s/$s174h_cls oneline=${s174h_el1}s/$s174h_cls1 multi=${s174h_elN}s/$s174h_clsN bodyline=${s174h_elB}s spancount=${s174h_clsC} classified in ${s174h_elC}s (PR #677, #694)"
   fi
 
   # §174j (EVERY BOUND THE READER REACHES, IT STATES, #677) — the anti-silence arm,
