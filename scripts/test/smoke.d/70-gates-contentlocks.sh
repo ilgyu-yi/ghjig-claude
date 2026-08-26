@@ -4330,7 +4330,10 @@ if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
 #   - 4 MB as 60 000 short lines, one span — the file-size axis.
 #   - the SAME 4 MB as ONE line: the per-record normalisation is quadratic in line
 #     length, so a one-line file never entered the trim loop (0.32 s at 256 KB
-#     doubling cleanly to 66.9 s at 4 MB). Reachable with nothing planted — a minified
+#     doubling cleanly to 66.9 s at 4 MB — #677's figure on its own host; this
+#     arm's own measurement of the same axis at the pre-fix blob fca2e4b is
+#     26.7 s, and that is the figure the 5 s bound below derives from).
+#     Reachable with nothing planted — a minified
 #     bundle, a one-line JSON dump, an inlined SVG.
 #   - 30 spans against the same file — the multiplier a one-span arm cannot see.
 #   - a 1.6 MB BODY on one line: the extractor's own scan is quadratic in one BODY
@@ -4343,14 +4346,16 @@ if [ -n "$S174G_DIR" ] && [ -d "$S174G_DIR" ]; then rm -rf "$S174G_DIR"; fi
 # d376190 on arm64 macOS, the pre-fix half against the pre-bounding reader blob
 # (fca2e4b) or with that leg's own cap lifted. many-line 0.56 s / >120 s -> 15;
 # one-line 0.29 s / 26.7 s -> 5; 30-span 5.63 s / >400 s -> 60; body-line
-# 0.20 s / 28.3 s -> 5. A single
-# uniform bound cannot be stated: the figures differ by three orders of magnitude
-# across the legs, so one number is either loose enough to miss a regression or
-# tight enough to red a healthy host.
+# 0.20 s / 28.3 s -> 5. A single uniform bound cannot be stated: the healthy-to-
+# pre-fix figures differ by three orders of magnitude across the legs, so one
+# number is either loose enough to miss a regression or tight enough to red a
+# healthy host.
 # The 250-span leg carries NO clock bound. Its measured pair is 19.9 s / 24.9 s -
-# a 1.25x window, inside $SECONDS' own +/-1 s quantisation - so no bound separates
-# healthy from pre-fix there, and the 20 s bound it used to carry redded healthy
-# hosts (#694). Its guard is `s174h_clsC -eq 200`, which asserts the cap actually
+# a 1.25x window. A bound CAN be placed inside a gap that narrow on one host, but
+# it cannot be placed safely: no value clears the 4x floor both sides, and any
+# value inside a 1.25x window pins machine speed to within 25%. The 20 s bound it
+# used to carry is the proof - this host measures 19.9 s and redded on a healthy
+# tree (#694). Its guard is `s174h_clsC -eq 200`, which asserts the cap actually
 # truncated 250 spans to 200: that is the mechanism bounding the cost, and it is
 # machine-independent. What retiring the clock gives up is the class where per-span
 # work becomes uniformly slower while the cap still truncates - the cap bounds the
