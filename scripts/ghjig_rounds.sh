@@ -13,7 +13,7 @@
 #
 # Usage:
 #   ghjig_rounds.sh <pr> [<pr>…]   report those PRs, in the order given
-#   ghjig_rounds.sh --recent <M>   report up to M of the most recently MERGED PRs
+#   ghjig_rounds.sh --recent <M>   report up to M of the most recent MERGED PRs
 #
 # Output (stdout), one line per PR then one trend line:
 #   pr=<N> rounds=<K>                  K judged rounds (K=0 when none)
@@ -50,8 +50,8 @@
 # earlier, which would bias the very trend this instrument reports. So the
 # window is over-fetched, sorted by `mergedAt` descending, cut to at most M, and
 # emitted oldest→newest. The over-fetch is 4×M with a floor of 20 and a cap of
-# 200 (never below M) — wide enough that the window is not a listing prefix.
-# The resolution runs ONCE per invocation. The resolution command, verbatim:
+# 200 (never below M). The resolution runs ONCE per invocation. The resolution
+# command, verbatim:
 #
 #   gh pr list --state merged --limit <over-fetch> --json number,mergedAt
 #
@@ -67,16 +67,16 @@
 # REPORTED, never fatal (fail-open reporter) · 1 anything that prevented the
 # sweep from starting at all — a usage error, an absent dependency, an
 # unreachable code home, or a `--recent` window that could not be resolved.
-# A per-PR derivation failure is never one of these. Nothing here fails closed: this is
-# an advisory reporter, and evidence/gates elsewhere keep their own posture.
+# A per-PR derivation failure is never one of these. Nothing here fails
+# closed: this is an advisory reporter, and evidence/gates elsewhere keep
+# their own posture.
 set -euo pipefail
 
 PROG="ghjig_rounds"
 
 # The over-fetch of the `--recent` listing: the window is decided by mergedAt,
-# so the fetch must reach PAST the M topmost createdAt-descending entries or the
-# window could only ever be a listing prefix. Factor 4, with a floor, a cap, and
-# never below M itself.
+# not by listing position, so the fetch is widened before it is sorted and cut.
+# Factor 4, with a floor, a cap, and never below M itself.
 OVERFETCH_FACTOR=4
 OVERFETCH_FLOOR=20
 OVERFETCH_CAP=200
