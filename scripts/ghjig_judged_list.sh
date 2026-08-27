@@ -40,17 +40,36 @@
 # dependence, not a script knob; the duplicate refusal (exit 3) still holds
 # over whatever stream gh returns.
 #
-# Modes:
-#   rounds   <pr>              one `round=<N> head=<sha>` fact per canonical
-#                              comment, then `next=<N>` (1 + max, zero → 1).
-#   show     <pr> <round>      print that canonical comment's body.
-#   post     <pr> <judge-file> validate the judge output (first line must be
-#                              `reviewed-head: <hex sha>`; an n/a head, a
-#                              double-wrap header, or a smuggled concrete
-#                              marker each reject), derive the round, compose
-#                              header + body + marker, neutralize @mentions,
-#                              self-validate, post ONCE via --body-file.
-#   validate <pr> <body-file>  the composed-body validator post runs on itself.
+# Substrate seam (#707, SPEC §4.13 "One role, two substrates"): the durable
+# substrate is selected by ONE discriminator — the flag `--issue`, between the
+# mode word and the number — and it varies exactly three things: the fetch
+# command (`gh issue view` for `gh pr view`), the post target (`gh issue
+# comment` for `gh pr comment`), and the pin-form arm. On the Issue substrate
+# the first-line `reviewed-head:` field carries a bare-hex sha256 PREFIX
+# (7–40 hex — the same first-line bound, no second pin grammar) of the Issue
+# body as the `-q .body` command substitution returns it (trailing newlines
+# stripped); `post` recomputes the live-body digest and REFUSES a stale pin —
+# the body advanced under the judgment, the gap a head pin cannot see (#723).
+# Everything above the fetch — canonicity, round derivation, composition,
+# validation — is substrate-independent.
+#
+# Modes (each accepts `--issue` before the number to select the Issue
+# substrate; without it the substrate is the PR):
+#   rounds   [--issue] <n>              one `round=<N> head=<sha>` fact per
+#                              canonical comment, then `next=<N>` (1 + max,
+#                              zero → 1).
+#   show     [--issue] <n> <round>      print that canonical comment's body.
+#   post     [--issue] <n> <judge-file> validate the judge output (first line
+#                              must be `reviewed-head: <hex sha>`; an n/a
+#                              head, a double-wrap header, or a smuggled
+#                              concrete marker each reject; on the Issue
+#                              substrate a pin that no longer prefixes the
+#                              live-body digest also rejects), derive the
+#                              round, compose header + body + marker,
+#                              neutralize @mentions, self-validate, post ONCE
+#                              via --body-file.
+#   validate [--issue] <n> <body-file>  the composed-body validator post runs
+#                              on itself.
 #
 # Exit codes: 0 ok · 1 reject/failure · 2 show miss · 3 duplicate canonical
 # round (an ambiguity is surfaced, never silently picked). Every failure is
@@ -63,11 +82,12 @@ die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-1}"; }
 
 usage() {
   cat >&2 <<'EOF'
-usage: ghjig_judged_list.sh <mode> <args...>
-  rounds   <pr>               enumerate canonical rounds: round=<N> head=<sha> facts, then next=<N>
-  show     <pr> <round>       print that canonical round's comment body
-  post     <pr> <judge-file>  compose, validate, and post the next round's judged-list comment
-  validate <pr> <body-file>   validate a composed comment body (shape + history collision)
+usage: ghjig_judged_list.sh <mode> [--issue] <args...>
+  rounds   [--issue] <n>              enumerate canonical rounds: round=<N> head=<sha> facts, then next=<N>
+  show     [--issue] <n> <round>      print that canonical round's comment body
+  post     [--issue] <n> <judge-file> compose, validate, and post the next round's judged-list comment
+  validate [--issue] <n> <body-file>  validate a composed comment body (shape + history collision)
+default substrate is the PR; --issue selects the Issue substrate (fetch, post target, pin form)
 exit codes: 0 ok / 1 reject or failure / 2 show miss / 3 duplicate canonical round
 EOF
   exit 1
@@ -96,8 +116,45 @@ last_content_line() { awk 'NF{l=$0} END{print l}'; }
 # shared with ac_closeout_gate.sh / ac_closeout.sh; the @base64 stage is
 # appended OUTSIDE that literal (adjacent shell strings) so per-comment
 # boundaries survive multi-line bodies without touching the shared filter.
+# This function is the substrate seam's FETCH arm: only the gh command word
+# varies; the filter literal is the same bytes on both branches.
 fetch_trusted_b64() {
-  gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body'' | @base64'
+  if [ "$SUBSTRATE" = "issue" ]; then
+    gh issue view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body'' | @base64'
+  else
+    gh pr view "$1" --json comments -q '.comments[] | select((.authorAssociation // "") | (. == "OWNER" or . == "MEMBER" or . == "COLLABORATOR")) | .body'' | @base64'
+  fi
+}
+
+# sha256_stdin — portable digest of stdin (the scripts/lint.sh idiom).
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
+  else return 1; fi
+}
+
+# verify_issue_pin <issue> <pin> — the substrate seam's PIN-FORM arm. The pin
+# is a bare-hex sha256 PREFIX (the first-line 7–40 bound already admitted it)
+# of the live Issue body as the `-q .body` command substitution returns it
+# (trailing newlines stripped). Recomputed HERE, at post time: a body edit
+# between judgment and post is the gap a head pin cannot see (#723), and a
+# stale pin refuses loudly — never a silent generic failure, never a post.
+verify_issue_pin() {
+  local n="$1" pin="$2" live digest
+  live=$(gh issue view "$n" --json body -q .body) \
+    || die "could not read issue #$n body (gh issue view failed)"
+  digest=$(printf '%s' "$live" | sha256_stdin) \
+    || die "no sha256 tool (sha256sum/shasum) — cannot verify the issue-body pin"
+  pin=$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')
+  # Issue-arm floor: 16 hex (64 bits). The shared first-line bound stays {7,40}
+  # (one pin grammar across substrates); the floor binds only where the body is
+  # editable under the pin, where a short prefix is offline-grindable.
+  [ "${#pin}" -ge 16 ] \
+    || die "reject: issue-body pin too short (${#pin} hex) — the issue arm requires at least 16 hex chars of the body sha256"
+  case "$digest" in
+    "$pin"*) : ;;
+    *) die "reject: stale pin — the issue body advanced under the pin (live-body sha256 mismatch); re-judge at the current body" ;;
+  esac
 }
 
 # hdr_round <first-line>  → prints N (caller guarantees the line matched HDR_RE)
@@ -160,7 +217,7 @@ EOF
 #   FACT_DUP   the lowest duplicated round number, or empty
 collect_facts() {
   local pr="$1" b64 line body fact
-  b64=$(fetch_trusted_b64 "$pr") || die "could not read PR #$pr comments (gh pr view failed)"
+  b64=$(fetch_trusted_b64 "$pr") || die "could not read $SUBJ #$pr comments (gh $SUBSTRATE view failed)"
   FACTS=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -182,7 +239,7 @@ EOF
 # never silently picked (no next=, no post, no validation verdict over it).
 refuse_duplicate() {
   [ -z "$FACT_DUP" ] && return 0
-  die "duplicate canonical round $FACT_DUP on PR #$1 — ambiguous history, refusing" 3
+  die "duplicate canonical round $FACT_DUP on $SUBJ #$1 — ambiguous history, refusing" 3
 }
 
 # max_round → prints the max round over FACTS (0 when none).
@@ -214,7 +271,7 @@ EOF
 cmd_show() {
   local pr="$1" want b64 line body fact n sha hit="" hits=0
   want=$(norm_round "$2")
-  b64=$(fetch_trusted_b64 "$pr") || die "could not read PR #$pr comments (gh pr view failed)"
+  b64=$(fetch_trusted_b64 "$pr") || die "could not read $SUBJ #$pr comments (gh $SUBSTRATE view failed)"
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     body=$(printf '%s\n' "$line" | jq -Rr '@base64d') \
@@ -231,8 +288,8 @@ EOF2
   done <<EOF
 $b64
 EOF
-  [ "$hits" -le 1 ] || die "duplicate canonical round $want on PR #$pr — ambiguous history, refusing" 3
-  [ "$hits" -eq 1 ] || die "no canonical judged-list comment for round $want on PR #$pr" 2
+  [ "$hits" -le 1 ] || die "duplicate canonical round $want on $SUBJ #$pr — ambiguous history, refusing" 3
+  [ "$hits" -eq 1 ] || die "no canonical judged-list comment for round $want on $SUBJ #$pr" 2
   printf '%s\n' "$hit"
 }
 
@@ -257,7 +314,7 @@ EOF
   collect_facts "$pr"
   refuse_duplicate "$pr"
   if printf '%s' "$FACTS" | awk '{print $1}' | grep -qx "$hn"; then
-    die "reject: round $hn collides with an existing canonical round on PR #$pr"
+    die "reject: round $hn collides with an existing canonical round on $SUBJ #$pr"
   fi
 }
 
@@ -270,17 +327,29 @@ cmd_post() {
   first=$(head -n 1 "$f")
   case "$first" in
     "reviewed-head: n/a"*)
-      die "reject: reviewed-head is n/a (no-PR mode) — there is no PR substrate; declare durable: none instead of posting" ;;
+      if [ "$SUBSTRATE" = issue ]; then
+        die "reject: reviewed-head is n/a — the Issue is the durable substrate here; re-judge with the body-hash pin (durable: none is wrong on this arm)"
+      else
+        die "reject: reviewed-head is n/a (no-PR mode) — there is no PR substrate; declare durable: none instead of posting"
+      fi ;;
   esac
   if printf '%s\n' "$first" | grep -qE '^## Finding triage'; then
     die "reject: input already starts with a triage header — posting it would double-wrap"
   fi
   printf '%s\n' "$first" | grep -qE '^reviewed-head: [0-9a-fA-F]{7,40}$' \
     || die "reject: first line must be 'reviewed-head: <hex sha>' (got: $first)"
+  if grep -qE '<!-- activation-verdict: [a-z]+ -->' "$f"; then
+    die "reject: judge output contains a concrete activation-verdict marker — a counted gate marker may not ride a judged-list comment; quote verdicts as plain text"
+  fi
   if grep -qE "$MRK_ANY_RE" "$f"; then
     die "reject: input smuggles a concrete finding-judge marker — it would read back as canonical history (forgery guard)"
   fi
   sha="${first#reviewed-head: }"
+  # Pin-form arm (the third leg of the substrate seam): on the Issue substrate
+  # the pin must still prefix the LIVE body's digest, or the post refuses.
+  if [ "$SUBSTRATE" = "issue" ]; then
+    verify_issue_pin "$pr" "$sha"
+  fi
 
   collect_facts "$pr"
   refuse_duplicate "$pr"
@@ -311,33 +380,49 @@ cmd_post() {
   # Backgrounded + `wait` (not a foreground call): bash DEFERS a trapped
   # signal until a foreground child completes, so a foreground gh would hold
   # the INT/TERM cleanup hostage for its whole stall; `wait` is interruptible.
-  gh pr comment "$pr" --body-file "$TMPF" &
+  if [ "$SUBSTRATE" = "issue" ]; then
+    gh issue comment "$pr" --body-file "$TMPF" &
+  else
+    gh pr comment "$pr" --body-file "$TMPF" &
+  fi
   wait $! \
-    || die "gh pr comment failed — nothing was retried; re-run after fixing gh"
+    || die "gh $SUBSTRATE comment failed — nothing was retried; re-run after fixing gh"
 }
 
+# The substrate discriminator is parsed ONCE, here — `--issue` between the
+# mode word and the number. Everything downstream branches only through the
+# seam functions above (fetch_trusted_b64 / verify_issue_pin / the post
+# target); the four modes themselves are substrate-independent.
 mode="${1:-}"
+if [ $# -gt 0 ]; then shift; fi
+SUBSTRATE="pr"
+SUBJ="PR"
+if [ "${1:-}" = "--issue" ]; then
+  SUBSTRATE="issue"
+  SUBJ="issue"
+  shift
+fi
 case "$mode" in
   rounds)
-    [ $# -eq 2 ] || usage
-    is_num "$2" || die "reject: <pr> must be a number (got: $2)"
-    cmd_rounds "$2"
+    [ $# -eq 1 ] || usage
+    is_num "$1" || die "reject: <$SUBSTRATE> must be a number (got: $1)"
+    cmd_rounds "$1"
     ;;
   show)
-    [ $# -eq 3 ] || usage
-    is_num "$2" || die "reject: <pr> must be a number (got: $2)"
-    is_num "$3" || die "reject: <round> must be a number (got: $3)"
-    cmd_show "$2" "$3"
+    [ $# -eq 2 ] || usage
+    is_num "$1" || die "reject: <$SUBSTRATE> must be a number (got: $1)"
+    is_num "$2" || die "reject: <round> must be a number (got: $2)"
+    cmd_show "$1" "$2"
     ;;
   post)
-    [ $# -eq 3 ] || usage
-    is_num "$2" || die "reject: <pr> must be a number (got: $2)"
-    cmd_post "$2" "$3"
+    [ $# -eq 2 ] || usage
+    is_num "$1" || die "reject: <$SUBSTRATE> must be a number (got: $1)"
+    cmd_post "$1" "$2"
     ;;
   validate)
-    [ $# -eq 3 ] || usage
-    is_num "$2" || die "reject: <pr> must be a number (got: $2)"
-    cmd_validate "$2" "$3"
+    [ $# -eq 2 ] || usage
+    is_num "$1" || die "reject: <$SUBSTRATE> must be a number (got: $1)"
+    cmd_validate "$1" "$2"
     ;;
   *)
     usage

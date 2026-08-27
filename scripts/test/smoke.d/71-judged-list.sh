@@ -798,3 +798,269 @@ else
     ng "183t: the inert MAINTAINER token survives in the shared trusted-author literal —$s183j_t_miss (#713)"
   fi
 fi
+
+# ---------- §183u–§183x: the Issue substrate seam (#707) ----------
+# Phase B arms for SPEC §4.13 "One role, two substrates" (#707): the script
+# carries the durable substrate as ONE seam — fetch command, post target, and
+# pin-form arm — while the four modes stay substrate-independent. On the Issue
+# substrate the pin is the SAME `reviewed-head:` field carrying a bare-hex
+# sha256 PREFIX (7–40 hex chars) of the fetched Issue body, and issue-mode
+# `post` recomputes the live-body hash and REFUSES a stale pin — loud,
+# fail-closed, the same refusal class as the existing n/a / duplicate /
+# forgery arms. These are SEAM tests, deliberately NOT a mirror of the
+# §183a–§183o PR arm set: the PR arms already own the shape / derivation /
+# forgery contract, and the seam arms lock only what the substrate move can
+# break — routing, pin form, and the body-advance gap a head-pin cannot see.
+#
+# BINDINGS the Code phase takes from this block (stated once, asserted below):
+#   * substrate discriminator: the flag `--issue`, between the mode word and
+#     the number — `post --issue <n> <file>`, `rounds --issue <n>`. The SPEC
+#     paragraph does not pin a spelling; this block does, so producer recipes
+#     and these arms converge on one argv shape.
+#   * pin recipe: sha256 over the Issue body as COMMAND SUBSTITUTION of the
+#     `gh issue view <n> --json … -q .body` read returns it (i.e. trailing
+#     newlines stripped); the pin is a 7–40-hex PREFIX of that digest.
+#   * routes: fetch via `gh issue view <n> …`, post via `gh issue comment <n>
+#     --body-file <tmp>` — the stub below dispatches on those word pairs.
+# §183u/§183v(a)/§183w are born RED at c4ee475 (no issue mode exists — the
+# arms' `--issue` argvs die at the argc/usage guard); §183x is born
+# GREEN and must stay green through the Code phase (PR modes byte-unchanged).
+
+S183U_BIN="$S183J_DIR/bin2"
+S183U_FX="$S183J_DIR/fxu"
+S183U_IPOSTED="$S183J_DIR/issue_posted.md"
+mkdir -p "$S183U_BIN" "$S183U_FX"
+
+# Extended executable gh stub (#633 artifact mode): the §183 stub's pr routes
+# byte-for-byte, plus the two issue routes the seam adds. A separate binary —
+# the §183a–t arms keep running against the original stub untouched.
+cat > "$S183U_BIN/gh" <<'S183U_GH_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${S183J_GH_LOG:?}"
+case "$1 $2" in
+  "pr view")
+    q=""; prev=""
+    for a in "$@"; do
+      case "$prev" in -q|--jq) q="$a";; esac
+      prev="$a"
+    done
+    if [ -n "$q" ]; then jq -r "$q" < "${S183J_GH_FX_JSON:?}"; else cat "${S183J_GH_FX_JSON:?}"; fi
+    ;;
+  "pr comment")
+    bf=""; prev=""
+    for a in "$@"; do
+      case "$prev" in --body-file|-F) bf="$a";; esac
+      prev="$a"
+    done
+    if [ -n "$bf" ] && [ -f "$bf" ]; then cp "$bf" "${S183J_GH_POSTED:?}"; fi
+    exit 0
+    ;;
+  "issue view")
+    q=""; prev=""
+    for a in "$@"; do
+      case "$prev" in -q|--jq) q="$a";; esac
+      prev="$a"
+    done
+    if [ -n "$q" ]; then jq -r "$q" < "${S183U_GH_ISSUE_JSON:?}"; else cat "${S183U_GH_ISSUE_JSON:?}"; fi
+    ;;
+  "issue comment")
+    bf=""; prev=""
+    for a in "$@"; do
+      case "$prev" in --body-file|-F) bf="$a";; esac
+      prev="$a"
+    done
+    if [ -n "$bf" ] && [ -f "$bf" ]; then cp "$bf" "${S183U_GH_ISSUE_POSTED:?}"; fi
+    exit 0
+    ;;
+esac
+exit 0
+S183U_GH_STUB
+chmod +x "$S183U_BIN/gh"
+
+# Issue fixtures: body A is the body under judgment; body B is the SAME Issue
+# after an edit — the substrate advance §183w drives. One JSON per issue state,
+# carrying BOTH .body and .comments, so whatever -q the script passes (.body
+# for the pin, the trusted-author comments filter for rounds) is honored by
+# real jq rather than pre-answered.
+S183U_BODY_A='## What
+
+Activation fixture — Directive body A under judgment.
+
+- AC1: the judged list lands as an Issue comment'
+S183U_BODY_B='## What
+
+Activation fixture — body B: the same Issue AFTER a body edit (the gap a head-pin cannot see).'
+jq -n --arg b "$S183U_BODY_A" '{body: $b, comments: []}' > "$S183U_FX/fx_iss_a.json"
+jq -n --arg b "$S183U_BODY_B" '{body: $b, comments: []}' > "$S183U_FX/fx_iss_b.json"
+
+# Portable sha256 (the scripts/lint.sh idiom); the pin fixtures derive from the
+# SAME body string the fixture JSON carries, so pin and fixture cannot drift.
+s183u_sha256() {
+  { if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'
+    else shasum -a 256 | awk '{print $1}'; fi; } 2>/dev/null
+}
+S183U_PIN=$(printf '%s' "$S183U_BODY_A" | s183u_sha256 | cut -c1-16)
+S183U_PIN64=$(printf '%s' "$S183U_BODY_A" | s183u_sha256)
+
+# Judge-reply fixtures for the issue path.
+printf '%s\n' "reviewed-head: $S183U_PIN" "judgment: ok" \
+  "- F1 :: upheld, remedy survives (cc @bob)" > "$S183U_FX/pi_ok.txt"
+printf '%s\n' "reviewed-head: issue-body:$S183U_PIN" "- F1 :: upheld" > "$S183U_FX/pi_tagged.txt"
+printf '%s\n' "reviewed-head: $S183U_PIN64" "- F1 :: upheld" > "$S183U_FX/pi_full64.txt"
+
+# s183u_run <issue-fixture.json> <mode+args…> — both substrates wired at once:
+# the PR fixture stays pinned to FX-A (canonical rounds 1..3, next=4) on EVERY
+# run, so a substrate leak — an issue invocation reading PR comments, or a PR
+# invocation touching an issue route — is observable, never a silent pass.
+s183u_run() {
+  s183u_run_ifx="$1"; shift
+  : > "$S183J_LOG"
+  rm -f "$S183J_POSTED" "$S183U_IPOSTED"
+  S183J_GH_LOG="$S183J_LOG" S183J_GH_FX_JSON="$S183J_FX/fx_a.json" \
+  S183J_GH_POSTED="$S183J_POSTED" \
+  S183U_GH_ISSUE_JSON="$s183u_run_ifx" S183U_GH_ISSUE_POSTED="$S183U_IPOSTED" \
+  PATH="$S183U_BIN:$PATH" "$S183J_SCRIPT" "$@" 2>&1
+}
+s183u_iposts() { grep -c '^issue comment ' "$S183J_LOG" 2>/dev/null; }
+s183u_pposts() { grep -c '^pr comment ' "$S183J_LOG" 2>/dev/null; }
+
+# Fail-closed readiness: the §183 preconditions plus a sha256 tool and the
+# derived pin fixtures actually being hex of the expected widths.
+S183U_UNREADY="$S183J_UNREADY"
+{ command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; } \
+  || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }no sha256 tool (the issue pin is a body-hash prefix)"
+printf '%s\n' "$S183U_PIN" | grep -qE '^[0-9a-f]{16}$' \
+  || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }pin fixture is not 16 hex chars (got: $S183U_PIN)"
+printf '%s\n' "$S183U_PIN64" | grep -qE '^[0-9a-f]{64}$' \
+  || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }full-digest fixture is not 64 hex chars"
+
+# §183u (ISSUE ROUND-TRIP — born RED until #707 Code): a judge reply pinned
+# `reviewed-head: <16-hex prefix of sha256(body A)>` posts to the ISSUE
+# substrate: the fetch goes through `issue view 43`, the post lands EXACTLY
+# ONCE via `issue comment 43 --body-file`, and NO pr route fires. Zero
+# canonical issue comments → the composed header is round 1, and the marker's
+# head field carries the PIN (the same field, the substrate's own pin form).
+# Round-trip: the captured body served back as a trusted ISSUE comment is
+# accepted by `rounds --issue 43` as canonical — round=1 head=<pin>, next=2.
+# The PR fixture (rounds 1..3, next=4) stays wired throughout, so issue-mode
+# reading PR comments would surface as a round-4 header, not a silent pass.
+if [ -n "$S183U_UNREADY" ]; then
+  ng "183u: issue substrate — post/rounds round trip not exercised: $S183U_UNREADY (fail-closed red, not a skip) (#707)"
+else
+  s183u_u_miss=""
+  s183u_run "$S183U_FX/fx_iss_a.json" post --issue 43 "$S183U_FX/pi_ok.txt" >/dev/null; s183u_u_rc=$?
+  [ "$s183u_u_rc" = 0 ] || s183u_u_miss="$s183u_u_miss <post-rc=$s183u_u_rc>"
+  [ "$(s183u_iposts)" = 1 ] || s183u_u_miss="$s183u_u_miss <issue-posts=$(s183u_iposts)!=1>"
+  [ "$(s183u_pposts)" = 0 ] || s183u_u_miss="$s183u_u_miss <pr-route-touched>"
+  grep -q '^issue view 43' "$S183J_LOG" || s183u_u_miss="$s183u_u_miss <fetch-not-issue-view>"
+  grep -q '^issue comment 43 .*--body-file' "$S183J_LOG" || s183u_u_miss="$s183u_u_miss <not-issue-body-file-post>"
+  if [ -f "$S183U_IPOSTED" ]; then
+    s183u_u_first=$(head -n 1 "$S183U_IPOSTED")
+    s183u_u_last=$(s183j_last_content "$S183U_IPOSTED")
+    [ "$s183u_u_first" = "## Finding triage (round 1)" ] || s183u_u_miss="$s183u_u_miss <header-not-round-1>"
+    [ "$s183u_u_last" = "<!-- finding-judge: round=1 head=$S183U_PIN -->" ] || s183u_u_miss="$s183u_u_miss <marker-head-not-the-pin>"
+    grep -qF -- 'F1 :: upheld' "$S183U_IPOSTED" || s183u_u_miss="$s183u_u_miss <judge-output-body-missing>"
+    if grep -q '@bob' "$S183U_IPOSTED"; then s183u_u_miss="$s183u_u_miss <bare-mention-survived>"; fi
+    jq --arg b "$(cat "$S183U_IPOSTED")" '.comments = [{authorAssociation: "OWNER", body: $b}]' \
+      "$S183U_FX/fx_iss_a.json" > "$S183U_FX/fx_iss_rt.json"
+    s183u_u_out=$(s183u_run "$S183U_FX/fx_iss_rt.json" rounds --issue 43); s183u_u_rc2=$?
+    [ "$s183u_u_rc2" = 0 ] || s183u_u_miss="$s183u_u_miss <rounds-rc=$s183u_u_rc2>"
+    printf '%s\n' "$s183u_u_out" | grep -qx "round=1 head=$S183U_PIN" || s183u_u_miss="$s183u_u_miss <posted-body-not-canonical>"
+    printf '%s\n' "$s183u_u_out" | grep -qx 'next=2' || s183u_u_miss="$s183u_u_miss <next=2-missing>"
+  else
+    s183u_u_miss="$s183u_u_miss <no-issue-body-captured>"
+  fi
+  if [ -z "$s183u_u_miss" ]; then
+    ok "183u: issue substrate — post --issue lands once via issue comment --body-file (round-1 header, pin-head marker), and rounds --issue reads it back canonical (next=2) (#707)"
+  else
+    ng "183u: the issue-substrate post/rounds round trip does not hold —$s183u_u_miss (#707)"
+  fi
+fi
+
+# §183v (PIN-FORM ASYMMETRY — the acceptance half is the RED half): the pin
+# field keeps ONE spelling across substrates — bare hex, 7–40 chars. (a) the
+# bare 16-hex prefix is ACCEPTED on the issue path (one post) — born RED, since
+# no issue invocation exists at head; (b) the tagged spelling
+# `reviewed-head: issue-body:<hex>` REJECTS with no post (a second pin grammar
+# is exactly what the "same field, existing validators unchanged" contract
+# forbids); (c) a FULL 64-hex sha256 REJECTS with no post — the existing
+# `{7,40}` first-line bound. Halves (b)/(c) are vacuously green at head (every
+# --issue argv already rejects); half (a) is what makes this arm non-vacuous
+# and red, and post-Code it converts (b)/(c) from vacuous to load-bearing.
+if [ -n "$S183U_UNREADY" ]; then
+  ng "183v: issue substrate — pin-form acceptance asymmetry not exercised: $S183U_UNREADY (fail-closed red, not a skip) (#707)"
+else
+  s183u_v_miss=""
+  s183u_run "$S183U_FX/fx_iss_a.json" post --issue 43 "$S183U_FX/pi_ok.txt" >/dev/null; s183u_v_rc=$?
+  [ "$s183u_v_rc" = 0 ] || s183u_v_miss="$s183u_v_miss <bare-hex-prefix-rejected:rc=$s183u_v_rc>"
+  [ "$(s183u_iposts)" = 1 ] || s183u_v_miss="$s183u_v_miss <bare-hex-posts=$(s183u_iposts)!=1>"
+  s183u_run "$S183U_FX/fx_iss_a.json" post --issue 43 "$S183U_FX/pi_tagged.txt" >/dev/null; s183u_v_rc2=$?
+  [ "$s183u_v_rc2" != 0 ] || s183u_v_miss="$s183u_v_miss <tagged-issue-body-form-accepted>"
+  [ "$(s183u_iposts)" = 0 ] || s183u_v_miss="$s183u_v_miss <tagged-form-posted>"
+  s183u_run "$S183U_FX/fx_iss_a.json" post --issue 43 "$S183U_FX/pi_full64.txt" >/dev/null; s183u_v_rc3=$?
+  [ "$s183u_v_rc3" != 0 ] || s183u_v_miss="$s183u_v_miss <full-64-hex-sha-accepted>"
+  [ "$(s183u_iposts)" = 0 ] || s183u_v_miss="$s183u_v_miss <full-64-posted>"
+  if [ -z "$s183u_v_miss" ]; then
+    ok "183v: issue pin form — bare 16-hex prefix accepted; tagged issue-body:<hex> and full 64-hex sha both reject with no post (issue-arm floor 16, shared 40 cap) (#707)"
+  else
+    ng "183v: the issue pin form diverged from bare-hex 7-40 —$s183u_v_miss (#707)"
+  fi
+fi
+
+# §183w (BODY-ADVANCE REFUSAL — born RED): the SAME judge reply that posts
+# cleanly against body A is staged while the served Issue now carries body B —
+# the substrate advanced under the pin, the gap a head-pin cannot see (#723).
+# Issue-mode `post` recomputes the live-body hash and REFUSES: non-zero exit,
+# ZERO comments land on either route, and the refusal NAMES the staleness —
+# the message carries one of advance/mismatch/stale, the same loud fail-closed
+# refusal class as the n/a / duplicate / forgery arms, never a silent generic
+# failure. (At head the --issue argv dies at the argc/usage guard, whose text
+# names no advance/mismatch/stale — red on the naming check. A bare 'body'
+# probe was measured VACUOUS here: the usage text itself says "comment body".)
+if [ -n "$S183U_UNREADY" ]; then
+  ng "183w: issue substrate — stale-pin (body advanced) refusal not exercised: $S183U_UNREADY (fail-closed red, not a skip) (#707)"
+else
+  s183u_w_out=$(s183u_run "$S183U_FX/fx_iss_b.json" post --issue 43 "$S183U_FX/pi_ok.txt"); s183u_w_rc=$?
+  s183u_w_miss=""
+  [ "$s183u_w_rc" != 0 ] || s183u_w_miss="$s183u_w_miss <stale-pin-accepted:rc=0>"
+  [ "$(s183u_iposts)" = 0 ] || s183u_w_miss="$s183u_w_miss <stale-pin-posted=$(s183u_iposts)>"
+  [ "$(s183u_pposts)" = 0 ] || s183u_w_miss="$s183u_w_miss <pr-route-touched>"
+  printf '%s\n' "$s183u_w_out" | grep -qiE 'advanc|mismatch|stale' || s183u_w_miss="$s183u_w_miss <refusal-does-not-name-the-advance>"
+  if [ -z "$s183u_w_miss" ]; then
+    ok "183w: issue substrate — a pin staled by a body edit refuses loudly (names the advance/mismatch), fail-closed, zero comments on any route (#707)"
+  else
+    ng "183w: a body advance under the pin was not refused loudly —$s183u_w_miss (#707)"
+  fi
+fi
+
+# §183x (PR MODES BYTE-UNCHANGED ACROSS THE SEAM — born GREEN, must STAY green
+# through the Code phase): through the EXTENDED stub, with the issue routes
+# wired and serving, a plain PR-mode `post 42` behaves exactly as §183h locked
+# it — exit 0, EXACTLY one `pr comment 42 --body-file`, the round-4 marker
+# carrying the input sha verbatim — and touches NO issue route (`issue view` /
+# `issue comment` never fire on the PR path). The n/a refusal and the pin
+# handling on the PR path are already owned by §183k and §183h/§183o — cited,
+# not duplicated (the no-mirror constraint). Behavior note the Code phase must
+# not "fix": the PR path takes the reviewed-head sha VERBATIM into the marker
+# (§183h) — it performs no headRefOid fetch today, and none is added by #707.
+if [ -n "$S183U_UNREADY" ]; then
+  ng "183x: PR-mode invariance across the substrate seam not exercised: $S183U_UNREADY (fail-closed red, not a skip) (#707)"
+else
+  s183u_run "$S183U_FX/fx_iss_a.json" post 42 "$S183J_FX/p1.txt" >/dev/null; s183u_x_rc=$?
+  s183u_x_miss=""
+  [ "$s183u_x_rc" = 0 ] || s183u_x_miss="$s183u_x_miss <pr-post-rc=$s183u_x_rc>"
+  [ "$(s183u_pposts)" = 1 ] || s183u_x_miss="$s183u_x_miss <pr-posts=$(s183u_pposts)!=1>"
+  grep -q '^pr comment 42 .*--body-file' "$S183J_LOG" || s183u_x_miss="$s183u_x_miss <not-pr-body-file-post>"
+  if grep -q '^issue ' "$S183J_LOG"; then s183u_x_miss="$s183u_x_miss <issue-route-touched-on-pr-path>"; fi
+  if [ -f "$S183J_POSTED" ]; then
+    [ "$(s183j_last_content "$S183J_POSTED")" = "<!-- finding-judge: round=4 head=abc123f -->" ] \
+      || s183u_x_miss="$s183u_x_miss <pr-marker-changed>"
+  else
+    s183u_x_miss="$s183u_x_miss <no-pr-body-captured>"
+  fi
+  if [ -z "$s183u_x_miss" ]; then
+    ok "183x: PR mode is byte-unchanged across the seam — one pr-comment post, round-4 marker with the verbatim sha, zero issue-route hits (#707)"
+  else
+    ng "183x: the substrate seam disturbed the PR path —$s183u_x_miss (#707)"
+  fi
+fi
