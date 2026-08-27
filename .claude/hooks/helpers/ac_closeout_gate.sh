@@ -511,3 +511,166 @@ review_gate_accepts() {
   [ "$verdict" = approve ] && return 0
   return 1
 }
+
+# ── #738 dir-mode lifecycle evidence gates (activation-evidence / completion-evidence) ──
+# SPEC §6.1 rows. Consumed by the two pre_tool_use.sh matchers on
+# `gh issue edit <N> --remove-label status:proposed` (Proposed→Active flip) and
+# `gh issue close <N> --reason completed` (Directive completion). Both gates
+# fail CLOSED on any lookup failure (the merge-review posture): the caller maps
+# rc 2 to a block carrying the re-run remedy.
+
+# gh_issue_target <cmd> [verb-alternation] — echo "<issue><TAB><repo>" for a
+# `gh issue <verb> …` command. Delegates selector parsing to the shared
+# resolve_gh_issue_target (issue_type.sh, #276 — bare/quoted/URL selector, flag
+# order, --repo/-R, host-prefixed repo) so the parsers do not drift; falls back
+# to a tfm-shaped positional regex if the resolver is unavailable. Then applies
+# the #555 A6 validation the trusted-filer-mutate arm applies to ITS resolved
+# repo: reject a dot-segment, an out-of-charset segment, or a non-owner/name
+# shape → empty repo → the lookup falls back to the CURRENT repo (fail-soft
+# toward the current repo, never an attacker-chosen one).
+gh_issue_target() {
+  local cmd="$1" verbs="${2:-edit|close}"
+  local issue="" repo="" tgt
+  if command -v resolve_gh_issue_target >/dev/null 2>&1; then
+    # Capture FIRST, then split — never `IFS=$'\t' read <<< "$(...)"`, whose
+    # prefix would leak tab-IFS into the resolver's tokenizer (#276).
+    tgt="$(resolve_gh_issue_target "$cmd" "$verbs")"
+    IFS=$'\t' read -r issue repo <<< "$tgt"
+  fi
+  if [ -z "$issue" ]; then
+    # Fallback (also the resolver-absent path): resolve_gh_issue_target's verb
+    # anchor lacks the #499 leading-global-flag tolerance (`gh --repo o/r issue
+    # close 999` misses it), so re-parse with the tfm-shaped widened selector —
+    # flag-run tolerated, bare/quoted number or URL selector.
+    local sel_re='gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+('"$verbs"')[[:space:]]+["'"'"']?([0-9]+|[Hh][Tt][Tt][Pp][Ss]?://[^[:space:]"'"'"']+)'
+    if [[ "$cmd" =~ $sel_re ]]; then
+      local sel="${BASH_REMATCH[4]}"
+      case "$sel" in
+        */issues/*) issue="${sel##*/issues/}"; issue="${issue%%[!0-9]*}"
+                    # URL-derived repo (the #231 shape): host/owner/name/…
+                    repo="${sel#*://}"; repo="${repo#*/}"; repo="${repo%%/issues/*}" ;;
+        *)          issue="${sel//[^0-9]/}" ;;
+      esac
+    fi
+    if [ -z "$repo" ]; then
+      # Explicit `--repo owner/name` / `-R owner/name` (#237/#242 shapes).
+      local rf_re='--repo[=[:space:]]+["'"'"']?([^[:space:]"'"'"']+)'
+      local rs_re='[[:space:]]-R[=[:space:]]+["'"'"']?([^[:space:]"'"'"']+)'
+      if [[ "$cmd" =~ $rf_re ]]; then
+        repo="${BASH_REMATCH[1]}"
+      elif [[ "$cmd" =~ $rs_re ]]; then
+        repo="${BASH_REMATCH[1]}"
+      fi
+    fi
+    # Host-prefixed [HOST/]owner/name → owner/name (#283 normalization).
+    case "$repo" in */*/*) repo="${repo#*/}" ;; esac
+  fi
+  case "$issue" in *[!0-9]*) issue="" ;; esac
+  # #555 A6-shaped validation of the resolved repo (URL- or flag-derived).
+  case "/$repo/" in */../*|*/./*) repo="" ;; esac
+  case "$repo" in *[!A-Za-z0-9._/-]*) repo="" ;; esac
+  case "$repo" in
+    */*/*) repo="" ;;   # more than owner/name after host-normalization → bail
+    */*)   : ;;         # exactly owner/name → keep
+    *)     repo="" ;;   # bare token / empty → current repo
+  esac
+  printf '%s\t%s' "$issue" "$repo"
+}
+
+# _evidence_issue_gql <issue#> [owner/name] — the ONE GraphQL round-trip both
+# evidence gates read (SPEC §6.1): lastEditedAt/createdAt, the last
+# (Un)LabeledEvent, and the last 100 comments (createdAt, authorAssociation,
+# body). Echoes the raw JSON; non-zero on any resolution/transport failure.
+# The REST `updatedAt` proxy was rejected (SPEC §6.1): comments and the label
+# flip itself bump updatedAt, so the proxy reads the shell's own legitimate
+# comment-then-flip flow as stale.
+_evidence_issue_gql() {
+  local n="$1" repo="${2:-}" owner name
+  if [ -n "$repo" ]; then
+    owner="${repo%%/*}"
+    name="${repo##*/}"
+  else
+    owner=$(_ac_run_gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
+    name=$(_ac_run_gh repo view --json name -q .name 2>/dev/null) || return 1
+  fi
+  { [ -n "$owner" ] && [ -n "$name" ]; } || return 1
+  _ac_run_gh api graphql \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){lastEditedAt createdAt timelineItems(last:1, itemTypes:[LABELED_EVENT,UNLABELED_EVENT]){nodes{... on LabeledEvent{createdAt} ... on UnlabeledEvent{createdAt}}} comments(last:100){totalCount nodes{createdAt authorAssociation body}}}}}' \
+    -f owner="$owner" -f name="$name" -F number="$n" 2>/dev/null
+}
+
+# activation_evidence_fresh <issue#> [owner/name] — the activation-evidence
+# predicate (SPEC §6.1). A qualifying comment is trusted-author
+# (OWNER/MEMBER/COLLABORATOR — the ac-closeout trust set, #500) with FIRST LINE
+# exactly `<!-- activation-verdict: pass -->` (trailing space/CR trimmed;
+# line-1 anchored so a quoted marker cannot satisfy the gate — #737 class).
+# Fresh iff max(pass.createdAt) >= max(lastEditedAt // createdAt,
+# lastLabelEvent.createdAt) — string compare on ISO-8601 Z timestamps, `>=`
+# not `>` (a same-second comment-then-flip flow is NOT stale).
+# Returns: 0 fresh · 1 absent (no qualifying comment) · 3 stale ·
+# 2 lookup failure (gh error/timeout, malformed JSON, 200-with-`errors`,
+# issue==null) — the caller fails CLOSED on 2.
+activation_evidence_fresh() {
+  local n="$1" repo="${2:-}" json verdict
+  json=$(_evidence_issue_gql "$n" "$repo") || return 2
+  verdict=$(printf '%s' "$json" | jq -r '
+    if ((.errors // []) | length) > 0 or (.data.repository.issue == null) then "lookup"
+    else (.data.repository.issue) as $i
+      | ([$i.lastEditedAt // $i.createdAt]
+         + [$i.timelineItems.nodes[]? | .createdAt | select(type == "string")]) as $pivots
+      | ([$i.comments.nodes[]?
+          | select(.authorAssociation == "OWNER"
+                   or .authorAssociation == "MEMBER"
+                   or .authorAssociation == "COLLABORATOR")
+          | select((.body // "" | split("\n")[0] | sub("[ \r\t]+$"; "")) == "<!-- activation-verdict: pass -->")
+          | .createdAt | select(type == "string")]) as $passes
+      | if ($passes | length) == 0 then "absent"
+        elif ($passes | max) >= ($pivots | max) then "fresh"
+        else "stale"
+        end
+    end' 2>/dev/null) || return 2
+  case "$verdict" in
+    fresh)  return 0 ;;
+    absent) return 1 ;;
+    stale)  return 3 ;;
+    *)      return 2 ;;
+  esac
+}
+
+# completion_evidence_present <issue#> [owner/name] — the completion-evidence
+# predicate (SPEC §6.1). Existence-only, no freshness: /complete-directive
+# (§5.13) orders comment-before-close, so presence signals the
+# reviewer-evidenced path ran. The label branch resolves via the REST
+# `gh issue view --json labels` (labels don't need the GraphQL pivot fields);
+# the comment evidence rides the SAME GraphQL round-trip as the activation
+# gate so both gates share one lookup shape and one failure taxonomy.
+# Returns: 0 present · 1 absent · 4 not a `directive` Issue (caller allows —
+# only Directive completion is evidence-gated) · 2 lookup failure.
+completion_evidence_present() {
+  local n="$1" repo="${2:-}" labels json verdict
+  if [ -n "$repo" ]; then
+    labels=$(_ac_run_gh issue view "$n" --repo "$repo" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 2
+  else
+    labels=$(_ac_run_gh issue view "$n" --json labels -q '[.labels[].name] | join(",")' 2>/dev/null) || return 2
+  fi
+  # Comma-list boundary match, mirroring is_directive_issue (#212: not `-w`).
+  printf '%s' "$labels" | grep -qiE '(^|,)directive(,|$)' || return 4
+  json=$(_evidence_issue_gql "$n" "$repo") || return 2
+  verdict=$(printf '%s' "$json" | jq -r '
+    if ((.errors // []) | length) > 0 or (.data.repository.issue == null) then "lookup"
+    else
+      ([.data.repository.issue.comments.nodes[]?
+        | select(.authorAssociation == "OWNER"
+                 or .authorAssociation == "MEMBER"
+                 or .authorAssociation == "COLLABORATOR")
+        | select(.body // "" | split("\n")[0] | sub("[ \r\t]+$"; "")
+                 | test("^## Directive Completion \\(resolved by "))]
+       | length) as $hits
+      | if $hits > 0 then "present" else "absent" end
+    end' 2>/dev/null) || return 2
+  case "$verdict" in
+    present) return 0 ;;
+    absent)  return 1 ;;
+    *)       return 2 ;;
+  esac
+}
