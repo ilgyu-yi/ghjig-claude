@@ -930,7 +930,7 @@ S183U_UNREADY="$S183J_UNREADY"
 { command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; } \
   || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }no sha256 tool (the issue pin is a body-hash prefix)"
 printf '%s\n' "$S183U_PIN" | grep -qE '^[0-9a-f]{16}$' \
-  || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }pin fixture is not 12 hex chars (got: $S183U_PIN)"
+  || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }pin fixture is not 16 hex chars (got: $S183U_PIN)"
 printf '%s\n' "$S183U_PIN64" | grep -qE '^[0-9a-f]{64}$' \
   || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }full-digest fixture is not 64 hex chars"
 
