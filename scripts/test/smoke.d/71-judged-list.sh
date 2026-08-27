@@ -822,8 +822,8 @@ fi
 #     newlines stripped); the pin is a 7–40-hex PREFIX of that digest.
 #   * routes: fetch via `gh issue view <n> …`, post via `gh issue comment <n>
 #     --body-file <tmp>` — the stub below dispatches on those word pairs.
-# §183u/§183v(a)/§183w are born RED at c4ee475 (no issue mode exists — every
-# `--issue` argv dies at the `<pr> must be a number` guard); §183x is born
+# §183u/§183v(a)/§183w are born RED at c4ee475 (no issue mode exists — the
+# arms' `--issue` argvs die at the argc/usage guard); §183x is born
 # GREEN and must stay green through the Code phase (PR modes byte-unchanged).
 
 S183U_BIN="$S183J_DIR/bin2"
@@ -899,7 +899,7 @@ s183u_sha256() {
   { if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'
     else shasum -a 256 | awk '{print $1}'; fi; } 2>/dev/null
 }
-S183U_PIN=$(printf '%s' "$S183U_BODY_A" | s183u_sha256 | cut -c1-12)
+S183U_PIN=$(printf '%s' "$S183U_BODY_A" | s183u_sha256 | cut -c1-16)
 S183U_PIN64=$(printf '%s' "$S183U_BODY_A" | s183u_sha256)
 
 # Judge-reply fixtures for the issue path.
@@ -929,13 +929,13 @@ s183u_pposts() { grep -c '^pr comment ' "$S183J_LOG" 2>/dev/null; }
 S183U_UNREADY="$S183J_UNREADY"
 { command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; } \
   || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }no sha256 tool (the issue pin is a body-hash prefix)"
-printf '%s\n' "$S183U_PIN" | grep -qE '^[0-9a-f]{12}$' \
+printf '%s\n' "$S183U_PIN" | grep -qE '^[0-9a-f]{16}$' \
   || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }pin fixture is not 12 hex chars (got: $S183U_PIN)"
 printf '%s\n' "$S183U_PIN64" | grep -qE '^[0-9a-f]{64}$' \
   || S183U_UNREADY="${S183U_UNREADY:+$S183U_UNREADY; }full-digest fixture is not 64 hex chars"
 
 # §183u (ISSUE ROUND-TRIP — born RED until #707 Code): a judge reply pinned
-# `reviewed-head: <12-hex prefix of sha256(body A)>` posts to the ISSUE
+# `reviewed-head: <16-hex prefix of sha256(body A)>` posts to the ISSUE
 # substrate: the fetch goes through `issue view 43`, the post lands EXACTLY
 # ONCE via `issue comment 43 --body-file`, and NO pr route fires. Zero
 # canonical issue comments → the composed header is round 1, and the marker's
@@ -979,7 +979,7 @@ fi
 
 # §183v (PIN-FORM ASYMMETRY — the acceptance half is the RED half): the pin
 # field keeps ONE spelling across substrates — bare hex, 7–40 chars. (a) the
-# bare 12-hex prefix is ACCEPTED on the issue path (one post) — born RED, since
+# bare 16-hex prefix is ACCEPTED on the issue path (one post) — born RED, since
 # no issue invocation exists at head; (b) the tagged spelling
 # `reviewed-head: issue-body:<hex>` REJECTS with no post (a second pin grammar
 # is exactly what the "same field, existing validators unchanged" contract
@@ -1001,7 +1001,7 @@ else
   [ "$s183u_v_rc3" != 0 ] || s183u_v_miss="$s183u_v_miss <full-64-hex-sha-accepted>"
   [ "$(s183u_iposts)" = 0 ] || s183u_v_miss="$s183u_v_miss <full-64-posted>"
   if [ -z "$s183u_v_miss" ]; then
-    ok "183v: issue pin form — bare 12-hex prefix accepted; tagged issue-body:<hex> and full 64-hex sha both reject with no post (the 7-40 bare-hex bound holds) (#707)"
+    ok "183v: issue pin form — bare 16-hex prefix accepted; tagged issue-body:<hex> and full 64-hex sha both reject with no post (issue-arm floor 16, shared 40 cap) (#707)"
   else
     ng "183v: the issue pin form diverged from bare-hex 7-40 —$s183u_v_miss (#707)"
   fi

@@ -146,6 +146,11 @@ verify_issue_pin() {
   digest=$(printf '%s' "$live" | sha256_stdin) \
     || die "no sha256 tool (sha256sum/shasum) — cannot verify the issue-body pin"
   pin=$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')
+  # Issue-arm floor: 16 hex (64 bits). The shared first-line bound stays {7,40}
+  # (one pin grammar across substrates); the floor binds only where the body is
+  # editable under the pin, where a short prefix is offline-grindable.
+  [ "${#pin}" -ge 16 ] \
+    || die "reject: issue-body pin too short (${#pin} hex) — the issue arm requires at least 16 hex chars of the body sha256"
   case "$digest" in
     "$pin"*) : ;;
     *) die "reject: stale pin — the issue body advanced under the pin (live-body sha256 mismatch); re-judge at the current body" ;;
@@ -322,13 +327,20 @@ cmd_post() {
   first=$(head -n 1 "$f")
   case "$first" in
     "reviewed-head: n/a"*)
-      die "reject: reviewed-head is n/a (no-PR mode) — there is no PR substrate; declare durable: none instead of posting" ;;
+      if [ "$SUBSTRATE" = issue ]; then
+        die "reject: reviewed-head is n/a — the Issue is the durable substrate here; re-judge with the body-hash pin (durable: none is wrong on this arm)"
+      else
+        die "reject: reviewed-head is n/a (no-PR mode) — there is no PR substrate; declare durable: none instead of posting"
+      fi ;;
   esac
   if printf '%s\n' "$first" | grep -qE '^## Finding triage'; then
     die "reject: input already starts with a triage header — posting it would double-wrap"
   fi
   printf '%s\n' "$first" | grep -qE '^reviewed-head: [0-9a-fA-F]{7,40}$' \
     || die "reject: first line must be 'reviewed-head: <hex sha>' (got: $first)"
+  if grep -qE '<!-- activation-verdict: [a-z]+ -->' "$f"; then
+    die "reject: judge output contains a concrete activation-verdict marker — a counted gate marker may not ride a judged-list comment; quote verdicts as plain text"
+  fi
   if grep -qE "$MRK_ANY_RE" "$f"; then
     die "reject: input smuggles a concrete finding-judge marker — it would read back as canonical history (forgery guard)"
   fi
