@@ -52,7 +52,7 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 6. **Close the Issue** — `gh issue close <issue-#> --reason completed`.
 
-   Note: the `trusted-filer-mutate` hook matcher (SPEC §6.1) allows `gh issue close --reason completed` on trusted-filer Issues without further confirmation. Closing as `not planned` or `duplicate` would require human confirm even after step 5 — `/complete-directive` only uses `--reason completed`.
+   Note: the `trusted-filer-mutate` hook matcher (SPEC §6.1) allows `gh issue close --reason completed` on trusted-filer Issues without further confirmation, and the `completion-evidence` matcher (SPEC §6.1) gates this close on the step-5 comment — a `directive` Issue close-as-completed blocks unless a trusted comment starting `## Directive Completion (resolved by ` exists, which is why step 5 must precede this step. Closing as `not planned` or `duplicate` would require human confirm even after step 5 — `/complete-directive` only uses `--reason completed`.
 
 7. **Audit log** — `audit_log info directive-complete completed "directive: #<issue-#> linked-execs=<N>"`.
 
@@ -72,13 +72,13 @@ Issue close-as-completed IS the Status=Completed signal. The Project Item's Stat
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /complete-directive <issue-#>` bypasses the reviewer (SPEC §2.1, §7). This escape is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it. To keep the escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /complete-directive <issue-#>` bypasses the reviewer (SPEC §2.1, §7). The reviewer bypass is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it — but the **terminal close is hook-gated** under `completion-evidence` (SPEC §6.1): `gh issue close --reason completed` on a `directive` Issue requires the step-5 `## Directive Completion` comment regardless of how the reviewer step was resolved, so a bypass that skips step 5 must also arm the §7 escape for that category (`scripts/ghjig_skip.sh completion-evidence <cmd-fingerprint> '<why>'` — auto-audited by `should_skip`) or the close blocks. To keep the `directive-review` escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
 
 ## Forbidden
 
 - Closing without a `activation-reviewer` pass verdict (or audit-logged `SKIP_HOOKS=directive-review` escape).
 - Closing with `--reason not planned` or `--reason duplicate` (use a separate `gh issue close` invocation with explicit reason + human confirm; the `trusted-filer-mutate` matcher blocks the not-planned case on trusted-filer Issues per SPEC §1.5).
-- Closing without the closing comment (step 5) — the comment is the canonical evidence record.
+- Closing without the closing comment (step 5) — the comment is the canonical evidence record, and the `completion-evidence` hook (SPEC §6.1) blocks the close without it.
 - Writing to the Project Item directly — the mirror handles the Status field.
 
 ## Work language

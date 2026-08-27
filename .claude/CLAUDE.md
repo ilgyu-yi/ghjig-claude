@@ -75,17 +75,17 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 Pointer index — full contracts in SPEC §6.1 (matcher table + `safe_source` fail-policy); binding/state/banner in §3.2.1/§3.2.2/§6.5(c). Enforcement face (block vs guide) is chosen by cost-asymmetry — SPEC §6.0.
 
 - **protected-branch** — direct commit/push to `main`/`master`/`release/*` blocked; the **Stage-0 exception** lets `/bootstrap-repo` seed an unborn HEAD (SPEC §6.1, §5.0).
-- **force-push** — force-push allowed only to an explicitly-named non-protected branch; protected-named or bare/remote-only blocked; `--amend` after push and `--no-verify` blocked (SPEC §6.1).
+- **force-push** — allowed only to an explicitly-named non-protected branch; protected-named or bare/remote-only, `--amend` after push, and `--no-verify` blocked (SPEC §6.1).
 - **secret** — secret patterns in the staged diff blocked, with a `.shellsecretignore` allow-list (SPEC §6.1).
 - **ac-closeout** — `gh pr merge` blocked when a linked issue has unchecked AC items and no `## AC closeout` marker comment yet (SPEC §6.1).
 - **merge-strategy** — `gh pr merge` to the default branch blocked unless the strategy is `--merge` (SPEC §6.1, §5.7.1).
-- **push-parity / merge-review** — `gh pr merge` gate: blocks unpushed commits (#244); `merge-review` (#586) blocks merging without a passing GitHub review at the current head (`.claude/state/review-gate` `required`/`bypass`); `SKIP_HOOKS`-escapable (SPEC §6.1, §5.7.1).
+- **push-parity / merge-review** — `gh pr merge` gates: block unpushed commits (#244) and merging without a passing review at the current head (#586; `review-gate` toggle) (SPEC §6.1, §5.7.1).
 - **sensitive-file** — Edit/Write on `.env`/`.env.*`/`*.pem`/`*.pem.*`/`credentials*`/`id_rsa*`/`id_ed25519*` blocked (case-insensitive basename), under both carve-outs (SPEC §6.1).
 - **out-of-scope (Edit/Write)** — Edit/Write outside the registry blocked, except carve-outs `$GHJIG_ROOT/` + `$HOME/.claude/` (SPEC §6.1).
 - **out-of-scope (destructive)** — `rm`/`mv`/`cp` with a force/recursive flag and out-of-registry args blocked; no carve-out (SPEC §6.1).
 - **shell-root resolution** — hooks self-locate via `BASH_SOURCE` through the `.claude/ghjig-root` symlink; ambient never consulted, `GHJIG_ROOT_OVERRIDE` = test seam (SPEC §3.2.1).
 - **per-project state** — audit log, caches, and the scope-guard registry resolve per-project under `ghjig-state/`; missing/empty registry fails open (SPEC §3.2.2).
-- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`; empty registry; retired `GHJIG_SHELL_ROOT`; `GHJIG_ROOT_OVERRIDE` seam) naming the fix (SPEC §6.5(c)).
+- **SessionStart banner** — surfaces detectable silent-no-op states (missing `hookrt.sh`, empty registry, retired/seam env vars) naming the fix (SPEC §6.5(c)).
 - **safe_source** — every helper source goes through `safe_source`, fail-open with `audit_log warn <category> helper-missing` on miss (SPEC §6.1 fail-policy table).
 - **pass-through invariant** — every matcher reaches a decided state per fire; anomalous silent fall-through is caught by `pass_through_trace` (SPEC §6.1).
 - **audit observability** — records carry an additive `source` field and reviewers emit categorized reject records (SPEC §6.1).
@@ -94,6 +94,7 @@ Pointer index — full contracts in SPEC §6.1 (matcher table + `safe_source` fa
 - **label-parent-consistency** — blocks a `gh issue edit --add-label` that contradicts the body's line-1 parent marker (+ initiative/directive + parent-XOR arms) (SPEC §6.1).
 - **initiative-readonly** — blocks mutating `gh issue edit`/`close`/`reopen` on an `initiative` Issue (comments always allowed) (SPEC §6.1).
 - **directive-close** — blocks a close keyword + Directive `#N` in a PR body/commit (bypasses `/complete-directive`, §5.13); Execution Issues unaffected (SPEC §6.1).
+- **activation-/completion-evidence** — evidence gates: the Proposed→Active flip needs a fresh trusted line-1 pass comment; a Directive close-as-completed needs its completion comment; fail-closed (SPEC §6.1).
 - **local git-hook tier** — `.githooks/` adapters extend helper checks to any local git op (human/terminal/script); per-clone `core.hooksPath`, advice (folds to `--no-verify`) (SPEC §6.7).
 
 Escape — three audit-logged forms. The **primary in-agent** form is a **file-based skip token** (`scripts/ghjig_skip.sh <cat> <cmd_fingerprint> [reason]`, one-shot + 60s TTL, read by the hook at fire time so the harness can't strip it). The two in-command forms — a trailing `# ghjig:skip=<cat> reason=<why>` sentinel and a leading `SKIP_HOOKS=<cat> SKIP_REASON='<why>'` env-prefix — are **verbatim-delivery only** (a real shell, the smoke harness); the live Claude Code Bash tool strips both before the hook, so neither lands in-harness. Real terminal / non-protected-branch + rename is the fallback. Full contract: SPEC §7.

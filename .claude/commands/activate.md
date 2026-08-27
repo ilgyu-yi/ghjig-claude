@@ -33,7 +33,11 @@ Status is encoded as labels on the Issue (Issues are SSOT). The Project Status f
 
 4. **Apply the verdict:**
 
-   - **`pass`** → remove the activation labels that are **present** (from the step-2 label fetch — guard each removal, because `gh issue edit --remove-label <L>` errors when `<L>` is absent): `--remove-label status:proposed` if present; `--remove-label status:blocked` if present (the unblock, §5.17 — the mirror reconciles Status=Active on `issues.unlabeled`); `--remove-label awaiting-author` if present. The Issue is now Active. Post a brief `<!-- activation-verdict: pass -->` confirmation comment. Audit: `audit_log info activation activated "issue=#<N> type=<directive|execution> unblocked=<yes|no>"`.
+   - **`pass`** → **comment first, then one edit** (evidence-before-action — the `activation-evidence` PreToolUse gate, SPEC §6.1, verifies the fresh pass comment when the label edit fires):
+     1. Post the pass comment whose **first line** is `<!-- activation-verdict: pass -->` (the marker must be line 1 — both the hook's evidence check and the batch loop-safety skip key on it).
+     2. Remove the activation labels that are **present** (from the step-2 label fetch — include only present labels, because `gh issue edit --remove-label <L>` errors when `<L>` is absent) in **one** `gh issue edit <N>` carrying every applicable removal: `--remove-label status:proposed` if present; `--remove-label status:blocked` if present (the unblock, §5.17 — the mirror reconciles Status=Active on `issues.unlabeled`); `--remove-label awaiting-author` if present.
+
+     A flip attempted before the fresh pass comment blocks at the hook. The Issue is now Active. Audit: `audit_log info activation activated "issue=#<N> type=<directive|execution> unblocked=<yes|no>"`.
 
    - **`revise`** → post the reviewer findings as a comment whose body includes the marker `<!-- activation-verdict: revise -->`. Retain `status:proposed`; `gh issue edit <N> --add-label awaiting-author`. **Escalation:** before posting, count existing `<!-- activation-verdict: revise -->` markers on the Issue; if this would be the **N=3rd**, treat the verdict as `reject` instead (escalation backstop). Audit: `audit_log info activation revise "issue=#<N> round=<k>"`.
 
@@ -56,7 +60,7 @@ Status is encoded as labels on the Issue (Issues are SSOT). The Project Status f
 
 ## Escape
 
-`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate <N>` bypasses the reviewer gate. This escape is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it. To keep the escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
+`SKIP_HOOKS=directive-review SKIP_REASON='<why>' /activate <N>` bypasses the reviewer gate. The reviewer bypass is **command-prose-enforced** — no PreToolUse hook reads `directive-review`, so `should_skip` never auto-logs it — but the **terminal label flip is hook-gated** under `activation-evidence` (SPEC §6.1): `gh issue edit --remove-label status:proposed` requires a fresh line-1 pass comment regardless of how the reviewer step was resolved, so a bypass that posts no pass comment must also arm the §7 escape for that category (`scripts/ghjig_skip.sh activation-evidence <cmd-fingerprint> '<why>'` — auto-audited by `should_skip`) or the flip blocks. To keep the `directive-review` escape audit-logged (SPEC §7 escape contract), on taking the bypass **emit the record yourself**: run `. ".claude/ghjig-root/.claude/hooks/hookrt.sh"` then `audit_log escape directive-review skip "<why>"` (parity with the `should_skip` `SKIP_HOOKS` escape audit).
 
 ## Forbidden
 
