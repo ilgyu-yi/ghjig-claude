@@ -310,18 +310,25 @@ else
 fi
 rm -rf "$S83_A" "$S83_B"
 
-# 83c: legacy fallback — CLAUDE_PROJECT_DIR unset → audit lands at the legacy
-# $GHJIG_ROOT/.claude/audit path (existing behavior preserved).
+# 83c (recut by #725 — SPEC §3.2.2): env-unset audit is UNCONDITIONALLY
+# per-project. From a NON-repo cwd the self-location rung (seam-redirected to
+# the fixture) resolves the destination; the legacy $GHJIG_ROOT/.claude/audit
+# path is never written — even with an ambient GHJIG_ROOT pointing right at it
+# (it survives only as the read-only floor: §135d/§187c). The pre-#725 form of
+# this arm asserted the retired legacy fallback write.
 S83_LEG=$(cd "$(mktemp -d)" && pwd -P)
-( export GHJIG_ROOT="$S83_LEG"; unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
+S83_CWD=$(cd "$(mktemp -d)" && pwd -P)
+( cd "$S83_CWD" || exit 1
+  export GHJIG_ROOT="$S83_LEG" GHJIG_ROOT_OVERRIDE="$S83_LEG"
+  unset CLAUDE_PROJECT_DIR GHJIG_STATE_DIR_OVERRIDE 2>/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"; audit_log info test seeded "ei2a-legacy" ) >/dev/null 2>&1
-if grep -q 'ei2a-legacy' "$S83_LEG/.claude/audit/audit.jsonl" 2>/dev/null \
-   && [ ! -d "$S83_LEG/.claude/ghjig-state" ]; then
-  ok "83c: env-unset audit falls back to legacy shared path (#314)"
+if grep -q 'ei2a-legacy' "$S83_LEG/.claude/ghjig-state/audit/audit.jsonl" 2>/dev/null \
+   && [ ! -e "$S83_LEG/.claude/audit/audit.jsonl" ]; then
+  ok "83c: env-unset audit writes the per-project tier — never the legacy shared path (#725)"
 else
-  ng "83c: env-unset audit should use legacy \$GHJIG_ROOT/.claude/audit (#314)"
+  ng "83c: env-unset audit must land per-project, never legacy (pp=$([ -f "$S83_LEG/.claude/ghjig-state/audit/audit.jsonl" ] && echo present || echo absent) legacy=$([ -e "$S83_LEG/.claude/audit/audit.jsonl" ] && echo present || echo absent)) (#725)"
 fi
-rm -rf "$S83_LEG"
+rm -rf "$S83_LEG" "$S83_CWD"
 
 # 83d: inject adds .claude/ghjig-state to the target's .git/info/exclude.
 S83_INJ=$(cd "$(mktemp -d)" && pwd -P)

@@ -44,20 +44,18 @@ fail() { printf 'ghjig_file_review_post: %s\n' "$1" >&2; exit 1; }
 
 # deny <arm> <message> — a fail-closed reject with NO POST, plus its audit line.
 # The audit record is the block's deferred positive face (MISSION.md:18): without
-# it every arm below is an invisible block. Two mechanism details are
-# load-bearing. (a) `audit_log` resolves its log via `ghjig_state_dir`, NOT
-# `ghjig_state_dir_cli` — and a Bash-tool subprocess commonly runs with
-# CLAUDE_PROJECT_DIR unset, so without the explicit prefix below the record
-# would land on the legacy shared path (or nowhere) instead of the per-project
-# log this wrapper just resolved (SPEC §3.2.2). (b) The call is subshelled and
-# `|| true`-guarded: under `set -euo pipefail` a non-zero `audit_log` must never
-# convert a fail-closed reject into anything other than a clean refusal.
+# it every arm below is an invisible block. One mechanism detail is
+# load-bearing: the call is subshelled and `|| true`-guarded — under
+# `set -euo pipefail` a non-zero `audit_log` must never convert a fail-closed
+# reject into anything other than a clean refusal. Destination routing needs no
+# help from this call site: `audit_log` writes the per-project tier in every
+# context via its dedicated resolver (SPEC §3.2.2, #725).
 # The reason carries the ARM NAME ONLY — an audit line echoing the body would
 # re-publish, into the log, exactly the content the reject withheld.
 deny() {
   local arm="$1" msg="$2"
   if command -v audit_log >/dev/null 2>&1; then
-    ( export CLAUDE_PROJECT_DIR="${esd%/.claude/ghjig-state}"; audit_log info file-review rejected "reason=$arm" ) >/dev/null 2>&1 || true
+    ( audit_log info file-review rejected "reason=$arm" ) >/dev/null 2>&1 || true
   fi
   printf 'ghjig_file_review_post: %s — fail closed, no POST\n' "$msg" >&2
   exit 1

@@ -3,7 +3,8 @@
 #
 # Hosts:
 #   - _audit_json_string  : JSON-encode arbitrary strings (jq with fallback).
-#   - audit_log           : the one-record-per-line audit writer.
+#   - audit_log           : the one-record-per-line audit writer — always the
+#                           per-project sink, via ghjig_audit_dir (§3.2.2).
 #   - safe_source         : presence-checked source with helper-missing
 #                           audit-warn emission.
 #
@@ -116,6 +117,39 @@ ghjig_state_dir_cli() {
   printf '%s' "${SHELL_ROOT:-${GHJIG_ROOT:-}}/.claude/ghjig-state"
 }
 
+# ghjig_audit_dir — dedicated audit-destination resolver (#725, SPEC §3.2.2).
+# Called ONLY by audit_log — no other caller; ghjig_state_dir /
+# ghjig_state_dir_cli keep their own resolution for caches and registry. The
+# writer is unconditional: this yields a per-project ghjig-state dir in EVERY
+# context, never the legacy shared path. Rung order, each rung degrading to
+# the next: GHJIG_STATE_DIR_OVERRIDE (test seam) →
+# $CLAUDE_PROJECT_DIR/.claude/ghjig-state → the MAIN-worktree top level via
+# `git rev-parse --path-format=absolute --git-common-dir` (strip a trailing
+# /.git only when present — submodule guard; fall back to --show-toplevel;
+# only when cwd is inside a git work tree) so a worktree-context record
+# survives the worktree's teardown → BASH_SOURCE self-location honoring the
+# GHJIG_ROOT_OVERRIDE seam (the §3.2.1 idiom). Total failure prints nothing
+# and returns non-zero — never a /-rooted path.
+ghjig_audit_dir() {
+  if [ -n "${GHJIG_STATE_DIR_OVERRIDE:-}" ]; then printf '%s' "$GHJIG_STATE_DIR_OVERRIDE"; return 0; fi
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then printf '%s' "$CLAUDE_PROJECT_DIR/.claude/ghjig-state"; return 0; fi
+  local gcd top=""
+  if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || gcd=""
+    case "$gcd" in */.git) top="${gcd%/.git}" ;; esac
+    [ -n "$top" ] || top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
+    if [ -n "$top" ]; then printf '%s' "$top/.claude/ghjig-state"; return 0; fi
+  fi
+  local root=""
+  if [ -n "${GHJIG_ROOT_OVERRIDE:-}" ]; then
+    root="$GHJIG_ROOT_OVERRIDE"
+  else
+    root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P) || root=""
+  fi
+  if [ -n "$root" ]; then printf '%s' "$root/.claude/ghjig-state"; return 0; fi
+  return 1
+}
+
 # ghjig_registry_file [project_dir] — per-project scope-guard registry path
 # (#316, Directive #311). One definition, two execution contexts:
 #   - With an explicit <project_dir> (launcher / CLI — bin/ghjig,
@@ -157,10 +191,12 @@ audit_log() {
   # live). The marker is set only by the session launcher (e.g. smoke.sh), never
   # reachable by a real Bash-tool action (SPEC §6.1 anti-reclassification / §7).
   case "${GHJIG_AUDIT_SOURCE:-}" in test) _src="test" ;; *) _src="live" ;; esac
-  # Per-project audit (#314) when in hook context; else legacy shared path.
-  esd=$(ghjig_state_dir)
-  if [ -n "$esd" ]; then log="$esd/audit/audit.jsonl"; else log="${GHJIG_ROOT:-}/.claude/audit/audit.jsonl"; fi
-  mkdir -p "$(dirname "$log")"
+  # Unconditional per-project write (#725, SPEC §3.2.2) via the dedicated
+  # resolver; total resolution/creation failure drops the record (return 1,
+  # never gating the caller), never a legacy-shared or /-rooted write.
+  if ! esd=$(ghjig_audit_dir) || [ -z "$esd" ]; then return 1; fi
+  log="$esd/audit/audit.jsonl"
+  mkdir -p "$(dirname "$log")" 2>/dev/null || return 1
   local r_reason r_cwd
   r_cwd=$(_audit_json_string "$cwd")
   if ! _audit_validate_format "$category" "$decision" "$reason"; then
