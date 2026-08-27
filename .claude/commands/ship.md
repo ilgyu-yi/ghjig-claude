@@ -5,6 +5,8 @@ description: Gate the PR for ready transition — review, tests, doc sync, PR bo
 Execute ship steps in order. If any step fails, stop immediately and report.
 
 0. **Resolve mode** via `resolve_mode` from `.claude/ghjig-root/.claude/hooks/helpers/ship_mode.sh`. Priority: `--mode=` flag → `$GHJIG_SHELL_MODE` → `.claude/state/mode` → default `attended`. Unknown values fail closed to `attended` with a stderr warning. See SPEC §5.7.1.
+**Dispatch facts** (#730) — every descriptive fact in a subagent prompt composed here is a stable resolvable pointer, derived-with-command, or explicitly labeled unverified; pointer-first, advisory (SPEC §1.5).
+
 1. Invoke `code-reviewer` and run the caller-side head-pin blind-compare below. **Hold the verdict — do not act on a blocker yet.** The blocker-stop is acted on in step 1.5, after the finding set has been judged (SPEC §5.7 step-1 restructure, §4.13).
 
    **Caller-side head-pin blind-compare (SPEC §4.5, #544)** — a worktree-isolated reviewer sits at the caller-chosen BASE, so it must pin its own artifact to the PR head and report a first-line `reviewed-head: <sha>`. Close the loop on the caller side: compute the expected head yourself — `gh pr view <n> --json headRefOid --jq .headRefOid` — and **hold it PRIVATELY: NEVER pass it to, or reveal it to, the reviewer** (a revealed head is held privately so the reviewer cannot echo it back for a tautological pass). Blind-compare each reviewer's independently-reported `reviewed-head` against your privately-held head. A mismatch, an absent `reviewed-head`, or an unconfirmed head is a **fail-closed INVALID vote — never counted as an approve** (the reviewer reviewed a stale artifact, PR #543).

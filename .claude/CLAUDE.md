@@ -63,6 +63,8 @@ Don't re-run an exploration in `explorer` that the main assistant already did.
 
 **Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `finding-judge`, `planner`, `explorer`) share the parent's tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage uncommitted work — invoke them with **worktree isolation** (canonical) and run `git status` before commit/merge. The write-capable `implementer` is **not** isolated; it substitutes a **path-scoped-add discipline** (never `git add -A`/`-u`). Full contract — read-only-git prompts, the fail-closed `reviewed-head:` pin, the dispatch-time dirty-tree check: SPEC §4.5, §4.12, §5.28.
 
+**Dispatch-fact rule** (#730): a fact in a dispatch prompt is a stable resolvable pointer, derived-with-command, or labeled unverified — pointer-first; full contract SPEC §1.5.
+
 ## Branch & commit convention
 - Branch: `<gh-username>/<type>/[<issue#>-]<slug>`
 - Commit: `<type>(#<issue>)[!]: <subject>` (codepoint 1–72)
