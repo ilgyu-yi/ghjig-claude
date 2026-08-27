@@ -931,6 +931,124 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace trusted-filer-mutate "$cmd"
     fi
 
+    # activation-evidence (#738, Directive #692) — block the Proposed→Active
+    # flip (`gh issue edit <N> --remove-label status:proposed`) without FRESH
+    # activation evidence: a trusted-author (OWNER/MEMBER/COLLABORATOR, the
+    # ac-closeout trust set) comment whose FIRST LINE is
+    # `<!-- activation-verdict: pass -->`, fresh per
+    # `pass.createdAt >= max(lastEditedAt // createdAt, lastLabelEvent.createdAt)`
+    # — one `gh api graphql` round-trip (activation_evidence_fresh,
+    # ac_closeout_gate.sh). FAIL-CLOSED like merge-review, NOT the fail-open of
+    # the neighboring filer arms (§6.0 P1): a lookup failure — gh error/timeout,
+    # malformed JSON, a 200-with-`errors` GraphQL response, a safe_source helper
+    # miss — blocks. The block message splits EVIDENCE-ABSENCE (remedy:
+    # `/activate <N>`) from LOOKUP-FAILURE (merge-review's re-run remedy);
+    # staleness names the stale class. SPEC §6.1 `activation-evidence` row.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+edit\b'; then
+      decided=
+      # Refine FIRST, before the skip check and before ANY gh call: the gated label
+      # in both separator forms and as a comma-list element — same tokenization
+      # as the tfm declassify arm above. An ungated label edit must neither pay
+      # the graphql lookup nor consume a minted skip token.
+      ae_flip_re='--remove-label[=[:space:]]+["'"'"']?([^"'"'"' ]*,)?status:proposed([[:space:],"'"'"']|$)'
+      if ! [[ "$cmd" =~ $ae_flip_re ]]; then
+        # Not the Proposed→Active flip — out of scope.
+        mark_allow activation-evidence
+        decided=1
+      elif should_skip activation-evidence; then
+        decided=1
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" activation-evidence; then
+        ae_issue=
+        ae_repo=
+        if command -v gh_issue_target >/dev/null 2>&1; then
+          # Capture FIRST, then split (#276 — no IFS leak into the resolver).
+          ae_target="$(gh_issue_target "$cmd" 'edit')"
+          IFS=$'\t' read -r ae_issue ae_repo <<< "$ae_target"
+        fi
+        ae_rc=2   # unresolvable selector/helper → the lookup-failure arm below
+        if [ -n "$ae_issue" ] && command -v activation_evidence_fresh >/dev/null 2>&1; then
+          activation_evidence_fresh "$ae_issue" "$ae_repo"
+          ae_rc=$?
+        fi
+        case "$ae_rc" in
+          0)
+            mark_allow activation-evidence
+            decided=1
+            ;;
+          1)
+            block activation-evidence "activation-evidence: Issue #${ae_issue} has no trusted activation pass comment (first line '<!-- activation-verdict: pass -->' from OWNER/MEMBER/COLLABORATOR) — the Proposed→Active flip requires activation evidence (SPEC §6.1). Run /activate ${ae_issue} to review the Issue and post the verdict before the flip. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            ;;
+          3)
+            block activation-evidence "activation-evidence: Issue #${ae_issue}'s activation pass comment is stale — the Issue body or its labels changed after the verdict, so the evidence is no longer fresh (SPEC §6.1). Run /activate ${ae_issue} to re-review the current state and post a fresh verdict. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            ;;
+          *)
+            block activation-evidence "activation-evidence: could not resolve the Issue's activation evidence (gh error/timeout, malformed JSON, or a GraphQL errors response) — the gate fails closed (SPEC §6.1). Confirm the Issue exists and gh is reachable, then re-run. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            ;;
+        esac
+      else
+        # safe_source could not load the gate helper — like merge-review, this
+        # gate is a deliberate exception to the sibling arms' fail-OPEN posture:
+        # a helper miss fails CLOSED too (SPEC §6.1).
+        block activation-evidence "activation-evidence: gate helper (ac_closeout_gate.sh) unavailable — the gate fails closed (SPEC §6.1). Restore the helper, then re-run. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
+      fi
+      [ -z "$decided" ] && pass_through_trace activation-evidence "$cmd"
+    fi
+
+    # completion-evidence (#738, Directive #692) — block
+    # `gh issue close <N> --reason completed` on a `directive`-labelled Issue
+    # without completion evidence: a trusted-author comment whose first line
+    # matches `^## Directive Completion \(resolved by ` (the §5.13 closing-
+    # comment head). Existence-only, no freshness — /complete-directive orders
+    # comment-before-close, so presence signals the reviewer-evidenced path ran.
+    # Non-`directive` Issues are allowed at the label branch (rc 4) BEFORE any
+    # evidence lookup. Tightens — does not replace — the trusted-filer-mutate
+    # close arm above (which requires `--reason completed` but consumes no
+    # evidence). Same fail-closed posture and message split as
+    # activation-evidence. SPEC §6.1 `completion-evidence` row.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*issue[[:space:]]+close\b'; then
+      decided=
+      # Refine FIRST: only `--reason completed` (space/= forms, quote-tolerant)
+      # is gated; a bare close or `--reason "not planned"` stays with the
+      # trusted-filer-mutate arm above — this matcher stays silent on those.
+      ce_reason_re='--reason[=[:space:]]+["'"'"']?completed([[:space:]"'"'"']|$)'
+      if ! [[ "$cmd" =~ $ce_reason_re ]]; then
+        mark_allow completion-evidence
+        decided=1
+      elif should_skip completion-evidence; then
+        decided=1
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" completion-evidence; then
+        ce_issue=
+        ce_repo=
+        if command -v gh_issue_target >/dev/null 2>&1; then
+          ce_target="$(gh_issue_target "$cmd" 'close')"
+          IFS=$'\t' read -r ce_issue ce_repo <<< "$ce_target"
+        fi
+        ce_rc=2   # unresolvable selector/helper → the lookup-failure arm below
+        if [ -n "$ce_issue" ] && command -v completion_evidence_present >/dev/null 2>&1; then
+          completion_evidence_present "$ce_issue" "$ce_repo"
+          ce_rc=$?
+        fi
+        case "$ce_rc" in
+          0|4)
+            # 0 = evidence present; 4 = not a `directive` Issue — only
+            # Directive completion is evidence-gated.
+            mark_allow completion-evidence
+            decided=1
+            ;;
+          1)
+            block completion-evidence "completion-evidence: Issue #${ce_issue} is a Directive but carries no completion comment (first line '## Directive Completion (resolved by …' from OWNER/MEMBER/COLLABORATOR) — a completed-close requires completion evidence (SPEC §6.1). Run /complete-directive ${ce_issue} to post the reviewer-evidenced closing comment before the close. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            ;;
+          *)
+            block completion-evidence "completion-evidence: could not resolve the Issue's completion evidence (gh error/timeout, malformed JSON, or a GraphQL errors response) — the gate fails closed (SPEC §6.1). Confirm the Issue exists and gh is reachable, then re-run. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            ;;
+        esac
+      else
+        # Helper miss → fail CLOSED (the merge-review exception, SPEC §6.1).
+        block completion-evidence "completion-evidence: gate helper (ac_closeout_gate.sh) unavailable — the gate fails closed (SPEC §6.1). Restore the helper, then re-run. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
+      fi
+      [ -z "$decided" ] && pass_through_trace completion-evidence "$cmd"
+    fi
+
     # label-parent-consistency — block `gh issue edit <N> --add-label
     # {execution|task|bug}` when the label contradicts the Issue body's line-1
     # `Parent Directive: #N` marker (SPEC §6.1, Issue #199). Converts the
