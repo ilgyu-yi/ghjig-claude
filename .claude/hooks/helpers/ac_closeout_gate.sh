@@ -14,6 +14,10 @@
 #     gh calls are bounded by `timeout 5` (or `gtimeout 5` on macOS;
 #     unbounded fallback if neither is present). Indeterminate maps to
 #     allow in the caller (fail-open per SPEC §6.1).
+#   extract_pr_from_ready_cmd <cmd> / changelog_evidence_present <pr> [repo]
+#     — the `changelog-evidence` gate functions (folded in, #742): the
+#     `gh pr ready` changelog-fragment gate. Contracts at the definitions
+#     below; the caller fails CLOSED on rc 2 (SPEC §6.1).
 
 extract_pr_from_merge_cmd() {
   local cmd="$1"
@@ -673,4 +677,94 @@ completion_evidence_present() {
     absent)  return 1 ;;
     *)       return 2 ;;
   esac
+}
+
+# extract_pr_from_ready_cmd <cmd> — sibling of extract_pr_from_merge_cmd for
+# the `changelog-evidence` arm (#742): print the explicit PR selector (first
+# pure-integer argv, or the digits of a `/pull/N` URL) after `gh pr ready` and
+# return 0, or print nothing and return 1 when the cmd carries no explicit
+# selector (branch-token and bare forms resolve in the caller). Same #499
+# leading-global-flag strip and set-f token walk as the merge sibling;
+# ready-relevant value-taking flags (`--repo`/`-R`) consume their next token so
+# a repo value is never mis-read as the selector.
+extract_pr_from_ready_cmd() {
+  local cmd="$1"
+  local rest token skip_next=""
+  rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready//p')
+  rest=$(printf '%s' "$rest" | tr -s '[:space:]')
+  local _opts=$-
+  set -f
+  for token in $rest; do
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
+    case "$token" in
+      --repo|-R) skip_next=1; continue ;;
+      -*) continue ;;
+      */pull/*)   # PR URL selector — take the digits after the LAST `/pull/`.
+        token="${token##*/pull/}"; token="${token%%[!0-9]*}"
+        [ -n "$token" ] && { case "$_opts" in *f*) ;; *) set +f ;; esac; printf '%s' "$token"; return 0; }
+        continue ;;
+      *[!0-9]*) continue ;;   # only pure-integer tokens count as PR number
+      [0-9]*) case "$_opts" in *f*) ;; *) set +f ;; esac; printf '%s' "$token"; return 0 ;;
+    esac
+  done
+  case "$_opts" in *f*) ;; *) set +f ;; esac
+  return 1
+}
+
+# changelog_evidence_present <pr> [owner/name] — the changelog-evidence
+# predicate (SPEC §6.1, #742): does PR <pr> satisfy one of the two ready doors?
+# LABEL DOOR FIRST — the `skip-changelog` label (§18.7 / CI's own
+# short-circuit) allows with NO diff fetch; else the FRAGMENT DOOR: the PR diff
+# genuinely ADDS `changelog_unreleased/(added|changed|deprecated|removed|
+# fixed|security)/<N>.md` with stem <N> in the allow-set = PR number ∪
+# closingIssuesReferences — the same set check-changelog.yml (§18.6) computes.
+# Added-in-diff predicate is HARDENED: a path counts only when it appears in
+# BOTH `^diff --git a/.* b/<path>$` AND `^\+\+\+ b/<path>$` of one fetched
+# `gh pr diff --patch` output — a file-content line starting `++ b/…` renders
+# as a column-0 `+++ b/…` patch line (the added-line `+` prefix concatenates),
+# so the `+++` grep alone is content-forgeable; the column-0 `diff --git`
+# header is not. Presence-only, existential over the allow-set (shape and the
+# all-valid contract stay CI's, §18.5/§18.6). A `gh pr diff` transport failure
+# is kept SEPARATE from the grep's no-match — the #553 E3 split
+# check-changelog.yml itself carries.
+# Returns: 0 evidence present (either door) · 1 evidence absent (no counted
+# fragment, no label) · 3 fragment(s) counted but every stem outside the
+# allow-set · 2 lookup failure (gh error/timeout, malformed JSON, missing jq,
+# diff transport failure) — the caller fails CLOSED on 2.
+changelog_evidence_present() {
+  local pr="$1" repo="${2:-}" json door allow diff paths path stem counted=""
+  command -v jq >/dev/null 2>&1 || return 2
+  if [ -n "$repo" ]; then
+    json=$(_ac_run_gh pr view "$pr" --repo "$repo" --json number,labels,closingIssuesReferences 2>/dev/null) || return 2
+  else
+    json=$(_ac_run_gh pr view "$pr" --json number,labels,closingIssuesReferences 2>/dev/null) || return 2
+  fi
+  # Label door FIRST — a skip-labelled PR never pays the diff fetch.
+  door=$(printf '%s' "$json" | jq -r 'if ([.labels[]?.name] | index("skip-changelog")) != null then "skip" else "go" end' 2>/dev/null) || return 2
+  case "$door" in
+    skip) return 0 ;;
+    go)   : ;;
+    *)    return 2 ;;
+  esac
+  allow=$(printf '%s' "$json" | jq -r '[.number, (.closingIssuesReferences[]?.number)] | unique | .[]' 2>/dev/null) || return 2
+  # Valid JSON but no usable integer allow-set → lookup failure, not absence.
+  printf '%s\n' "$allow" | grep -qE '^[0-9]+$' || return 2
+  if [ -n "$repo" ]; then
+    diff=$(_ac_run_gh pr diff "$pr" --repo "$repo" --patch 2>/dev/null) || return 2
+  else
+    diff=$(_ac_run_gh pr diff "$pr" --patch 2>/dev/null) || return 2
+  fi
+  # Candidates from the content-unforgeable `diff --git` header grep…
+  paths=$(printf '%s\n' "$diff" \
+    | sed -nE 's#^diff --git a/.* b/(changelog_unreleased/(added|changed|deprecated|removed|fixed|security)/[0-9]+\.md)$#\1#p')
+  # …counted only with a full-line `+++ b/<path>` twin (the dual-grep intersection).
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    printf '%s\n' "$diff" | grep -qxF -- "+++ b/$path" || continue
+    counted="$counted$path"$'\n'
+    stem="${path##*/}"; stem="${stem%.md}"
+    printf '%s\n' "$allow" | grep -qx -- "$stem" && return 0
+  done <<< "$paths"
+  [ -n "$counted" ] && return 3   # fragments genuinely added, none in allow-set
+  return 1                        # no fragment evidence at all
 }
