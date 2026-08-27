@@ -37,7 +37,7 @@ Common blocks and how to resolve them.
 ## Reading the audit log
 
 ```bash
-cat .claude/audit/audit.jsonl | tail -50
+tail -50 .claude/ghjig-state/audit/audit.jsonl   # per-project trail; legacy floor: .claude/audit/audit.jsonl (SPEC §3.2.2)
 # or from inside Claude: /audit force-push
 ```
 

@@ -2609,21 +2609,55 @@ else
 fi
 rm -rf "$S135C_DIR"
 
-# §135d: unset-reachable audit-path bug (#539). narrowing_candidates.sh /
-# promotion_candidates.sh source audit_log_path.sh WITHOUT exporting GHJIG_ROOT.
-# With the ephemeral-state env also scrubbed, resolve_audit_log must anchor under
-# the SELF-LOCATED shell root — never the filesystem-root-anchored `/.claude/audit
-# /audit.jsonl` that the `${GHJIG_ROOT:-}` fallback yields today. Sourced exactly
-# the way the consumer scripts do (`. "$HERE/lib/audit_log_path.sh"`). RED now.
-s135d=$(
+# §135d: reader contract (#539, recut by #725 — SPEC §3.2.2 "Audit read-floor").
+# resolve_audit_log mirrors the writer's rung order and treats the legacy shared
+# file as a READ-ONLY FLOOR: per-project file present → return it; absent →
+# return the floor; never the floor in preference to the per-project file.
+# Exercised against a DECOY root via the GHJIG_ROOT_OVERRIDE seam (no live file
+# consulted) from a non-repo scratch cwd, so the self-location rung — not the
+# git-derive rung — resolves the per-project tier. Sourced exactly the way the
+# consumer scripts (narrowing_candidates.sh / promotion_candidates.sh) do.
+S135D_ROOT=$(mktemp -d)
+S135D_CWD=$(mktemp -d)
+mkdir -p "$S135D_ROOT/.claude/ghjig-state/audit" "$S135D_ROOT/.claude/audit"
+printf '{"probe":"pp"}\n' > "$S135D_ROOT/.claude/ghjig-state/audit/audit.jsonl"
+printf '{"probe":"floor"}\n' > "$S135D_ROOT/.claude/audit/audit.jsonl"
+s135d_pp=$(
   env -u GHJIG_ROOT -u CLAUDE_PROJECT_DIR -u GHJIG_STATE_DIR_OVERRIDE \
-    bash -c '. "$1/lib/audit_log_path.sh"; resolve_audit_log' _ "$SHELL_ROOT/scripts" 2>/dev/null
+    GHJIG_ROOT_OVERRIDE="$S135D_ROOT" \
+    bash -c 'cd "$2" && . "$1/lib/audit_log_path.sh" && resolve_audit_log' \
+    _ "$SHELL_ROOT/scripts" "$S135D_CWD" 2>/dev/null
 )
-if [ "$s135d" = "$SHELL_ROOT/.claude/audit/audit.jsonl" ]; then
-  ok "135d: env-scrubbed resolve_audit_log self-locates the shell root (not /.claude/audit) (#539)"
+if [ "$s135d_pp" = "$S135D_ROOT/.claude/ghjig-state/audit/audit.jsonl" ]; then
+  ok "135d: per-project audit file present → resolve_audit_log prefers it over the legacy floor (#725)"
 else
-  ng "135d: unset GHJIG_ROOT → resolve_audit_log returned '$s135d' (want '$SHELL_ROOT/.claude/audit/audit.jsonl'; the filesystem-root /.claude/audit bug) (#539)"
+  ng "135d: per-project file present but resolve_audit_log returned '$s135d_pp' (want '$S135D_ROOT/.claude/ghjig-state/audit/audit.jsonl') (#725)"
 fi
+rm -f "$S135D_ROOT/.claude/ghjig-state/audit/audit.jsonl"
+s135d_fl=$(
+  env -u GHJIG_ROOT -u CLAUDE_PROJECT_DIR -u GHJIG_STATE_DIR_OVERRIDE \
+    GHJIG_ROOT_OVERRIDE="$S135D_ROOT" \
+    bash -c 'cd "$2" && . "$1/lib/audit_log_path.sh" && resolve_audit_log' \
+    _ "$SHELL_ROOT/scripts" "$S135D_CWD" 2>/dev/null
+)
+if [ "$s135d_fl" = "$S135D_ROOT/.claude/audit/audit.jsonl" ]; then
+  ok "135d-floor: per-project file absent → resolve_audit_log falls back to the read-only legacy floor (#725)"
+else
+  ng "135d-floor: per-project file absent but resolve_audit_log returned '$s135d_fl' (want the floor '$S135D_ROOT/.claude/audit/audit.jsonl') (#725)"
+fi
+# #539 regression pin, kept: env-scrubbed WITHOUT the seam, the resolver must
+# still anchor under the SELF-LOCATED shell root — never the filesystem-root
+# `/.claude/audit/audit.jsonl` the retired `${GHJIG_ROOT:-}` fallback yielded.
+s135d_root=$(
+  env -u GHJIG_ROOT -u GHJIG_ROOT_OVERRIDE -u CLAUDE_PROJECT_DIR -u GHJIG_STATE_DIR_OVERRIDE \
+    bash -c 'cd "$2" && . "$1/lib/audit_log_path.sh" && resolve_audit_log' \
+    _ "$SHELL_ROOT/scripts" "$S135D_CWD" 2>/dev/null
+)
+case "$s135d_root" in
+  "$SHELL_ROOT"/*) ok "135d-selfloc: env-scrubbed resolve_audit_log self-locates the shell root (not /.claude/audit) (#539)" ;;
+  *) ng "135d-selfloc: env-scrubbed resolve_audit_log returned '$s135d_root' (want a path under '$SHELL_ROOT'; the filesystem-root /.claude/audit bug) (#539)" ;;
+esac
+rm -rf "$S135D_ROOT" "$S135D_CWD"
 
 # §135e (AC-3): commands carry zero `$GHJIG_ROOT/`, and the runtime-executed
 # command-prelude form resolves through the binding symlink in BOTH the dogfood

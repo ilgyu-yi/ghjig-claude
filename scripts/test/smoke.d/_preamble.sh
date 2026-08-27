@@ -20,12 +20,18 @@ set -uo pipefail
 # before the §4 registry backup, so it reflects the truly untouched live state.
 S357_LIVE_AUDIT="$SHELL_ROOT/.claude/audit/audit.jsonl"
 S357_LIVE_REG="$SHELL_ROOT/.claude/state/registry.txt"
+# #725: the unconditional per-project audit writer makes the shell repo's OWN
+# ghjig-state sink a live surface a stray in-suite fire could hit (the
+# git-derive / self-location rungs, SPEC §3.2.2, resolve the REAL repo when a
+# fixture forgets to redirect them) — snapshot it alongside the legacy sink.
+S357_LIVE_PPAUDIT="$SHELL_ROOT/.claude/ghjig-state/audit/audit.jsonl"
 # Guard with [ -f ] before the `< file` redirect: bash applies `< file` BEFORE
 # `2>/dev/null`, so on an absent path the open-failure reaches the real stderr
 # unsuppressed (a spurious "No such file" line, #417). An absent sink snapshots
 # as 0 — the assertion semantics are unchanged.
 s357_audit_before=0; [ -f "$S357_LIVE_AUDIT" ] && s357_audit_before=$(wc -l < "$S357_LIVE_AUDIT" | tr -d ' ')
 s357_reg_before=0; [ -f "$S357_LIVE_REG" ] && s357_reg_before=$(wc -l < "$S357_LIVE_REG" | tr -d ' ')
+s357_ppaudit_before=0; [ -f "$S357_LIVE_PPAUDIT" ] && s357_ppaudit_before=$(wc -l < "$S357_LIVE_PPAUDIT" | tr -d ' ')
 
 # §357 — pin ALL fixture hook fires to an isolated ephemeral state dir for the
 # whole run. ghjig_state_dir() honors GHJIG_STATE_DIR_OVERRIDE as top priority, so

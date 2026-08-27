@@ -1336,12 +1336,12 @@ fi
 # returns 1.
 
 S53_DIR=$(mktemp -d)
-S53_LOG="$S53_DIR/.claude/audit/audit.jsonl"
+S53_LOG="$S53_DIR/state/audit/audit.jsonl"
 mkdir -p "$(dirname "$S53_LOG")"
 
 # §53a: well-formed directive-file/created → written verbatim, rc=0.
 (
-  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_STATE_DIR_OVERRIDE="$S53_DIR/state"  # #725: seed the override rung — audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: smoke test issue=#123 priority=P2 confidence=50"
@@ -1360,7 +1360,7 @@ fi
 # line written, original record NOT written, rc=1.
 s53b_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_STATE_DIR_OVERRIDE="$S53_DIR/state"  # #725: seed the override rung — audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-file created "directive: bad issue= priority=P2 confidence=50"
@@ -1383,7 +1383,7 @@ fi
 # issue=#2" if mis-applied to it.
 s53c_before=$(wc -l < "$S53_LOG" 2>/dev/null | tr -d ' ')
 (
-  GHJIG_ROOT="$S53_DIR"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: audit must land in $S53_DIR, not $SMOKE_STATE
+  GHJIG_STATE_DIR_OVERRIDE="$S53_DIR/state"  # #725: seed the override rung — audit must land in $S53_DIR, not $SMOKE_STATE
   # shellcheck source=/dev/null
   . "$SHELL_ROOT/.claude/hooks/hookrt.sh"
   audit_log info directive-link created "directive=#75 issue=#80"
