@@ -34,7 +34,7 @@ Status is encoded as labels on the Issue (Issues are SSOT). The Project Status f
 4. **Apply the verdict:**
 
    - **`pass`** → **comment first, then one edit** (evidence-before-action — the `activation-evidence` PreToolUse gate, SPEC §6.1, verifies the fresh pass comment when the label edit fires):
-     1. Post the pass comment whose **first line** is `<!-- activation-verdict: pass -->` (the marker must be line 1 — both the hook's evidence check and the batch loop-safety skip key on it).
+     1. Post the pass comment whose **first line** is `<!-- activation-verdict: pass -->` (the marker must be line 1 — the `activation-evidence` hook keys the evidence check on the first line).
      2. Remove the activation labels that are **present** (from the step-2 label fetch — include only present labels, because `gh issue edit --remove-label <L>` errors when `<L>` is absent) in **one** `gh issue edit <N>` carrying every applicable removal: `--remove-label status:proposed` if present; `--remove-label status:blocked` if present (the unblock, §5.17 — the mirror reconciles Status=Active on `issues.unlabeled`); `--remove-label awaiting-author` if present.
 
      A flip attempted before the fresh pass comment blocks at the hook. The Issue is now Active. Audit: `audit_log info activation activated "issue=#<N> type=<directive|execution> unblocked=<yes|no>"`.
