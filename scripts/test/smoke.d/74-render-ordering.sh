@@ -6,9 +6,8 @@
 if false; then . "$(dirname "${BASH_SOURCE[0]}")/_preamble.sh"; fi
 
 # ---------- §186: the claim-ordering step reaches every authoring carrier (#728) ----------
-# The Doc phase wired one advisory "Claim ordering" step (SPEC §1.11 L2/L5,
-# instrument: scripts/ghjig_evidence.sh) into every surface that authors a
-# durable body. §186a locks that wiring as a GENERATED-OUTPUT COMPARISON: the
+# Every surface that authors a durable body carries one advisory "Claim
+# ordering" step (SPEC §1.11 L2/L5, instrument: scripts/ghjig_evidence.sh). §186a locks that wiring as a GENERATED-OUTPUT COMPARISON: the
 # required carrier set is DERIVED at run time by the #705 predicate over the
 # live command/agent files — never hand-listed — and each derived-and-not-
 # excluded carrier must contain the instrument's filename. The only fixed
@@ -35,9 +34,9 @@ S186_AGT_DIR="$SHELL_ROOT/.claude/agents"
 
 # s186_writes_body <file> — the #705 predicate: after joining backslash-
 # continued lines, some logical line runs a gh body write. The verbs are
-# PINNED to create|edit: adding `comment` returns 15 rows today (every
-# comment-writing surface qualifies) and breaks the derived arithmetic — a
-# comment is not one of the durable authored bodies the step targets.
+# PINNED to create|edit: a comment is not one of the durable authored bodies
+# the step targets, and admitting comment verbs breaks the derived
+# arithmetic (every comment-writing surface would qualify).
 s186_writes_body() {
   s186_wb_j=$(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$1" 2>/dev/null)
   for s186_wb_v in "issue create" "issue edit" "pr create" "pr edit"; do
@@ -62,10 +61,10 @@ done
 
 # The four derived-but-excluded surfaces, each carried WITH its one-clause
 # reason (#728) — §186b reds if any stops being derivable (dead exclusion):
-#   activate.md       — writes a prepended marker line, not an authored body
+#   activate.md       — refiles a sanitized untrusted draft, not an authored body
 #   discuss.md        — deliberately friction-free discussion tier
-#   link-directive.md — static literal body
-#   release.md        — sanitized untrusted draft
+#   link-directive.md — prepends a marker line to an existing body
+#   release.md        — static templated literal body
 S186_EXCLUDED="activate.md discuss.md link-directive.md release.md"
 # planner.md is HAND-PINNED by name, not derived: the predicate cannot return
 # a surface whose Plan output becomes PR-body content WITHOUT a gh call —
