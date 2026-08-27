@@ -91,7 +91,7 @@ Twelve: `explorer`, `planner`, `plan-challenger`, `doc-writer`, `test-writer`, `
 
 ## What the hooks enforce
 
-The environment refuses what a careful engineer would not do and audit-logs every block to `.claude/audit/audit.jsonl`. The surface includes:
+The environment refuses what a careful engineer would not do and audit-logs every block to the per-project audit log (SPEC §3.2.2). The surface includes:
 
 - **Git safety** — direct commit/push to a protected branch, force-push, `--amend` after push, `--no-verify`.
 - **Secrets & sensitive files** — secret patterns in the staged diff (path allow-list via `.shellsecretignore`); edits to `.env`, `*.pem`, `credentials*`.

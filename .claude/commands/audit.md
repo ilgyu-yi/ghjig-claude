@@ -3,7 +3,8 @@ description: Query the audit log. Recent blocks, escapes, warns.
 argument-hint: [<filter>]
 ---
 
-Query `.claude/ghjig-root/.claude/audit/audit.jsonl`.
+Query the audit log at the shared resolution: `source .claude/ghjig-root/scripts/lib/audit_log_path.sh && resolve_audit_log` (§3.2.2).
+Floor note: the legacy shared `.claude/ghjig-root/.claude/audit/audit.jsonl` is a read-only floor the resolution consults only when the per-project file is absent — never query it directly in preference to the resolved path.
 
 If `$ARGUMENTS` is empty, show the last 50 lines.
 With an argument, grep by substring (e.g. `force-push`, `escape`, `2026-05-19`).

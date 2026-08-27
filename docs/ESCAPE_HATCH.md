@@ -63,4 +63,4 @@ SKIP_HOOKS=out-of-scope SKIP_REASON='ad-hoc cache cleanup' rm -rf /tmp/some-cach
 - Use `all` only in emergencies.
 - A category that gets skipped repeatedly is a sign the hook is misconfigured — open a PR to fix it (for `secret`, that means adding the path to `.shellsecretignore`, not normalizing the bypass).
 
-Every skip is recorded as one line of JSON in `.claude/audit/audit.jsonl`.
+Every skip is recorded as one line of JSON in the per-project audit log (`ghjig-state/audit/audit.jsonl`; resolution + read-only legacy floor: SPEC §3.2.2).
