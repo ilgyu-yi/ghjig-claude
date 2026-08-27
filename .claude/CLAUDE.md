@@ -1,6 +1,6 @@
 # GHJig-Claude — Operating Norms
 
-This directory holds shell assets injected by GHJig-Claude. This file is a summary of the work norms the shell enforces. Full spec is in the shell repo's `SPEC.md` — consult its **Table of contents** at the top first, then `Read --offset --limit` the targeted section rather than loading the whole ~358KB file. Regenerate the TOC via `scripts/build_toc.sh` after editing any SPEC heading.
+This directory holds shell assets injected by GHJig-Claude. This file is a summary of the work norms the shell enforces. Full spec is in the shell repo's `SPEC.md` — consult its **Table of contents** at the top first, then `Read --offset --limit` the targeted section rather than loading the whole file. Regenerate the TOC via `scripts/build_toc.sh` after editing any SPEC heading.
 
 ## Backbone: GitHub standard flow
 issue → branch → draft PR → checklist commits → ready PR → merge. Every change rides this flow. No fork (upstream-only).
@@ -57,11 +57,11 @@ Code changes commit with the SSOT items they invalidate or update. If a doc chan
 
 In `unattended` mode the five reviewers above (`code-`, `security-`, `issue-`, `plan-`, `activation-`) substitute for human review at their checkpoints (SPEC §1.5); `finding-judge` and `plan-challenger` gate nothing.
 
-**Session-restart caveat** (SPEC §4.9.3): a reviewer added mid-session routes via `general-purpose` (functionally complete) until the next session restart; restart canonical.
-
 Don't re-run an exploration in `explorer` that the main assistant already did.
 
 **Working-tree isolation** (SPEC §1.5, #285): the read-only-by-intent subagents (`code-reviewer`, `security-reviewer`, `issue-reviewer`, `plan-reviewer`, `plan-challenger`, `activation-reviewer`, `finding-judge`, `planner`, `explorer`) share the parent's tree and carry `Bash`, so a tree-mutating git command inside one can silently revert/stage uncommitted work — invoke them with **worktree isolation** (canonical) and run `git status` before commit/merge. The write-capable `implementer` is **not** isolated; it substitutes a **path-scoped-add discipline** (never `git add -A`/`-u`). Full contract — read-only-git prompts, the fail-closed `reviewed-head:` pin, the dispatch-time dirty-tree check: SPEC §4.5, §4.12, §5.28.
+
+**Dispatch facts** (#730): pointer, derived-with-command, or labeled unverified — pointer-first (SPEC §1.5).
 
 ## Branch & commit convention
 - Branch: `<gh-username>/<type>/[<issue#>-]<slug>`

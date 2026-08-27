@@ -6,6 +6,8 @@ Source `.claude/ghjig-root/.claude/hooks/helpers/replan_check.sh` and call `repl
 
 Read the facts, then classify the divergence:
 
+**Dispatch facts** (#730) — every descriptive fact in a subagent prompt composed here is a stable resolvable pointer, derived-with-command, or explicitly labeled unverified; pointer-first, advisory (SPEC §1.5).
+
 **Structural → re-invoke `planner`** (mirror `/work-on` step 6; in `unattended`, a clean `plan-reviewer` re-substitutes for approval) if EITHER:
 - the diff touches a **load-bearing** file/area the Plan / Checklist / Key-context never anticipated (a new module, a schema/contract surface, an un-named subsystem) — *not* a mechanical incidental; OR
 - an **AC is rendered unreachable** — the approach taken closes off a path a linked-issue acceptance criterion required.

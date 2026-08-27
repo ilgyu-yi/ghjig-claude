@@ -26,6 +26,8 @@ Materialize a `code-reviewer` verdict as a **first-class GitHub review**, `commi
 
    **Fail-closed:** if `$h` is empty or fails a non-empty/charset-clean check, **abort** — do **not** fall back to the default host (a wrong-host identity is worse than no identity). GitHub 422s a self `APPROVE`/`REQUEST_CHANGES`, so ownership selects the submission event in step 7.
 
+**Dispatch facts** (#730) — every descriptive fact in a subagent prompt composed here is a stable resolvable pointer, derived-with-command, or explicitly labeled unverified; pointer-first, advisory (SPEC §1.5).
+
 3. **Invoke `code-reviewer`** (worktree-isolated, SPEC §4.5) on the PR diff + changed-file context + target `MISSION.md` + the referenced issue body + the PR body. If the diff touches a **security surface** (auth/session/input/deps/crypto/IO boundary), also invoke `security-reviewer` (parity with `/review`, §5.6). A `security-reviewer` **block composes**: any security block → overall `verdict=block`, regardless of the code-reviewer grammar.
 
 4. **Blind-compare the head** — each reviewer reports a first-line `reviewed-head: <sha>` it derived independently. Blind-compare it to the privately-held `HEAD_SHA`. If the reviewed head **cannot be confirmed equal** to the private head — a mismatch, an absent `reviewed-head:`, or an unresolvable head — the review ran against a stale/unknown artifact (PR #543). In that case **post nothing** and audit `invalid`, then abort. This arm **fails closed to silence, not to a block**: `/file-review` never posts a `block` / `REQUEST_CHANGES` on a head it could not blind-compare (an unearned negative verdict on an unknown artifact).
