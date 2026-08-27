@@ -3741,10 +3741,10 @@ fi
 # (a bare absence grep would green on a missing hook file, so presence is required too).
 s157_hookhit=$(grep -c 'finding-judge' "$S157_HOOK" 2>/dev/null || true)
 s157_cats=$(grep -oE 'should_skip [a-z-]+' "$S157_HOOK" 2>/dev/null | awk '{print $2}' | sort -u | grep -c .)
-if [ -f "$S157_HOOK" ] && [ "$s157_hookhit" = 0 ] && [ "$s157_cats" = 22 ]; then
+if [ -f "$S157_HOOK" ] && [ "$s157_hookhit" = 0 ] && [ "$s157_cats" = 23 ]; then
   ok "157z: finding-judge adds no merge gate — absent from pre_tool_use.sh, should_skip categories unchanged at $s157_cats (#645)"
 else
-  ng "157z: finding-judge must add no merge gate — pre_tool_use.sh mentions=$s157_hookhit (expected 0), should_skip categories=$s157_cats (expected 22) (#645)"
+  ng "157z: finding-judge must add no merge gate — pre_tool_use.sh mentions=$s157_hookhit (expected 0), should_skip categories=$s157_cats (expected 23) (#645)"
 fi
 
 # ---------- §158: the reviewer scratch recipe is a REAL isolation primitive (#646) ----------
