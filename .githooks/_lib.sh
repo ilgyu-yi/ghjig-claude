@@ -22,11 +22,11 @@ GR="$_gh_top/.claude/ghjig-root"
 SHELL_ROOT="$(cd "$GR" && pwd -P)" || exit 0
 export GHJIG_ROOT="$SHELL_ROOT"
 
-# Route audit evidence to the target's PER-PROJECT log (§3.2.2, #602). Under
-# terminal context CLAUDE_PROJECT_DIR is unset, so audit_log's ghjig_state_dir
-# would fall back to the legacy shared path; deriving it from the git top-level
-# (the ghjig_state_dir_cli rule) lands terminal-originated evidence in the
-# target's per-project audit log. Only set it when unset.
+# Seed CLAUDE_PROJECT_DIR from the git top-level so audit_log (its own
+# resolver, SPEC 3.2.2) and the ghjig_state_dir consumers (caches, registry)
+# all resolve this target's per-project state dir. The seed is the
+# current-worktree top: in a linked worktree it diverges from the audit
+# resolver's main-worktree rung (SPEC 6.7 Evidence routing). Only set when unset.
 : "${CLAUDE_PROJECT_DIR:=$_gh_top}"
 export CLAUDE_PROJECT_DIR
 

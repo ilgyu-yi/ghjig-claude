@@ -134,10 +134,10 @@ ghjig_audit_dir() {
   if [ -n "${GHJIG_STATE_DIR_OVERRIDE:-}" ]; then printf '%s' "$GHJIG_STATE_DIR_OVERRIDE"; return 0; fi
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then printf '%s' "$CLAUDE_PROJECT_DIR/.claude/ghjig-state"; return 0; fi
   local gcd top=""
-  if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
-    gcd=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || gcd=""
+  if [ "$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    gcd=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || gcd=""
     case "$gcd" in */.git) top="${gcd%/.git}" ;; esac
-    [ -n "$top" ] || top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
+    [ -n "$top" ] || top=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git rev-parse --show-toplevel 2>/dev/null) || top=""
     if [ -n "$top" ]; then printf '%s' "$top/.claude/ghjig-state"; return 0; fi
   fi
   local root=""
