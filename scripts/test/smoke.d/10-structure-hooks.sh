@@ -2438,21 +2438,21 @@ fi
 # `reason` contents — including newlines, tabs, carriage returns.
 
 AUDIT_TMP=$(mktemp -d)
-mkdir -p "$AUDIT_TMP/.claude/audit"
+mkdir -p "$AUDIT_TMP/state/audit"
 (
-  export GHJIG_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_ROOT legacy path
+  export GHJIG_STATE_DIR_OVERRIDE="$AUDIT_TMP/state"  # #725: the writer is per-project in every context; the override seam is rung 1
   # Source the helper fresh in the subshell so it picks up the override.
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   # 20a. multi-line reason → exactly one new line in audit.jsonl.
   audit_log block test deny $'line1\nline2\nline3'
   audit_log warn other notice $'tab\there'
-  lines=$(wc -l < "$AUDIT_TMP/.claude/audit/audit.jsonl" | tr -d ' ')
+  lines=$(wc -l < "$AUDIT_TMP/state/audit/audit.jsonl" | tr -d ' ')
   [ "$lines" = "2" ] || exit 1
   # 20b. jq -c parses the whole file cleanly.
   if command -v jq >/dev/null 2>&1; then
-    jq -c '.' "$AUDIT_TMP/.claude/audit/audit.jsonl" >/dev/null || exit 1
+    jq -c '.' "$AUDIT_TMP/state/audit/audit.jsonl" >/dev/null || exit 1
     # reason field must round-trip the embedded newline.
-    first_reason=$(jq -r 'select(.event=="block") | .reason' "$AUDIT_TMP/.claude/audit/audit.jsonl")
+    first_reason=$(jq -r 'select(.event=="block") | .reason' "$AUDIT_TMP/state/audit/audit.jsonl")
     case "$first_reason" in *$'\n'*) ;; *) exit 1 ;; esac
   fi
 ) && ok "audit_log: multi-line reason → one record, parseable, round-trips (#26)" \
@@ -2463,12 +2463,12 @@ mkdir -p "$AUDIT_TMP/.claude/audit"
 AUDIT_QUOTED_DIR="$AUDIT_TMP/dir\"with-quote"
 mkdir -p "$AUDIT_QUOTED_DIR"
 (
-  export GHJIG_ROOT="$AUDIT_TMP"; unset GHJIG_STATE_DIR_OVERRIDE  # #357: §20 tests the GHJIG_ROOT legacy path
+  export GHJIG_STATE_DIR_OVERRIDE="$AUDIT_TMP/state"  # #725: seed the override rung; audit must land in $AUDIT_TMP, not $SMOKE_STATE
   cd "$AUDIT_QUOTED_DIR" || exit 1
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh"
   audit_log block test deny "simple reason"
   if command -v jq >/dev/null 2>&1; then
-    jq -c '.' "$AUDIT_TMP/.claude/audit/audit.jsonl" >/dev/null
+    jq -c '.' "$AUDIT_TMP/state/audit/audit.jsonl" >/dev/null
   else
     # Without jq we can only assert one-line-per-record.
     true
@@ -2476,22 +2476,25 @@ mkdir -p "$AUDIT_QUOTED_DIR"
 ) && ok "audit_log: cwd with embedded quote stays JSONL-parseable (#26)" \
    || ng "audit_log: cwd metachar corrupts JSONL (#26)"
 
-# 20d (#554/D3): the legacy-path fallback (hookrt.sh) references GHJIG_ROOT. With
-# no per-project state dir AND GHJIG_ROOT unset, a bare `$GHJIG_ROOT` is a `set -u`
-# unbound-variable hard abort for a future non-hook/non-CLI caller. It now uses
-# `${GHJIG_ROOT:-}`. Under set -u with all state vars unset, audit_log must not
-# emit an 'unbound variable' abort (the write itself may fail — that is fine;
-# the signal is the absence of the set -u crash).
+# 20d (#554/D3, recut by #725): with ALL state env unset, audit_log's last
+# resolution rung must stay `set -u`-safe — no 'unbound variable' abort (the
+# write itself may fail — that is fine; the signal is the absence of the
+# set -u crash). cwd moves to the non-repo fixture dir and the self-location
+# seam points there too, so a post-#725 resolver (git-derive / BASH_SOURCE
+# rungs, SPEC §3.2.2) cannot land a stray record in the live repo's
+# per-project sink (§357).
 d3err=$(
+  cd "$AUDIT_TMP" || exit 1
+  export GHJIG_ROOT_OVERRIDE="$AUDIT_TMP"
   . "$SHELL_ROOT/.claude/hooks/helpers/log.sh" 2>/dev/null
   unset GHJIG_ROOT GHJIG_STATE_DIR_OVERRIDE CLAUDE_PROJECT_DIR
   set -u
   audit_log warn registry-zeroed notice "d3 set-u probe" 2>&1 >/dev/null
 )
 if printf '%s' "$d3err" | grep -qi 'unbound variable'; then
-  ng "20d: audit_log legacy path set -u aborts on unset GHJIG_ROOT (#554)"
+  ng "20d: audit_log set -u aborts with all state env unset (#554, #725)"
 else
-  ok "20d: audit_log legacy path is set -u-safe on unset GHJIG_ROOT (#554)"
+  ok "20d: audit_log is set -u-safe with all state env unset (#554, #725)"
 fi
 rm -rf "$AUDIT_TMP"
 

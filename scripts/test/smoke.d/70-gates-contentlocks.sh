@@ -1185,24 +1185,33 @@ else
   ng "148i-marker: producer + consumer must share the marker regex byte-for-byte (gate=$s148i_rx_gate wrapper=$s148i_rx_wrap) (#633)"
 fi
 
-# §148i-audit (LOAD-BEARING RED — the block's deferred positive face): the wrapper audits
-# file-review/rejected on its fail-closed arms. Two mechanism details are load-bearing and easy
-# to get wrong: audit_log resolves its log via ghjig_state_dir (NOT _cli), so the call needs an
-# explicit state-dir env prefix or the record lands outside the project; and a failing
-# audit_log must never abort the reject under `set -euo pipefail` — it must not convert a
-# fail-closed refusal into anything else (SPEC §5.29 Audit).
-s148i_au_call=0; s148i_au_dec=0; s148i_au_guard=0; s148i_au_prefix=0
+# §148i-audit (recut by #725 — LOAD-BEARING RED until the #725 Code phase): the wrapper
+# audits file-review/rejected on its fail-closed arms, and post-#725 the routing burden
+# moves OFF the call site: audit_log writes the per-project tier in EVERY context via a
+# dedicated audit-destination resolver (SPEC §3.2.2), so the wrapper must carry NO
+# compensating `CLAUDE_PROJECT_DIR=` export (its continued presence marks the retired
+# context-conditional writer), and audit_log's own body must neither fall back to the
+# legacy shared write nor route through the bare caches resolver `$(ghjig_state_dir)`.
+# A failing audit_log must still never abort the reject under `set -euo pipefail`
+# (`|| true` guard, SPEC §5.29 Audit).
+s148i_au_call=0; s148i_au_dec=0; s148i_au_guard=0; s148i_au_noprefix=0; s148i_au_resolver=0
 if [ -f "$S148_WRAP_FILE" ]; then
   grep -qF 'audit_log' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_call=1
   grep -qE 'audit_log.*file-review' "$S148_WRAP_FILE" 2>/dev/null \
     && grep -qF 'rejected' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_dec=1
   grep -qE '\|\|[[:space:]]*true' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_guard=1
-  grep -qE 'CLAUDE_PROJECT_DIR=' "$S148_WRAP_FILE" 2>/dev/null && s148i_au_prefix=1
+  grep -qE 'CLAUDE_PROJECT_DIR=' "$S148_WRAP_FILE" 2>/dev/null || s148i_au_noprefix=1
 fi
-if [ "$s148i_au_call$s148i_au_dec$s148i_au_guard$s148i_au_prefix" = 1111 ]; then
-  ok "148i-audit: wrapper audits file-review/rejected with an explicit state-dir env prefix and a non-aborting guard (#633)"
+s148i_au_body=$(sed -n '/^audit_log() {/,/^}/p' "$SHELL_ROOT/.claude/hooks/hookrt.sh" 2>/dev/null)
+if [ -n "$s148i_au_body" ] \
+   && ! printf '%s\n' "$s148i_au_body" | grep -qF 'GHJIG_ROOT:-}/.claude/audit/audit.jsonl' \
+   && ! printf '%s\n' "$s148i_au_body" | grep -qF '$(ghjig_state_dir)'; then
+  s148i_au_resolver=1
+fi
+if [ "$s148i_au_call$s148i_au_dec$s148i_au_guard$s148i_au_noprefix$s148i_au_resolver" = 11111 ]; then
+  ok "148i-audit: wrapper audits file-review/rejected with no compensating export; audit_log routes via the dedicated resolver (#633, #725)"
 else
-  ng "148i-audit: every fail-closed arm must audit file-review/rejected, with an explicit state-dir env prefix and a '|| true' guard (call=$s148i_au_call dec=$s148i_au_dec guard=$s148i_au_guard prefix=$s148i_au_prefix) (#633)"
+  ng "148i-audit: want file-review/rejected audit + '|| true' guard + NO CLAUDE_PROJECT_DIR= export + a dedicated audit resolver in audit_log (call=$s148i_au_call dec=$s148i_au_dec guard=$s148i_au_guard noprefix=$s148i_au_noprefix resolver=$s148i_au_resolver) (#633, #725)"
 fi
 
 # §148i-doc (LOAD-BEARING RED — the doc names the write target, not a deleted script):

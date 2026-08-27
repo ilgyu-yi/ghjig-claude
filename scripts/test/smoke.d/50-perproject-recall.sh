@@ -2428,10 +2428,12 @@ fi
 # after the whole-run override it passes (every fire resolves to $SMOKE_STATE).
 s357_audit_after=0; [ -f "$S357_LIVE_AUDIT" ] && s357_audit_after=$(wc -l < "$S357_LIVE_AUDIT" | tr -d ' ')
 s357_reg_after=0; [ -f "$S357_LIVE_REG" ] && s357_reg_after=$(wc -l < "$S357_LIVE_REG" | tr -d ' ')
-if [ "$s357_audit_after" = "$s357_audit_before" ] && [ "$s357_reg_after" = "$s357_reg_before" ]; then
-  ok "357: smoke run left the live audit log + scope registry untouched (#357)"
+s357_ppaudit_after=0; [ -f "$S357_LIVE_PPAUDIT" ] && s357_ppaudit_after=$(wc -l < "$S357_LIVE_PPAUDIT" | tr -d ' ')
+if [ "$s357_audit_after" = "$s357_audit_before" ] && [ "$s357_reg_after" = "$s357_reg_before" ] \
+   && [ "$s357_ppaudit_after" = "$s357_ppaudit_before" ]; then
+  ok "357: smoke run left the live audit sinks (legacy + per-project, #725) + scope registry untouched (#357)"
 else
-  ng "357: smoke polluted live sinks — audit Δ=$((s357_audit_after - s357_audit_before)) registry Δ=$((s357_reg_after - s357_reg_before)) (#357)"
+  ng "357: smoke polluted live sinks — audit Δ=$((s357_audit_after - s357_audit_before)) pp-audit Δ=$((s357_ppaudit_after - s357_ppaudit_before)) registry Δ=$((s357_reg_after - s357_reg_before)) (#357, #725)"
 fi
 
 # ---------- §111: /recall episodic-retrieval skill contract (#422) ----------
