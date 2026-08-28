@@ -1049,6 +1049,113 @@ case "$tool" in
       [ -z "$decided" ] && pass_through_trace completion-evidence "$cmd"
     fi
 
+    # changelog-evidence (#742, Directive #692) — block `gh pr ready` without
+    # changelog-fragment evidence: the ready must satisfy the §18.1 contract
+    # BEFORE leaving draft, not after a red CI check. Two doors, LABEL FIRST:
+    # (1) the `skip-changelog` label (§18.7 / CI's own short-circuit — no diff
+    # fetch is paid), (2) the PR diff genuinely ADDS a fragment
+    # `changelog_unreleased/<category>/<N>.md` with stem <N> in the allow-set =
+    # PR number ∪ closingIssuesReferences — the same set check-changelog.yml
+    # (§18.6) computes; the added-in-diff predicate is the HARDENED dual grep
+    # (changelog_evidence_present, ac_closeout_gate.sh). `--undo` is refined
+    # UNGATED before any lookup or skip-token consumption (draft-ward is the
+    # safe direction; consuming a one-shot skip there would burn it).
+    # FAIL-CLOSED like merge-review on every lookup failure — gh error/timeout,
+    # malformed JSON, a pr-diff transport failure (kept separate from the
+    # grep's no-match, the #553 E3 split), an unresolvable PR, a safe_source
+    # helper miss (§6.0 P1: a wrong allow silently voids the release-notes gate
+    # until CI). Block message is THREE-WAY: evidence-absence names /changelog
+    # (§5.23); stem-outside-allow-set names rename-the-stem-or-fix-Closes
+    # (mirroring CI's error text); lookup-failure carries merge-review's re-run
+    # remedy. SPEC §6.1 `changelog-evidence` row.
+    if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready\b'; then
+      decided=
+      # Refine FIRST: `--undo` (ready → draft) is the safe direction — allow
+      # before the skip check and before ANY gh call (no token burn, no
+      # lookup). The refine is an argv-token walk of the ready invocation
+      # ONLY (#743 round-1 F2): the walk terminates at a shell command
+      # separator (`;` `&&` `||` `|` `#`; a newline ends the invocation via
+      # the per-line sed + first-line cut), so `--undo` counts only as an
+      # actual argv token of the `pr ready` invocation — a whole-string
+      # match would let `gh pr ready ; : --undo` execute a bare ready
+      # ungated, with no audit trail (less observable than a §7 skip).
+      cg_undo=""
+      cg_undo_rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready//p')
+      cg_undo_rest=${cg_undo_rest%%$'\n'*}
+      set -f
+      for cg_undo_t in $cg_undo_rest; do
+        case "$cg_undo_t" in
+          *';'*|*'&'*|*'|'*|*'#'*) break ;;
+          --undo) cg_undo=1; break ;;
+        esac
+      done
+      set +f
+      if [ -n "$cg_undo" ]; then
+        mark_allow changelog-evidence
+        decided=1
+      elif should_skip changelog-evidence; then
+        decided=1
+      elif safe_source "$SHELL_ROOT/.claude/hooks/helpers/ac_closeout_gate.sh" changelog-evidence; then
+        cg_pr=
+        if command -v extract_pr_from_ready_cmd >/dev/null 2>&1; then
+          cg_pr=$(extract_pr_from_ready_cmd "$cmd" || true)
+        fi
+        if [ -z "$cg_pr" ] && command -v _ac_run_gh >/dev/null 2>&1; then
+          # No explicit integer/URL selector — a branch-name token resolves via
+          # `gh pr view <token> --json number`; the bare form via the
+          # current-branch `gh pr view --json number` (the merge-review shape).
+          cg_rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready//p')
+          cg_tok=""
+          cg_skip_next=""
+          set -f
+          for cg_t in $cg_rest; do
+            if [ -n "$cg_skip_next" ]; then cg_skip_next=""; continue; fi
+            case "$cg_t" in
+              --repo|-R) cg_skip_next=1 ;;
+              -*) ;;
+              *) cg_tok="$cg_t"; break ;;
+            esac
+          done
+          set +f
+          if [ -n "$cg_tok" ]; then
+            cg_pr=$(_ac_run_gh pr view "$cg_tok" --json number -q .number 2>/dev/null || true)
+          else
+            cg_pr=$(_ac_run_gh pr view --json number -q .number 2>/dev/null || true)
+          fi
+          case "$cg_pr" in *[!0-9]*) cg_pr="" ;; esac
+        fi
+        if [ -z "$cg_pr" ]; then
+          # PR unresolvable (gh error/timeout/down, or no PR) → fail CLOSED.
+          block changelog-evidence "changelog-evidence: could not resolve the PR for this ready (gh error/timeout, malformed JSON, or no PR resolvable) — the gate fails closed (SPEC §6.1). Confirm the PR exists and gh is reachable, then re-run. Or SKIP_HOOKS=changelog-evidence SKIP_REASON='<why>' for a sanctioned exception."
+        else
+          cg_rc=2   # helper function missing → the lookup-failure arm below
+          if command -v changelog_evidence_present >/dev/null 2>&1; then
+            changelog_evidence_present "$cg_pr"
+            cg_rc=$?
+          fi
+          case "$cg_rc" in
+            0)
+              mark_allow changelog-evidence
+              decided=1
+              ;;
+            1)
+              block changelog-evidence "changelog-evidence: PR #${cg_pr} adds no changelog fragment and carries no skip-changelog label — ready requires the SPEC §18.1 fragment evidence before leaving draft (SPEC §6.1). Run /changelog (§5.23) to author a fragment under changelog_unreleased/<category>/<N>.md (or apply the skip-changelog label per §18.7), push it, then retry. Or SKIP_HOOKS=changelog-evidence SKIP_REASON='<why>' for a sanctioned exception."
+              ;;
+            3)
+              block changelog-evidence "changelog-evidence: PR #${cg_pr} adds a changelog fragment, but its filename stem is neither the PR number nor in closingIssuesReferences — rename the fragment to match, or update the PR's Closes/Refs so the referenced issue enters the allow-set (SPEC §6.1, mirroring check-changelog.yml's stem rule), then retry. Or SKIP_HOOKS=changelog-evidence SKIP_REASON='<why>' for a sanctioned exception."
+              ;;
+            *)
+              block changelog-evidence "changelog-evidence: could not resolve the PR's changelog evidence (gh error/timeout, malformed JSON, or a pr-diff transport failure — NOT a missing-fragment verdict) — the gate fails closed (SPEC §6.1). Confirm gh is reachable, then re-run. Or SKIP_HOOKS=changelog-evidence SKIP_REASON='<why>' for a sanctioned exception."
+              ;;
+          esac
+        fi
+      else
+        # Helper miss → fail CLOSED (the merge-review exception, SPEC §6.1).
+        block changelog-evidence "changelog-evidence: gate helper (ac_closeout_gate.sh) unavailable — the gate fails closed (SPEC §6.1). Restore the helper, then re-run. Or SKIP_HOOKS=changelog-evidence SKIP_REASON='<why>' for a sanctioned exception."
+      fi
+      [ -z "$decided" ] && pass_through_trace changelog-evidence "$cmd"
+    fi
+
     # label-parent-consistency — block `gh issue edit <N> --add-label
     # {execution|task|bug}` when the label contradicts the Issue body's line-1
     # `Parent Directive: #N` marker (SPEC §6.1, Issue #199). Converts the
