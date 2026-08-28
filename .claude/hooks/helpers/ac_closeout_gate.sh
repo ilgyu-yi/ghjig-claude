@@ -719,11 +719,20 @@ extract_pr_from_ready_cmd() {
 # fixed|security)/<N>.md` with stem <N> in the allow-set = PR number ∪
 # closingIssuesReferences — the same set check-changelog.yml (§18.6) computes.
 # Added-in-diff predicate is HARDENED: a path counts only when it appears in
-# BOTH `^diff --git a/.* b/<path>$` AND `^\+\+\+ b/<path>$` of one fetched
-# `gh pr diff --patch` output — a file-content line starting `++ b/…` renders
-# as a column-0 `+++ b/…` patch line (the added-line `+` prefix concatenates),
-# so the `+++` grep alone is content-forgeable; the column-0 `diff --git`
-# header is not. Presence-only, existential over the allow-set (shape and the
+# BOTH `^diff --git a/[^ ]* b/<path>$` AND `^\+\+\+ b/<path>$` of one
+# fetched `gh pr diff --patch` output — a file-content line starting `++ b/…`
+# renders as a column-0 `+++ b/…` patch line (the added-line `+` prefix
+# concatenates), so the `+++` grep alone is content-forgeable. The header
+# capture is anchored SPACE-FREE on the a-path (#743 round-1 F3): a
+# legitimate fragment path never contains a space, while a file in a dir
+# literally named `x b` yields the header `diff --git a/x b/<path> b/x b/…`,
+# whose greedy `a/.* b/` capture pairs with a cross-file content-rendered
+# `+++` twin to satisfy the intersection with no fragment added. What the
+# hardened predicate guarantees is exactly this: it rejects a content-rendered
+# `+++` twin with no matching header, and a space-bearing-filename header
+# pairing — no broader unforgeability claim; CI (§18.6) reads the file at the
+# extracted path and remains the backstop for whatever the presence check
+# admits. Presence-only, existential over the allow-set (shape and the
 # all-valid contract stay CI's, §18.5/§18.6). A `gh pr diff` transport failure
 # is kept SEPARATE from the grep's no-match — the #553 E3 split
 # check-changelog.yml itself carries.
@@ -754,9 +763,11 @@ changelog_evidence_present() {
   else
     diff=$(_ac_run_gh pr diff "$pr" --patch 2>/dev/null) || return 2
   fi
-  # Candidates from the content-unforgeable `diff --git` header grep…
+  # Candidates from the space-free-anchored `diff --git` header grep (the
+  # a-path takes `[^ ]*`, and the captured b-path pattern is itself
+  # space-free, so a space-bearing header line never yields a candidate)…
   paths=$(printf '%s\n' "$diff" \
-    | sed -nE 's#^diff --git a/.* b/(changelog_unreleased/(added|changed|deprecated|removed|fixed|security)/[0-9]+\.md)$#\1#p')
+    | sed -nE 's#^diff --git a/[^ ]* b/(changelog_unreleased/(added|changed|deprecated|removed|fixed|security)/[0-9]+\.md)$#\1#p')
   # …counted only with a full-line `+++ b/<path>` twin (the dual-grep intersection).
   while IFS= read -r path; do
     [ -z "$path" ] && continue

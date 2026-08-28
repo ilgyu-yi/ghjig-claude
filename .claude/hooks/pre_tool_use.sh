@@ -1071,11 +1071,26 @@ case "$tool" in
     if printf '%s' "$cmd" | grep -qE '\bgh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready\b'; then
       decided=
       # Refine FIRST: `--undo` (ready → draft) is the safe direction — allow
-      # before the skip check and before ANY gh call. Bash-regex like the #738
-      # refines (a grep-qE refine here would read as a new matcher entry to the
-      # §39b structural scan).
-      cg_undo_re='(^|[[:space:]])--undo([[:space:]]|$)'
-      if [[ "$cmd" =~ $cg_undo_re ]]; then
+      # before the skip check and before ANY gh call (no token burn, no
+      # lookup). The refine is an argv-token walk of the ready invocation
+      # ONLY (#743 round-1 F2): the walk terminates at a shell command
+      # separator (`;` `&&` `||` `|` `#`; a newline ends the invocation via
+      # the per-line sed + first-line cut), so `--undo` counts only as an
+      # actual argv token of the `pr ready` invocation — a whole-string
+      # match would let `gh pr ready ; : --undo` execute a bare ready
+      # ungated, with no audit trail (less observable than a §7 skip).
+      cg_undo=""
+      cg_undo_rest=$(printf '%s' "$cmd" | sed -nE 's/.*gh[[:space:]]+(-{1,2}[A-Za-z][^[:space:]]*([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*pr[[:space:]]+ready//p')
+      cg_undo_rest=${cg_undo_rest%%$'\n'*}
+      set -f
+      for cg_undo_t in $cg_undo_rest; do
+        case "$cg_undo_t" in
+          *';'*|*'&'*|*'|'*|*'#'*) break ;;
+          --undo) cg_undo=1; break ;;
+        esac
+      done
+      set +f
+      if [ -n "$cg_undo" ]; then
         mark_allow changelog-evidence
         decided=1
       elif should_skip changelog-evidence; then

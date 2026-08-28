@@ -14,13 +14,19 @@ if false; then . "$(dirname "${BASH_SOURCE[0]}")/_preamble.sh"; fi
 #         with stem <N> in the allow-set = PR number ∪ closingIssuesReferences —
 #         the same set check-changelog.yml (§18.6) computes.
 #   * Added-in-diff predicate is HARDENED: a path counts only when it appears in
-#     BOTH `^diff --git a/.* b/<path>$` AND `^\+\+\+ b/<path>$` of one fetched
-#     `gh pr diff --patch` output — a file-content line starting `++ b/…`
-#     renders as a column-0 `+++ b/…` patch line, so the `+++` grep alone is
-#     content-forgeable; the column-0 `diff --git` header is not.
+#     BOTH `^diff --git a/[^ ]* b/<path>$` AND `^\+\+\+ b/<path>$` of one
+#     fetched `gh pr diff --patch` output — a file-content line starting
+#     `++ b/…` renders as a column-0 `+++ b/…` patch line, so the `+++` grep
+#     alone is content-forgeable; the header capture is anchored space-free on
+#     the a-path (a legitimate fragment path never contains a space), which
+#     rejects both a content-rendered `+++` twin without a matching header and
+#     a space-bearing-filename header pairing (§189-f4/f5) — CI (§18.6) stays
+#     the backstop for whatever the presence check admits.
 #   * PR resolution: explicit integer/URL selector via extract_pr_from_ready_cmd;
 #     bare via `gh pr view --json number`. `gh pr ready --undo` is UNGATED —
-#     mark_allow'ed before any lookup or skip-token consumption.
+#     mark_allow'ed before any lookup or skip-token consumption — with `--undo`
+#     counted only as an argv token of the ready invocation itself (the
+#     refine's token walk stops at a shell command separator, §189-n5/n6).
 #   * Fail CLOSED on every lookup failure — gh error/timeout, malformed JSON, a
 #     `gh pr diff` transport failure (kept separate from the grep's no-match,
 #     the #553 E3 split), a safe_source helper miss — with a THREE-WAY message
@@ -212,6 +218,31 @@ index 0000000..4d5fcb1
 +++ b/changelog_unreleased/added/500.md
 PATCH
 
+# FORGED space-bearing header pairing (#743 round-1 F3): a real diff of a dir
+# literally named `x b` yields the header
+# `diff --git a/x b/changelog_unreleased/added/500.md b/x b/…` — a greedy
+# `a/.* b/` capture reads `changelog_unreleased/added/500.md` out of it — and
+# an unrelated second file's content line renders as the column-0
+# `+++ b/changelog_unreleased/added/500.md` twin. A legitimate fragment path
+# never contains a space, so the space-free header anchor must reject the pair.
+cat > "$CE_FX/diff_forged_hdr.patch" <<'PATCH'
+diff --git a/x b/changelog_unreleased/added/500.md b/x b/changelog_unreleased/added/500.md
+new file mode 100644
+index 0000000..53d8a24
+--- /dev/null
++++ b/x b/changelog_unreleased/added/500.md
+@@ -0,0 +1 @@
++payload in the space-bearing-named file
+diff --git a/notes/e.txt b/notes/e.txt
+new file mode 100644
+index 0000000..4d5fcb1
+--- /dev/null
++++ b/notes/e.txt
+@@ -0,0 +1,2 @@
++harmless first line
++++ b/changelog_unreleased/added/500.md
+PATCH
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 # ce_run <cmd> [state-dir] [root] — fire pre_tool_use.sh with the shim on PATH.
 # Per-arm knobs ride the environment: CE_PRV_FIXTURE, CE_PRV_FAIL,
@@ -293,6 +324,22 @@ if [ "$rc" = 2 ] && grep -q 'changelog-evidence' "$CE_ERR" && grep -qE '/changel
   ok "§189-f4: content-forged '+++ b/' line without a diff-header twin → evidence-absence block (hardened predicate) (#742)"
 else
   ng "§189-f4: expected block(2) + '/changelog' on the forged-+++ diff (content line, no diff --git header); got rc=$rc (#742)"
+fi
+
+# §189-f5: forged pairing via a SPACE-BEARING filename (#743 round-1 F3): the
+# diff_forged_hdr fixture pairs the space-bearing `diff --git` header (whose
+# greedy `a/.* b/` capture would yield `changelog_unreleased/added/500.md`,
+# stem 500 ∈ allow-set {500,400}) with the cross-file content-rendered column-0
+# `+++ b/changelog_unreleased/added/500.md` twin — no fragment named 500.md is
+# actually added. The space-free-anchored header capture must reject it →
+# evidence-absence block (the greedy capture would have wrongly allowed).
+rc=0
+CE_PRV_FIXTURE="$CE_FX/prv_noskip.json" CE_DIFF_FIXTURE="$CE_FX/diff_forged_hdr.patch" \
+  ce_run "$CE_READY_CMD" >/dev/null 2>"$CE_ERR" || rc=$?
+if [ "$rc" = 2 ] && grep -q 'changelog-evidence' "$CE_ERR" && grep -qE '/changelog([^_]|$)' "$CE_ERR"; then
+  ok "§189-f5: space-bearing forged header + cross-file '+++' twin → rejected, evidence-absence block (#742)"
+else
+  ng "§189-f5: expected block(2) + '/changelog' on the space-bearing-header forgery; got rc=$rc (#742)"
 fi
 
 # ── Label door ────────────────────────────────────────────────────────────────
@@ -436,4 +483,37 @@ if [ "$rc" = 0 ] && ! grep -qE 'pr (view|diff)' "$CE_CALLS"; then
   ok "§189-n4: 'gh pr ready --undo' is ungated — allowed with zero pr view/diff lookups (#742)"
 else
   ng "§189-n4: expected allow(0) + no pr view/diff in the shim call log on --undo; got rc=$rc (#742)"
+fi
+
+# §189-n5: separator-smuggled `--undo` stays GATED (#743 round-1 F2): in
+# `gh pr ready ; : --undo`, `gh pr ready # --undo`, and
+# `gh pr ready && echo --undo`, the `--undo` belongs to a DIFFERENT command —
+# the refine's argv-token walk terminates at the shell command separator, so
+# each form is gated and, with a fragment-less diff armed, blocks with the
+# evidence-absence face (a whole-string `--undo` match would execute a bare
+# ready ungated, with no audit trail).
+n5_bad=""
+for n5_cmd in 'gh pr ready ; : --undo' 'gh pr ready # --undo' 'gh pr ready && echo --undo'; do
+  rc=0
+  CE_PRV_FIXTURE="$CE_FX/prv_noskip.json" CE_DIFF_FIXTURE="$CE_FX/diff_nofrag.patch" \
+    ce_run "$n5_cmd" >/dev/null 2>"$CE_ERR" || rc=$?
+  { [ "$rc" = 2 ] && grep -q 'changelog-evidence' "$CE_ERR"; } || n5_bad="$n5_bad[$n5_cmd → rc=$rc] "
+done
+if [ -z "$n5_bad" ]; then
+  ok "§189-n5: separator-smuggled --undo (';', '#', '&&') stays gated — blocked without evidence (#742)"
+else
+  ng "§189-n5: expected block(2) + 'changelog-evidence' on every separator-smuggled --undo form; failed: $n5_bad(#742)"
+fi
+
+# §189-n6: genuine `gh pr ready 123 --undo` (selector form) stays UNGATED with
+# zero lookups — `--undo` here IS an argv token of the ready invocation, so
+# the refine allows before any pr view/diff call (both lookup knobs are forced
+# down, and the call log must stay empty of both).
+: > "$CE_CALLS"
+rc=0
+CE_PRV_FAIL=1 CE_DIFF_FAIL=1 ce_run 'gh pr ready 123 --undo' >/dev/null 2>"$CE_ERR" || rc=$?
+if [ "$rc" = 0 ] && ! grep -qE 'pr (view|diff)' "$CE_CALLS"; then
+  ok "§189-n6: 'gh pr ready 123 --undo' is ungated — allowed with zero pr view/diff lookups (#742)"
+else
+  ng "§189-n6: expected allow(0) + no pr view/diff lookups on the selector --undo form; got rc=$rc (#742)"
 fi
