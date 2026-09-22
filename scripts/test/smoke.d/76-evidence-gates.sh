@@ -91,7 +91,13 @@ esac
 case "${1:-}" in
   repo)
     if [ "${2:-}" = view ]; then
-      emit '{"owner":{"login":"smoke-owner"},"name":"smoke-repo"}' "$@"
+      # `url` is NOT decoration: _ac_repo_host (ac_closeout_gate.sh) reads
+      # `repo view --json nameWithOwner,url -q .url` to derive the host it pins
+      # the `gh api` calls to. Without a url field this emit's `jq -r .url`
+      # yields the literal string `null`, which passes _ac_repo_host's charset
+      # guard — the section would then pin `--hostname null` and stay green for
+      # the wrong reason (#745).
+      emit '{"owner":{"login":"smoke-owner"},"name":"smoke-repo","nameWithOwner":"smoke-owner/smoke-repo","url":"https://github.com/smoke-owner/smoke-repo"}' "$@"
     fi
     ;;
   issue)
