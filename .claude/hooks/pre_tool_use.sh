@@ -982,7 +982,7 @@ case "$tool" in
             block activation-evidence "activation-evidence: Issue #${ae_issue}'s activation pass comment is stale — the Issue body or its labels changed after the verdict, so the evidence is no longer fresh (SPEC §6.1). Run /activate ${ae_issue} to re-review the current state and post a fresh verdict. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
             ;;
           *)
-            block activation-evidence "activation-evidence: could not resolve the Issue's activation evidence (gh error/timeout, malformed JSON, or a GraphQL errors response) — the gate fails closed (SPEC §6.1). Confirm the Issue exists and gh is reachable, then re-run. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            block activation-evidence "activation-evidence: could not resolve the Issue's activation evidence (gh error/timeout, malformed JSON, a GraphQL errors response, or an unresolvable repo host) — the gate fails closed (SPEC §6.1). Confirm the Issue exists, that this directory is a git checkout with a gh-authenticated remote, and that gh is reachable, then re-run. Or SKIP_HOOKS=activation-evidence SKIP_REASON='<why>' for a sanctioned exception."
             ;;
         esac
       else
@@ -1039,7 +1039,7 @@ case "$tool" in
             block completion-evidence "completion-evidence: Issue #${ce_issue} is a Directive but carries no completion comment (first line '## Directive Completion (resolved by …' from OWNER/MEMBER/COLLABORATOR) — a completed-close requires completion evidence (SPEC §6.1). Run /complete-directive ${ce_issue} to post the reviewer-evidenced closing comment before the close. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
             ;;
           *)
-            block completion-evidence "completion-evidence: could not resolve the Issue's completion evidence (gh error/timeout, malformed JSON, or a GraphQL errors response) — the gate fails closed (SPEC §6.1). Confirm the Issue exists and gh is reachable, then re-run. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
+            block completion-evidence "completion-evidence: could not resolve the Issue's completion evidence (gh error/timeout, malformed JSON, a GraphQL errors response, or an unresolvable repo host) — the gate fails closed (SPEC §6.1). Confirm the Issue exists, that this directory is a git checkout with a gh-authenticated remote, and that gh is reachable, then re-run. Or SKIP_HOOKS=completion-evidence SKIP_REASON='<why>' for a sanctioned exception."
             ;;
         esac
       else

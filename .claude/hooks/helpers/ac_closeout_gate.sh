@@ -585,16 +585,31 @@ gh_issue_target() {
 # flip itself bump updatedAt, so the proxy reads the shell's own legitimate
 # comment-then-flip flow as stale.
 _evidence_issue_gql() {
-  local n="$1" repo="${2:-}" owner name
+  local n="$1" repo="${2:-}" owner name host=""
+  local -a host_flag=()
   if [ -n "$repo" ]; then
+    # Explicit `-R`/`--repo owner/name`: NOT host-pinned, deliberately. `_ac_repo_host`
+    # resolves the CWD repo's host, not this selector's, so pinning here would send a
+    # dotcom target to a GHES host (and vice versa) and mint a wrong block on a path
+    # that works today. `gh api graphql` takes no repo selector at all — owner/name are
+    # GraphQL variables — so unpinned it resolves gh's default host. That is the same host
+    # the sibling REST read in `completion_evidence_present` resolves for this selector,
+    # since `gh_issue_target` hands both a host-less `owner/name` (#283, #745).
     owner="${repo%%/*}"
     name="${repo##*/}"
   else
     owner=$(_ac_run_gh repo view --json owner -q .owner.login 2>/dev/null) || return 1
     name=$(_ac_run_gh repo view --json name -q .name 2>/dev/null) || return 1
+    # CWD-derived target: owner, name and host all come from one repo, so the #610 pin
+    # applies. `gh api` does no repo inference — unpinned it resolves gh's DEFAULT host,
+    # so a GHES repo never resolves and both gates fail closed on lookup-failure rather
+    # than on evidence. Fail CLOSED on an unusable host; never a default-host fallback.
+    host=$(_ac_repo_host) || return 1
+    [ -n "$host" ] || return 1
+    host_flag=(--hostname "$host")
   fi
   { [ -n "$owner" ] && [ -n "$name" ]; } || return 1
-  _ac_run_gh api graphql \
+  _ac_run_gh api graphql ${host_flag[@]+"${host_flag[@]}"} \
     -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){lastEditedAt createdAt timelineItems(last:1, itemTypes:[LABELED_EVENT,UNLABELED_EVENT]){nodes{... on LabeledEvent{createdAt} ... on UnlabeledEvent{createdAt}}} comments(last:100){totalCount nodes{createdAt authorAssociation body}}}}}' \
     -f owner="$owner" -f name="$name" -F number="$n" 2>/dev/null
 }
