@@ -591,9 +591,10 @@ _evidence_issue_gql() {
     # Explicit `-R`/`--repo owner/name`: NOT host-pinned, deliberately. `_ac_repo_host`
     # resolves the CWD repo's host, not this selector's, so pinning here would send a
     # dotcom target to a GHES host (and vice versa) and mint a wrong block on a path
-    # that works today. gh's own `--repo owner/name` host semantics apply instead —
-    # the same host the sibling REST read in `completion_evidence_present` resolves for
-    # this selector, so both halves of a gate agree on one host per target (#745).
+    # that works today. `gh api graphql` takes no repo selector at all — owner/name are
+    # GraphQL variables — so unpinned it resolves gh's default host. That is the same host
+    # the sibling REST read in `completion_evidence_present` resolves for this selector,
+    # since `gh_issue_target` hands both a host-less `owner/name` (#283, #745).
     owner="${repo%%/*}"
     name="${repo##*/}"
   else

@@ -692,7 +692,7 @@ fi
 s745_6_body=""
 [ -f "$S745_GATE" ] && s745_6_body=$(awk '/^_evidence_issue_gql\(\)[[:space:]]*\{/{f=1} f{print; if ($0 ~ /^\}/) exit}' "$S745_GATE" 2>/dev/null)
 s745_6_pin=0; s745_6_tok=0
-printf '%s' "$s745_6_body" | grep -q -- '--hostname' && s745_6_pin=1
+printf '%s' "$s745_6_body" | grep -v '^[[:space:]]*#' | grep -q -- '--hostname' && s745_6_pin=1
 printf '%s' "$s745_6_body" | grep -qE '(^|[^-[:alnum:]])api[[:space:]]+graphql([^-[:alnum:]]|$)' && s745_6_tok=1
 if [ "$s745_6_pin" = 1 ] && [ "$s745_6_tok" = 1 ]; then
   ok "189-6: _evidence_issue_gql's body carries the --hostname pin and still carries the literal 'api graphql' token (#745)"
