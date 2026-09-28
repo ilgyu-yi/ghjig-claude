@@ -445,11 +445,12 @@ fi
 # phase amended. `_evidence_issue_gql` (.claude/hooks/helpers/ac_closeout_gate.sh)
 # issues the ONE `gh api graphql` round-trip both evidence gates read with NO
 # `--hostname`. `gh api` does no repo inference, so the call resolves gh's DEFAULT
-# host (github.com): on a GHES target the repository never resolves (HTTP 200 with
-# `errors[].type == NOT_FOUND` and `repository == null`), the gates' jq arm returns
-# `lookup`, both callers `|| return 2`, and pre_tool_use.sh's `*)` arms block with
-# the lookup-failure message. Every dir-mode activation/completion on a GHES repo
-# is therefore hard-blocked. The three sibling `gh api` sites in the same file are
+# host (github.com), not the repo's. Measured on one GHES target the owner/name did
+# not resolve there (HTTP 200 with `errors[].type == NOT_FOUND` and `repository ==
+# null`), the gates' jq arm returns `lookup`, both callers `|| return 2`, and
+# pre_tool_use.sh's `*)` arms block with the lookup-failure message. That outcome
+# rests on the name being absent at the default host, not on a guard. The three
+# sibling `gh api` sites in the same file are
 # already host-pinned via `_ac_repo_host` (merge_is_self, review_gate_accepts ×2,
 # #610) — this is the one that was missed.
 #
