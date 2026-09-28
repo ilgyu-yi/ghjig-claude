@@ -602,8 +602,8 @@ _evidence_issue_gql() {
     name=$(_ac_run_gh repo view --json name -q .name 2>/dev/null) || return 1
     # CWD-derived target: owner, name and host all come from one repo, so the #610 pin
     # applies. `gh api` does no repo inference — unpinned it resolves gh's DEFAULT host,
-    # so a GHES repo never resolves and both gates fail closed on lookup-failure rather
-    # than on evidence. Fail CLOSED on an unusable host; never a default-host fallback.
+    # so the gates read whatever that owner/name resolves to there, not the repo's.
+    # Fail CLOSED on an unusable host; never a default-host fallback.
     host=$(_ac_repo_host) || return 1
     [ -n "$host" ] || return 1
     host_flag=(--hostname "$host")
